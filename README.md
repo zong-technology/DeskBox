@@ -51,6 +51,8 @@ AI&SI 的「全息 AI 通话」已接入银紫龙翼全身角色，直接使用�
 
 ## 安装与运行
 
+全息双风格 Windows 安装/升级测试版：下载 [GitHub Release 中的 Setup.exe](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.1)。适用于 Windows 10/11 x64，安装器检查 .NET Framework 4.8+；先从托盘退出旧版，升级时选择原安装目录。安装包保留用户数据、备份旧 EXE 并提供回退入口。详细说明见 [Windows 安装升级说明](docs/WINDOWS-INSTALL.md)。此包未签名，GitHub 私有仓库下载需要有仓库访问权限。
+
 **已经装好**：`D:\DeskBox\DeskBox.exe`，双击运行即可；运行后桌面由 DeskBox 接管（系统图标隐藏）。
 
 重新构建 / 换机器安装：
