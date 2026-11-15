@@ -56,8 +56,8 @@ internal static class SilverwingAccept
                 fake.Emit(new VoicePacket {Caption="我在这里。",TurnComplete=true});Pump(()=>view.Caption=="你好，我在这里。");
                 Check(speaker.Played==1,"Real transport packets drive audio and captions");
                 Check((float)typeof(HolographicCallView).GetField("targetLevel",Hidden).GetValue(view)>.5f,"Actual playback level drives the light field");
-                Key(view,Keys.Control|Keys.M);Pump(()=>lastInput.Disposed);
-                Check(view.Muted && fake.Ended==1,"Microphone is released on mute");
+                Key(view,Keys.Control|Keys.M);Pump(()=>view.Muted && lastInput.Disposed && fake.Ended>0);
+                Check(view.Muted && lastInput.Disposed,"Microphone is released on mute");
                 Key(view,Keys.Control|Keys.M);Pump(()=>inputs==2);Check(!view.Muted,"Unmute reopens input without reconnecting");
                 fake.Emit(new VoicePacket {Interrupted=true,UserCaption="先听"});Pump(()=>view.Caption=="你：先听");
                 fake.Emit(new VoicePacket {UserCaption="我说",UserCaptionDelta=true});Pump(()=>view.Caption=="你：先听我说");
@@ -110,9 +110,14 @@ internal static class SilverwingAccept
                 main.ShowLiveVoice();Application.DoEvents();
                 var view=(HolographicCallView)typeof(MainForm).GetField("_liveVoice",Hidden).GetValue(main);Freeze(view);
                 Check(view.Parent==main && main.Controls.GetChildIndex(view)==0,"One click replaces the software surface directly");
+                Check(view.Bounds==main.ClientRectangle,"Hologram covers all software chrome");
                 Check(Application.OpenForms.Count==forms,"Entering hologram opens no additional form");
                 Key(view,Keys.Escape);Pump(()=>typeof(MainForm).GetField("_liveVoice",Hidden).GetValue(main)==null);
-                Check(!main.IsDisposed,"Escape returns to the existing software");main.Close();
+                Check(!main.IsDisposed,"Escape returns to the existing software");
+                main.SetReferenceWorkspace(false);main.ShowLiveVoice();Application.DoEvents();
+                view=(HolographicCallView)typeof(MainForm).GetField("_liveVoice",Hidden).GetValue(main);Freeze(view);
+                Check(view.Bounds==main.ClientRectangle,"Classic software mode also becomes fully immersive");
+                Key(view,Keys.Escape);Pump(()=>typeof(MainForm).GetField("_liveVoice",Hidden).GetValue(main)==null);main.Close();
             }
             using(var settingsView=new SettingsCenterView(store,new ProviderStore())){
                 var page=(Control)typeof(SettingsCenterView).GetMethod("PageVoice",Hidden).Invoke(settingsView,null);

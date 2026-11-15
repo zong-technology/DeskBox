@@ -2056,6 +2056,9 @@ namespace DeskBox.UI
                 if (_referenceActive && _reference != null) _reference.Show();
                 if (_chatView != null) _chatView.FocusInput();
             };
+            voice.Dock = DockStyle.None;
+            voice.Bounds = ClientRectangle;
+            voice.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(voice);
             voice.BringToFront();
             voice.Focus();
