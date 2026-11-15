@@ -10,7 +10,7 @@ let muted = false;
 let configured = false;
 let activity = 0;
 let assistantSpeaking = false;
-const visual = window.holoState = { mode: 'idle', mic: 0, output: 0 };
+const visual = window.holoState = { mode: 'idle', mic: 0, output: 0, avatar: 'dragon', strength: .6 };
 
 function setMode(mode) {
   visual.mode = mode;
@@ -288,7 +288,11 @@ fetch('/api/status').then((response) => {
 for (const id of ['open-settings', 'console-settings']) $(id).addEventListener('click', () => $('settings-dialog').showModal());
 for (const id of ['close-settings', 'done-settings']) $(id).addEventListener('click', () => $('settings-dialog').close());
 $('volume').addEventListener('input', () => { audio.volume = Number($('volume').value); });
-$('avatar-style').addEventListener('change', () => { visual.avatar = $('avatar-style').value; });
+$('avatar-style').addEventListener('change', () => {
+  visual.avatar = $('avatar-style').value;
+  document.body.dataset.avatar = visual.avatar;
+});
+$('holo-strength').addEventListener('input', () => { visual.strength = Number($('holo-strength').value); });
 $('motion').addEventListener('change', () => { document.body.dataset.motion = $('motion').value; });
 $('fullscreen').addEventListener('click', async () => {
   try {

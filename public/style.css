@@ -191,3 +191,14 @@ body[data-motion="reduced"] *, body[data-motion="reduced"] *:before { animation:
   .call-console { bottom: 36px; }
 }
 .render-fallback:before { content: ''; position: absolute; width: 200px; height: 200px; border: 1px solid #6ae9ff; border-radius: 50%; top: 25%; left: calc(50% - 100px); box-shadow: 0 0 100px #3ab5ef30, inset 0 0 80px #3ab5ef20; }
+
+/* The reference palette stays silver and lilac while the call controls remain legible. */
+.chamber { background: radial-gradient(ellipse at 50% 42%, #38265138 0, #10192a44 40%, transparent 68%); }
+.entity-title h2 { color: #ece5ff; text-shadow: 0 0 25px #b695ff30; }
+.entity-eyebrow { color: #a69ac5; }
+.entity-meta { color: #8b81a6; }
+#holo-fallback-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 16px #b19aff44); }
+body[data-avatar="core"] #holo-fallback-image { display: none; }
+body:not([data-avatar="core"]) .render-fallback:before { display: none; }
+
+.chamber:after { opacity: .045; }

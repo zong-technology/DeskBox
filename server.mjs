@@ -8,7 +8,7 @@ const assets = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/hologram.bundle.js', ['hologram.bundle.js', 'text/javascript; charset=utf-8']],
-  ['/assets/nova-female.vrm', ['assets/nova-female.vrm', 'model/gltf-binary']],
+  ['/assets/silverwing-avatar.png', ['assets/silverwing-avatar.png', 'image/png']],
   ['/assets/NOVA-model-license.txt', ['assets/NOVA-model-license.txt', 'text/plain; charset=utf-8']],
 ]);
 

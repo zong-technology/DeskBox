@@ -1,9 +1,9 @@
-NOVA full-body avatar uses a modified presentation of:
-VRM1_Constraint_Twist_Sample v1.0.1, (c) 2022 pixiv Inc.
-Source: https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm/examples/models
-License: VRM Public License 1.0 (https://vrm.dev/licenses/1.0/).
-The embedded model metadata permits use by everyone, commercial corporate use,
-redistribution, and modification with redistribution. Credit notation is unnecessary.
-The license and embedded metadata remain with the distributed model.
-Modifications in DeskBox: relaxed arm pose, holographic surface treatment, scaling,
-lighting, voice-driven expressions, and idle animation. Not an original sculpt.
+Silverwing illustrated avatar
+
+The character artwork is an image-generation adaptation of the five character
+references supplied by the user for this DeskBox project. It is not the former
+pixiv VRM model and is not a newly reconstructed or rigged 3D mesh.
+
+The runtime preserves the full-body illustration with alpha transparency and
+adds shader-based holographic scanning, edge light, and voice-reactive rings.
+No stock character model or creator attribution from the previous VRM is used.
