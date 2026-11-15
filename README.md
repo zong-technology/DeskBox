@@ -12,9 +12,7 @@
 
 AI&SI 实际文档读取与内容搜索：[文档技能使用说明](docs/AI文档技能使用说明.md)。
 
-AI&SI 的「全息 AI 通话」已接入银紫龙翼全身角色，直接使用原生实时语音界面和千问 / Gemini 语音链路。角色、分层底座、倒影和状态光效由 WinForms 绘制并嵌入 EXE；无需 Node、Electron 或浏览器。可先点击「预览全息（无需麦克风）」查看，再配置实时语音服务。「更改全息风格」可在原画全息与新增的星辉光粒子之间切换，通话连接和字幕保持。使用方式与验证边界见 [全息通话说明](docs/SILVERWING-NATIVE.md)。
-
-![原生 WinForms 全息预览（隔离检查宿主）](docs/silverwing-native.png)
+AI&SI 的「全息 AI 通话」现在直接在软件内进入沉浸投影，只显示全息光场与下方实时字幕。在「功能与设置 → 全息语音」一次保存服务、模型和密钥，后续进入自动连接；通话中没有配置面板、场景菜单或工具栏。Esc 返回，Ctrl+M 静音。使用说明见 [全息对话](docs/SILVERWING-NATIVE.md)。
 
 最新验证版本与启动路径：[当前版本说明](docs/LATEST-REVIEW.md)。不同路径的旧进程必须从托盘退出后，才能加载新程序功能。
 
@@ -51,7 +49,7 @@ AI&SI 的「全息 AI 通话」已接入银紫龙翼全身角色，直接使用�
 
 ## 安装与运行
 
-全息双风格 Windows 安装/升级测试版：下载 [GitHub Release 中的 Setup.exe](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.1)。适用于 Windows 10/11 x64，安装器检查 .NET Framework 4.8+；先从托盘退出旧版，升级时选择原安装目录。安装包保留用户数据、备份旧 EXE 并提供回退入口。详细说明见 [Windows 安装升级说明](docs/WINDOWS-INSTALL.md)。此包未签名，GitHub 私有仓库下载需要有仓库访问权限。
+全息双风格 Windows 安装/升级测试版：下载 [GitHub Release 中的 Setup.exe](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.2)。适用于 Windows 10/11 x64，安装器检查 .NET Framework 4.8+；先从托盘退出旧版，升级时选择原安装目录。安装包保留用户数据、备份旧 EXE 并提供回退入口。详细说明见 [Windows 安装升级说明](docs/WINDOWS-INSTALL.md)。此包未签名，GitHub 私有仓库下载需要有仓库访问权限。
 
 **已经装好**：`D:\DeskBox\DeskBox.exe`，双击运行即可；运行后桌面由 DeskBox 接管（系统图标隐藏）。
 

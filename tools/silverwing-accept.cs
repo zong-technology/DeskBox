@@ -59,9 +59,13 @@ internal static class SilverwingAccept
                 Key(view,Keys.Control|Keys.M);Pump(()=>lastInput.Disposed);
                 Check(view.Muted && fake.Ended==1,"Microphone is released on mute");
                 Key(view,Keys.Control|Keys.M);Pump(()=>inputs==2);Check(!view.Muted,"Unmute reopens input without reconnecting");
-                fake.Emit(new VoicePacket {Interrupted=true,UserCaption="先听我说"});Pump(()=>view.Caption=="你：先听我说");
+                fake.Emit(new VoicePacket {Interrupted=true,UserCaption="先听"});Pump(()=>view.Caption=="你：先听");
+                fake.Emit(new VoicePacket {UserCaption="我说",UserCaptionDelta=true});Pump(()=>view.Caption=="你：先听我说");
                 Check(speaker.Flushed==1,"Interruption flushes queued playback");
                 fake.Emit(new VoicePacket {Caption="我在听，请继续。",Audio={new byte[32]}});Pump(()=>view.Mode==HologramMode.Speaking);
+                var tick=typeof(System.Windows.Forms.Timer).GetMethod("OnTick",Hidden);
+                var animation=(System.Windows.Forms.Timer)typeof(HolographicCallView).GetField("timer",Hidden).GetValue(view);
+                for(int i=0;i<5;i++)tick.Invoke(animation,new object[]{EventArgs.Empty});
                 foreach(var size in new[]{new Size(1600,900),new Size(1280,800),new Size(1024,768)}){
                     view.Dock=DockStyle.None;
                     using(var image=Shot(view,size)){

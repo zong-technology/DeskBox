@@ -28,6 +28,7 @@ namespace DeskBox.Ai
         public readonly List<byte[]> Audio = new List<byte[]>();
         public bool InputEnded;
         public string UserCaption;
+        public bool UserCaptionDelta;
     }
 
     internal interface IVoiceInput : IDisposable { int Read(short[] samples); }
@@ -131,6 +132,7 @@ namespace DeskBox.Ai
             packet.Caption = Read(transcription, "text") as string;
             var input = Read(content, "inputTranscription") as IDictionary<string, object>;
             packet.UserCaption = Read(input, "text") as string;
+            packet.UserCaptionDelta = true;
             // On interruption the owner must flush its existing playback queue too.
             if (packet.Interrupted) return packet;
             var turn = Read(content, "modelTurn") as IDictionary<string, object>;

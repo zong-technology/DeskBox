@@ -49,8 +49,6 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked
 Source: "{#RepoRoot}\dist\DeskBox.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\WINDOWS-INSTALL.md"; DestDir: "{app}\docs"; DestName: "安装升级说明.txt"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\SILVERWING-NATIVE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "{#RepoRoot}\docs\silverwing-native.png"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "{#RepoRoot}\docs\photon-native.png"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\public\assets\NOVA-model-license.txt"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#RepoRoot}\tools\rollback-install.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#RepoRoot}\tools\install-document-skills.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion

@@ -22,7 +22,7 @@ namespace DeskBox.UI
         private CancellationTokenSource session;
         private Task completion = Task.FromResult(0);
         private bool exiting, muted, thinking, captionFinished = true;
-        private string caption = "", assistantCaption = "";
+        private string caption = "", assistantCaption = "", userCaption = "";
         private double seconds;
         private float level, targetLevel;
         private HologramMode mode;
@@ -73,7 +73,7 @@ namespace DeskBox.UI
         {
             var active=new CancellationTokenSource();
             session=active; mode=HologramMode.Connecting; caption="正在与你连接…";
-            muted=false; thinking=false; assistantCaption=""; captionFinished=true;
+            muted=false; thinking=false; assistantCaption=userCaption=""; captionFinished=true;
             Task<VoicePacket> receive=null;
             try {
                 using (var provider=providerFactory(profile)) {
@@ -95,10 +95,14 @@ namespace DeskBox.UI
                                     if (receive.IsCompleted) {
                                         var packet=await receive;
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
-                                        if(packet.Interrupted){speaker.Flush();assistantCaption="";captionFinished=true;thinking=false;caption="我在听。";}
+                                        if(packet.Interrupted){speaker.Flush();assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}
                                         if(packet.InputEnded)thinking=true;
-                                        if(!string.IsNullOrWhiteSpace(packet.UserCaption))caption="你："+Tail(packet.UserCaption);
+                                        if(!string.IsNullOrWhiteSpace(packet.UserCaption)){
+                                            userCaption=Tail(packet.UserCaptionDelta ? userCaption+packet.UserCaption : packet.UserCaption);
+                                            caption="你："+userCaption;
+                                        }
                                         if(!string.IsNullOrEmpty(packet.Caption)) {
+                                            if(captionFinished)userCaption="";
                                             assistantCaption=(captionFinished ? "" : assistantCaption)+packet.Caption;
                                             assistantCaption=Tail(assistantCaption);caption=assistantCaption;captionFinished=false;
                                         }
