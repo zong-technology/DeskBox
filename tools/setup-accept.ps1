@@ -43,25 +43,34 @@ $state = @{ Settings = @{ TakeoverIcons=$false; AutoStart=$false; ReferenceUi=$t
 $state | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $profile 'state.json') -Encoding UTF8
 $oldHome = $env:DESKBOX_HOME
 $app = $null
-try {
-    $env:DESKBOX_HOME = $profile
-    $app = Start-Process -FilePath $installed -WorkingDirectory $target -PassThru
-    $until = [DateTime]::UtcNow.AddSeconds(30)
-    do {
-        Start-Sleep -Milliseconds 150
-        $app.Refresh()
-        if ($app.HasExited) { throw 'The installed application exited during startup.' }
-    } while (($app.MainWindowTitle -ne 'DeskBox' -or $app.MainWindowHandle -eq [IntPtr]::Zero) -and [DateTime]::UtcNow -lt $until)
-    Check ($app.MainWindowTitle -eq 'DeskBox') 'Real installed application starts to its main window'
-    Check ([string]::Equals($app.MainModule.FileName, $installed, [StringComparison]::OrdinalIgnoreCase)) 'Running path is the installed candidate'
-    Check ((Get-FileHash -LiteralPath $app.MainModule.FileName).Hash -eq $expected) 'Running executable hash matches the build'
     Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class DeskBoxInstallCapture {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+    private delegate bool Enumerate(IntPtr window, IntPtr state);
+    [DllImport("user32.dll")] static extern bool EnumWindows(Enumerate callback, IntPtr state);
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, Enumerate callback, IntPtr state);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder text, int maximum);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
+    public static IntPtr FindMainWindow(int processId) {
+        IntPtr found=IntPtr.Zero;
+        Enumerate visit=delegate(IntPtr window, IntPtr state) {
+            uint process; GetWindowThreadProcessId(window,out process);
+            if(process==(uint)processId) {
+                var title=new StringBuilder(256); GetWindowText(window,title,title.Capacity);
+                Rect r; GetWindowRect(window,out r);
+                if(title.ToString()=="DeskBox" && r.Right-r.Left>=640 && r.Bottom-r.Top>=480) found=window;
+            }
+            return true;
+        };
+        EnumWindows(delegate(IntPtr window,IntPtr state){visit(window,state);EnumChildWindows(window,visit,state);return true;},IntPtr.Zero);
+        return found;
+    }
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
@@ -77,13 +86,27 @@ public static class DeskBoxInstallCapture {
     }
 }
 '@
+
+try {
+    $env:DESKBOX_HOME = $profile
+    $app = Start-Process -FilePath $installed -WorkingDirectory $target -PassThru
+    $until = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        Start-Sleep -Milliseconds 150
+        $app.Refresh()
+        $window = [DeskBoxInstallCapture]::FindMainWindow($app.Id)
+        if ($app.HasExited) { throw 'The installed application exited during startup.' }
+    } while ($window -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $until)
+    Check ($window -ne [IntPtr]::Zero) 'Real installed application starts to its main window'
+    Check ([string]::Equals($app.MainModule.FileName, $installed, [StringComparison]::OrdinalIgnoreCase)) 'Running path is the installed candidate'
+    Check ((Get-FileHash -LiteralPath $app.MainModule.FileName).Hash -eq $expected) 'Running executable hash matches the build'
     Start-Sleep -Milliseconds 300
-    $dpi = [DeskBoxInstallCapture]::GetDpiForWindow($app.MainWindowHandle)
-    $capture = [DeskBoxInstallCapture]::Save($app.MainWindowHandle, (Join-Path $output 'installed-main-window.png'))
+    $dpi = [DeskBoxInstallCapture]::GetDpiForWindow($window)
+    $capture = [DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-main-window.png'))
     Check $capture 'Native capture of the real installed window'
     @{ Path=$app.MainModule.FileName; SHA256=$expected; Version='2.1.0-hologram.1'; DeviceDpi=$dpi; SyntheticProfile=$profile } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-launch.json') -Encoding UTF8
-    Check ($app.CloseMainWindow()) 'Installed window accepts a normal close request'
+    Check ([DeskBoxInstallCapture]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Installed window accepts a normal close request'
     Check ($app.WaitForExit(15000)) 'Application exits normally and releases the tray instance'
     Check ($app.ExitCode -eq 0) 'Installed application exits without a process error'
 } finally {
