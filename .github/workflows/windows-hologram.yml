@@ -1,7 +1,7 @@
 name: Windows hologram candidate
 on:
   push:
-    branches: [release/windows-hologram-1]
+    branches: [release/windows-hologram-2]
   pull_request:
     paths: ['src/**', 'assets/**', 'public/assets/**', 'packaging/**', 'build.ps1', 'tools/silverwing-accept.cs', 'tools/package-windows.ps1', 'tools/setup-accept.ps1', 'tools/rollback-install.ps1', 'tools/ui-regression.ps1', 'tools/prepare-ci-display.ps1', '.github/workflows/windows-hologram.yml']
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
         shell: powershell
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:dist\silverwing-accept.exe tools\silverwing-accept.cs
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\silverwing-accept.exe tools\silverwing-accept.cs
           if ($LASTEXITCODE -ne 0) { throw 'Acceptance host compile failed' }
           & .\dist\silverwing-accept.exe .\dist\DeskBox.exe .\dist\hologram-qa
           if ($LASTEXITCODE -ne 0) { throw 'Native hologram checks failed' }
@@ -47,7 +47,7 @@ jobs:
       - name: Verify installation, upgrade, rollback and installed UI
         timeout-minutes: 8
         shell: powershell
-        run: .\tools\setup-accept.ps1 -SetupPath .\dist\installer\DeskBox-2.1.0-hologram.1-Setup.exe
+        run: .\tools\setup-accept.ps1 -SetupPath .\dist\installer\DeskBox-2.1.0-hologram.2-Setup.exe
       - name: Write installation verification report
         shell: powershell
         run: .\tools\write-install-report.ps1
@@ -69,7 +69,7 @@ jobs:
             dist/ui-qa-*/*.log
             dist/ui-qa-*/**/*.png
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release/windows-hologram-1'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release/windows-hologram-2'
     needs: native
     runs-on: windows-latest
     permissions:
@@ -87,5 +87,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: powershell
         run: |
-          gh release create v2.1.0-hologram.1 .\installer\DeskBox-2.1.0-hologram.1-Setup.exe .\installer\SHA256SUMS.txt .\installer\INSTALL-TEST-REPORT.md --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title 'DeskBox 2.1 hologram preview - Windows setup and upgrade' --notes-file .\source\packaging\RELEASE-NOTES.md
+          gh release create v2.1.0-hologram.2 .\installer\DeskBox-2.1.0-hologram.2-Setup.exe .\installer\SHA256SUMS.txt .\installer\INSTALL-TEST-REPORT.md --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title 'DeskBox 2.1 hologram preview - Windows setup and upgrade' --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

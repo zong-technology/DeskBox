@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace DeskBox.Ai
 {
-    internal sealed class VoiceSpeaker : IDisposable
+    internal sealed class VoiceSpeaker : IVoiceOutput
     {
         private sealed class Block
         {

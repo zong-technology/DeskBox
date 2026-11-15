@@ -1,5 +1,5 @@
 ﻿#ifndef ReleaseVersion
-  #define ReleaseVersion "2.1.0-hologram.1"
+  #define ReleaseVersion "2.1.0-hologram.2"
 #endif
 #ifndef PayloadSHA256
   #error Build the installer using tools/package-windows.ps1
@@ -10,7 +10,7 @@
 AppId={{C6D8C809-F8BD-4D24-AB93-7F3AC1902101}
 AppName=DeskBox
 AppVersion={#ReleaseVersion}
-VersionInfoVersion=2.1.0.1
+VersionInfoVersion=2.1.0.2
 AppVerName=DeskBox {#ReleaseVersion}
 AppPublisher=zong-technology
 AppPublisherURL=https://github.com/zong-technology/DeskBox

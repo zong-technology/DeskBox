@@ -28,12 +28,12 @@ function Run-Setup([string]$Name, [bool]$ExpectSuccess = $true) {
 
 Run-Setup 'fresh-install'
 Check ((Get-FileHash -LiteralPath $installed).Hash -eq $expected) 'Installed payload equals the Windows build'
-Check ([Diagnostics.FileVersionInfo]::GetVersionInfo($installed).ProductVersion -eq '2.1.0-hologram.1') 'Installed version identity'
+Check ([Diagnostics.FileVersionInfo]::GetVersionInfo($installed).ProductVersion -eq '2.1.0-hologram.2') 'Installed version identity'
 Check (Test-Path -LiteralPath (Join-Path $target 'tools\rollback-install.ps1')) 'Rollback helper is installed'
 Check (Test-Path -LiteralPath (Join-Path $target 'tools\install-document-skills.ps1')) 'Optional document helper is installed'
 Check (-not (Test-Path -LiteralPath (Join-Path $target 'data'))) 'Fresh setup does not ship user data'
 $registration = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{C6D8C809-F8BD-4D24-AB93-7F3AC1902101}_is1'
-Check ((Get-ItemProperty -LiteralPath $registration).DisplayVersion -eq '2.1.0-hologram.1') 'Per-user uninstall registration'
+Check ((Get-ItemProperty -LiteralPath $registration).DisplayVersion -eq '2.1.0-hologram.2') 'Per-user uninstall registration'
 
 # Launch the real installed executable with an isolated synthetic profile.
 $profile = Join-Path $output 'isolated-profile'
@@ -104,7 +104,7 @@ try {
     $dpi = [DeskBoxInstallCapture]::GetDpiForWindow($window)
     $capture = [DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-main-window.png'))
     Check $capture 'Native capture of the real installed window'
-    @{ Path=$app.MainModule.FileName; SHA256=$expected; Version='2.1.0-hologram.1'; DeviceDpi=$dpi; SyntheticProfile=$profile } |
+    @{ Path=$app.MainModule.FileName; SHA256=$expected; Version='2.1.0-hologram.2'; DeviceDpi=$dpi; SyntheticProfile=$profile } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-launch.json') -Encoding UTF8
     Check ([DeskBoxInstallCapture]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Installed window accepts a normal close request'
     Check ($app.WaitForExit(15000)) 'Application exits normally and releases the tray instance'
@@ -123,7 +123,7 @@ $oldHash = (Get-FileHash -LiteralPath $installed).Hash
 $userData = Join-Path $target 'data'
 New-Item -ItemType Directory -Path $userData -Force | Out-Null
 $markers = @{}
-foreach ($name in @('state.json', 'tasks.json', 'ai-providers.json', 'chats.json')) {
+foreach ($name in @('state.json', 'tasks.json', 'ai-providers.json', 'chats.json', 'realtime-voice.json')) {
     $path = Join-Path $userData $name
     ('{"fixture":"preserve-' + $name + '"}') | Set-Content -LiteralPath $path -Encoding UTF8
     $markers[$path] = (Get-FileHash -LiteralPath $path).Hash
@@ -155,7 +155,9 @@ Run-Setup 're-upgrade'
 # Re-run the existing native style acceptance host against the installed bytes.
 $hologramHost = Join-Path $root 'dist\silverwing-accept.exe'
 & $hologramHost $installed (Join-Path $output 'installed-hologram') | Tee-Object -FilePath (Join-Path $output 'installed-hologram.log')
-Check ($LASTEXITCODE -eq 0) 'Installed hologram and style checks pass'
+Check ($LASTEXITCODE -eq 0) 'Installed immersive hologram checks pass'
+$nativeResult = [regex]::Match([IO.File]::ReadAllText((Join-Path $output 'installed-hologram.log')), 'PASS (\d+) native checks')
+if (-not $nativeResult.Success) { throw 'Native check count was not recorded.' }
 
 # UI matrix uses an identical copy of the installed payload, with synthetic fixtures only.
 & (Join-Path $root 'tools\prepare-ci-display.ps1')
@@ -168,6 +170,6 @@ Check ($uninstall.ExitCode -eq 0) 'Uninstaller returns success'
 Check (-not (Test-Path -LiteralPath $installed)) 'Uninstall removes the program'
 foreach ($path in $markers.Keys) { Check ((Get-FileHash -LiteralPath $path).Hash -eq $markers[$path]) ('Uninstall preserves ' + [IO.Path]::GetFileName($path)) }
 Check (-not (Test-Path -LiteralPath $registration)) 'Uninstall removes only its registration'
-@{ Result='PASS'; Version='2.1.0-hologram.1'; SourceSHA256=$expected; Checks=$checks.ToArray(); Count=$checks.Count; UIExpectedDpi=96; RealVoiceTested=$false } |
+@{ Result='PASS'; Version='2.1.0-hologram.2'; SourceSHA256=$expected; Checks=$checks.ToArray(); Count=$checks.Count; NativeChecks=[int]$nativeResult.Groups[1].Value; UIExpectedDpi=96; RealVoiceTested=$false } |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output 'install-report.json') -Encoding UTF8
 Write-Output ('PASS Windows setup / upgrade / rollback / uninstall: ' + $checks.Count + ' checks')

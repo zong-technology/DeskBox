@@ -4,14 +4,14 @@
 
 ## 安装或升级
 
-1. 从 GitHub Release 下载 `DeskBox-2.1.0-hologram.1-Setup.exe`。已有 DeskBox 时，先从系统托盘右键退出，结束当前通话。
+1. 从 GitHub Release 下载 `DeskBox-2.1.0-hologram.2-Setup.exe`。已有 DeskBox 时，先从系统托盘右键退出，结束当前通话。
 2. 双击安装包。新电脑默认安装到当前用户的 `%LOCALAPPDATA%\Programs\DeskBox`，不要求管理员权限。已有 `D:\DeskBox\DeskBox.exe` 时默认选择该目录；已使用本安装器安装过时沿用原路径。升级时请核对目录指向正在使用的版本。
 3. 安装器替换程序前保留 `DeskBox.previous.exe`。用户数据目录不会打入安装包，也不会在升级或卸载中删除。自定义安装目录需要当前用户有写入权限。
-4. 从开始菜单启动 DeskBox，打开 AI&SI / AI 助手 → 全息 AI 通话 → 预览全息。使用「更改全息风格」切换原画全息和星辉光粒子。
+4. 从开始菜单启动 DeskBox，首次在「功能与设置 → 全息语音」保存实时服务与模型。打开 AI&SI / AI 助手 → 全息 AI 通话后直接进入投影与字幕；外观在常规设置中调整，Esc 返回。
 
 程序的数据位置继续按既有规则解析：`DESKBOX_HOME` → `D:\DeskBox\data` → `%LOCALAPPDATA%\DeskBox\data`。安装目录与数据目录可以不同，升级不改变这个规则。
 
-全息预览无需密钥或麦克风。实时通话需可用的千问 Omni Realtime 或 Gemini Live 服务、模型权限、网络和麦克风。密钥由本机 Windows 用户加密保存，换电脑或换 Windows 用户后需要重新配置。文档解析扩展另需 Python 3.12+，可用安装目录中的 `tools\install-document-skills.ps1` 配置；它不是全息预览和实时通话的前置条件。
+未配置服务时可查看纯投影，麦克风不会开启。实时通话需可用的千问 Omni Realtime 或 Gemini Live 服务、模型权限、网络和麦克风。密钥由本机 Windows 用户加密保存，换电脑或换 Windows 用户后需要重新配置。文档解析扩展另需 Python 3.12+，可用安装目录中的 `tools\install-document-skills.ps1` 配置；它不是全息预览和实时通话的前置条件。
 
 ## 回退
 

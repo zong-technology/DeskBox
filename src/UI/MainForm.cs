@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -2036,23 +2036,30 @@ namespace DeskBox.UI
             timer = null;
         }
 
-        private LiveVoiceForm _liveVoice;
+        private HolographicCallView _liveVoice;
 
         internal void ShowLiveVoice()
         {
             if (_liveVoice != null) return;
-            var voice = new LiveVoiceForm(() => _workspaces.Current, _providers);
+            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load());
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
-            voice.Disposed += delegate
-            {
-                _liveVoice = null;
+            voice.ExitRequested += async delegate {
+                await voice.StopAsync();
+                if (IsDisposed || _closing) return;
+                Controls.Remove(voice);
+                voice.Dispose();
+            };
+            voice.Disposed += delegate {
+                if (_liveVoice == voice) _liveVoice = null;
                 if (_closing || IsDisposed) return;
                 if (_referenceActive && _reference != null) _reference.Show();
                 if (_chatView != null) _chatView.FocusInput();
             };
-            try { voice.EmbedIn(this); }
-            catch { voice.Dispose(); throw; }
+            Controls.Add(voice);
+            voice.BringToFront();
+            voice.Focus();
+            BeginInvoke(new Action(voice.Start));
         }
 
         private void OnFormKeyDown(object sender, KeyEventArgs e)

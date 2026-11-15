@@ -18,17 +18,14 @@ namespace DeskBox.Ai
         private readonly ClientWebSocket _socket = new ClientWebSocket();
         private readonly Uri _endpoint;
         private readonly string _model;
-        private readonly bool _enableScenes;
         private bool _discardAudio;
-        private readonly Dictionary<string, VoiceSceneCall> _pendingScenes = new Dictionary<string, VoiceSceneCall>();
 
-        public QwenLiveVoiceProvider(string endpoint, string model, string key, bool enableScenes = true)
+        public QwenLiveVoiceProvider(string endpoint, string model, string key)
         {
             _endpoint = Endpoint(endpoint);
             if (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(key))
                 throw new ArgumentException("请填写百炼模型 ID 和 API Key。");
             _model = model.Trim();
-            _enableScenes = enableScenes;
             _socket.Options.SetRequestHeader("Authorization", "Bearer " + key.Trim());
         }
 
@@ -41,7 +38,7 @@ namespace DeskBox.Ai
             {
                 var target = new UriBuilder(_endpoint) { Query = "model=" + Uri.EscapeDataString(_model) };
                 await _socket.ConnectAsync(target.Uri, token).ConfigureAwait(false);
-                await SendAsync(Setup(_model, _enableScenes), token).ConfigureAwait(false);
+                await SendAsync(Setup(_model), token).ConfigureAwait(false);
                 while (!(await ReceiveAsync(token).ConfigureAwait(false)).Ready) { }
             }
             catch (WebSocketException) { throw new IOException("无法连接百炼，请检查工作空间地址、API Key 和模型权限。"); }
@@ -82,19 +79,9 @@ namespace DeskBox.Ai
             {
                 packet.Interrupted = true;
                 _discardAudio = true;
-                _pendingScenes.Clear();
             }
-            if (type == "response.function_call_arguments.done" && !_discardAudio)
-            {
-                var id = Read(evt, "call_id") as string;
-                if (!string.IsNullOrEmpty(id) && id.Length <= 128)
-                    _pendingScenes[id] = new VoiceSceneCall(id, Read(evt, "name") as string, Read(evt, "arguments") as string);
-            }
-            if (type == "response.done" && !_discardAudio)
-            {
-                packet.SceneCalls.AddRange(_pendingScenes.Values);
-                _pendingScenes.Clear();
-            }
+            packet.InputEnded = type == "input_audio_buffer.speech_stopped";
+            if (type == "conversation.item.input_audio_transcription.completed") packet.UserCaption = Read(evt, "transcript") as string;
             if (type == "response.audio_transcript.delta" && !_discardAudio)
                 packet.Caption = Read(evt, "delta") as string;
             if (type == "response.audio.delta" && !_discardAudio)
@@ -106,40 +93,19 @@ namespace DeskBox.Ai
             return packet;
         }
 
-        public async Task CompleteScenesAsync(IEnumerable<VoiceSceneCall> calls, CancellationToken token)
+        internal static object Setup(string model)
         {
-            foreach (var call in calls)
-            {
-                var result = string.IsNullOrEmpty(call.Scene) ? "未切换：场景指令无效。" :
-                    call.Scene == "progress" ? "已打开本地进度面板。未读取或发送项目数据。" : "已切换本地场景。";
-                await SendAsync(new { type = "conversation.item.create", item = new {
-                    type = "function_call_output", call_id = call.Id, output = result
-                } }, token).ConfigureAwait(false);
-            }
-            await SendAsync(new { type = "response.create" }, token).ConfigureAwait(false);
-        }
-
-        internal static object Setup(string model, bool enableScenes = true)
-        {
-            const string instructions = "默认用简体中文交流。没有设备实时数据时，明确说明是工程示意。话题切换到反应器、PLC 通信或项目进度时，调用一次 deskbox_show_scene。收到工具结果后直接口头答复，不重复调用。项目进度由本地界面显示，勿编造。";
-            var tools = new[] { new { type = "function", function = new {
-                name = VoiceSceneCall.ToolName,
-                description = "切换 DeskBox 的本地场景。avatar=返回默认银紫龙翼全身投影，reactor=反应器示意，plc=PLC 通信拓扑示意，progress=当前项目进度，core=用户指定的无面孔核心。",
-                parameters = new { type = "object", properties = new { scene = new { type = "string", @enum = VoiceSceneCall.Allowed } },
-                    required = new[] { "scene" } }
-            } } };
             if (model.StartsWith("qwen3.8-", StringComparison.OrdinalIgnoreCase))
             {
                 var session = new Dictionary<string, object> {
                     { "modalities", new[] { "text", "audio" } },
-                    { "instructions", enableScenes ? instructions : "默认用简体中文与用户实时语音交流。" },
+                    { "instructions", "默认用简体中文与用户实时语音交流。回答自然简洁，不声称执行界面外的动作。" },
                     { "turn_detection", new { type = "semantic_vad_ec" } },
                     { "audio", new {
                         input = new { format = new { type = "pcm", sample_rate = 16000 } },
                         output = new { voice = "Tina", format = new { type = "pcm", sample_rate = 24000 } }
                     } }
                 };
-                if (enableScenes) session.Add("tools", tools);
                 return new { type = "session.update", session };
             }
             return new { type = "session.update", session = new {

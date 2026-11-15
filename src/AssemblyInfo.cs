@@ -2,6 +2,8 @@ using System.Reflection;
 
 [assembly: AssemblyTitle("DeskBox")]
 [assembly: AssemblyProduct("DeskBox")]
-[assembly: AssemblyVersion("2.1.0.1")]
-[assembly: AssemblyFileVersion("2.1.0.1")]
-[assembly: AssemblyInformationalVersion("2.1.0-hologram.1")]
+[assembly: AssemblyVersion("2.1.0.2")]
+[assembly: AssemblyFileVersion("2.1.0.2")]
+[assembly: AssemblyInformationalVersion("2.1.0-hologram.2")]
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("silverwing-accept")]

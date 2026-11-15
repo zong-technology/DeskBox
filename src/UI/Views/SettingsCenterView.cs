@@ -58,6 +58,7 @@ namespace DeskBox.UI.Views
             {
                 new NavItem { Key = "appearance", Icon = "🎨", Title = "外观" },
                 new NavItem { Key = "ai",         Icon = "◈",  Title = "AI 服务商" },
+                new NavItem { Key = "voice",      Icon = "◉",  Title = "全息语音" },
                 new NavItem { Key = "weather",    Icon = "☁",  Title = "天气" },
                 new NavItem { Key = "automation", Icon = "⚡", Title = "自动化" },
                 new NavItem { Key = "privacy",    Icon = "🔒", Title = "文件与隐私" },
@@ -125,6 +126,7 @@ namespace DeskBox.UI.Views
                 _nav[i].Btn.Invalidate();
             }
             _contentHost.SuspendLayout();
+            foreach (Control old in _contentHost.Controls.Cast<Control>().ToArray()) old.Dispose();
             _contentHost.Controls.Clear();
             var page = BuildPage(_nav[index].Key);
             _contentHost.Controls.Add(page);
@@ -138,6 +140,7 @@ namespace DeskBox.UI.Views
             {
                 case "appearance": return PageAppearance();
                 case "ai": return PageAi();
+                case "voice": return PageVoice();
                 case "weather": return PageWeather();
                 case "automation": return PageAutomation();
                 case "privacy": return PagePrivacy();
@@ -257,6 +260,70 @@ namespace DeskBox.UI.Views
         }
 
         // ---------------- 1. 外观 ----------------
+
+        private Control PageVoice()
+        {
+            var p=NewPage();
+            var storage=new RealtimeVoiceSettingsStore();
+            var saved=storage.Load();
+            Section(p,"全息语音","在这里保存一次。进入全息 AI 通话后自动连接，画面只显示投影和实时字幕。");
+            RowLabel(p,"实时语音服务");
+            var provider=new ComboBox {Left=8,Top=_y,Width=340,DropDownStyle=ComboBoxStyle.DropDownList,
+                BackColor=Palette.PanelAlt,ForeColor=Palette.Text,Name="hologram-service"};
+            provider.Items.AddRange(new object[]{"Google · Gemini Live","千问百炼 · Omni Realtime"});
+            provider.SelectedIndex=saved.Provider=="qwen" ? 1 : 0;p.Controls.Add(provider);_y+=38;
+            RowLabel(p,"实时服务地址","百炼需要填写所属工作空间的 WSS 地址");
+            var endpoint=AddInput(p,"wss://…",saved.Endpoint,delegate(string value){});endpoint.Name="hologram-endpoint";
+            RowLabel(p,"实时语音模型","普通文本聊天模型不能替代实时语音模型");
+            var model=new ComboBox {Left=8,Top=_y,Width=340,Text=saved.Model,BackColor=Palette.PanelAlt,ForeColor=Palette.Text,Name="hologram-model"};
+            p.Controls.Add(model);_y+=38;
+            RowLabel(p,"API 密钥",string.IsNullOrEmpty(saved.ApiKey) ? "使用 Windows DPAPI 加密保存" : "已保存；留空保留当前密钥");
+            var key=AddInput(p,"输入密钥，留空保留已保存的密钥","",delegate(string value){});key.Name="hologram-key";key.Inner.UseSystemPasswordChar=true;
+            RowLabel(p,"投影外观");
+            int appearance=saved.Appearance=="silverwing" ? 1 : saved.Appearance=="photon" ? 2 : 0;
+            var style=AddSelect(p,new[]{"量子光核 · 沉浸光场","银紫龙翼 · 原画全息","星辉光粒子 · 全身投影"},appearance,delegate(int value){});style.Name="hologram-appearance";
+            var reduced=new CheckBox {Left=8,Top=_y,AutoSize=true,Text="减少动态效果",Checked=saved.ReducedMotion,ForeColor=Palette.Text,BackColor=Palette.Bg,Name="hologram-motion"};
+            p.Controls.Add(reduced);_y+=36;
+            var status=new Label {Left=8,Top=_y+46,AutoSize=true,MaximumSize=new Size(650,0),ForeColor=Palette.TextDim,Text="Esc 返回软件；Ctrl+M 静音。只有进入全息通话后才会开启麦克风。",Name="hologram-setting-status"};
+            p.Controls.Add(status);
+            var save=AddButton(p,"保存全息语音",8,_y,145,delegate {
+                try {
+                    string service=provider.SelectedIndex==1 ? "qwen" : "gemini";
+                    var value=new RealtimeVoiceSettings {Provider=service,Endpoint=endpoint.Text.Trim(),Model=model.Text.Trim(),
+                        ApiKey=string.IsNullOrWhiteSpace(key.Text) && service==saved.Provider ? saved.ApiKey : key.Text.Trim(),
+                        Appearance=style.SelectedIndex==1 ? "silverwing" : style.SelectedIndex==2 ? "photon" : "quantum",ReducedMotion=reduced.Checked};
+                    storage.Save(value);saved=value;key.Text="";
+                    status.Text=value.Ready ? "已加密保存。下次点击全息 AI 通话会直接进入并连接。" : "投影偏好已保存，语音尚未启用。";
+                    Toast("全息语音已保存");
+                } catch(ArgumentException error){status.Text=error.Message;Toast("请核对实时语音参数",false);}
+                  catch(Exception){status.Text="保存失败，请检查本机存储权限。";Toast("保存失败",false);}
+            },true);save.Name="hologram-save";
+            var fetch=AddButton(p,"获取实时模型",164,_y,145,delegate{});
+            CancellationTokenSource request=null;
+            fetch.Click += async delegate {
+                if(request!=null)return;
+                request=new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                fetch.Enabled=save.Enabled=provider.Enabled=false;
+                try {
+                    string service=provider.SelectedIndex==1 ? "qwen" : "gemini";
+                    string secret=string.IsNullOrWhiteSpace(key.Text) && service==saved.Provider ? saved.ApiKey : key.Text.Trim();
+                    var values=await (service=="qwen" ? QwenLiveVoiceProvider.ListModelsAsync(endpoint.Text,secret,request.Token) :
+                        VoiceModelCatalog.ListGeminiAsync(endpoint.Text,secret,request.Token));
+                    if(p.IsDisposed)return;
+                    string current=model.Text;model.Items.Clear();model.Items.AddRange(values);model.Text=current;
+                    status.Text="已读取 "+values.Length+" 个实时模型，可选择后保存。";
+                }catch(Exception){if(!p.IsDisposed)status.Text="暂时无法读取模型目录，可手动填写模型 ID。";}
+                finally {request.Dispose();request=null;if(!p.IsDisposed)fetch.Enabled=save.Enabled=provider.Enabled=true;}
+            };
+            p.Disposed+=delegate{if(request!=null)request.Cancel();};
+            provider.SelectedIndexChanged+=delegate {
+                bool qwen=provider.SelectedIndex==1;
+                endpoint.Text=qwen ? QwenLiveVoiceProvider.DefaultEndpoint : GeminiLiveVoiceProvider.DefaultEndpoint;
+                model.Text=qwen ? QwenLiveVoiceProvider.DefaultModel : "gemini-3.1-flash-live-preview";key.Text="";
+            };
+            _y+=96;
+            return p;
+        }
 
         private Control PageAppearance()
         {

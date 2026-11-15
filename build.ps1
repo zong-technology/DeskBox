@@ -28,9 +28,7 @@ $cscArgs = @(
   "/r:Microsoft.VisualBasic.dll",
   "/win32icon:$ico"
   "/resource:$root\assets\engineering-factory.png,DeskBox.EngineeringFactory"
-  "/resource:$root\assets\voice-presence.png,DeskBox.VoicePresence"
   "/resource:$root\public\assets\silverwing-avatar.png,DeskBox.Silverwing"
-  "/resource:$root\assets\voice-probe.png,DeskBox.VoiceProbe"
   "/resource:$root\skills\documents\worker.py,DeskBox.DocumentWorker"
   "/resource:$root\skills\documents\SKILL.md,DeskBox.DocumentSkill"
   "/resource:$root\skills\documents\windows-ocr.ps1,DeskBox.DocumentOcr"

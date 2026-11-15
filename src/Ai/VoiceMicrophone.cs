@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace DeskBox.Ai
 {
     // P1 local input, 20 ms mono PCM16 blocks. Only the owning thread polls and closes it.
-    internal sealed class VoiceMicrophone : IDisposable
+    internal sealed class VoiceMicrophone : IVoiceInput
     {
         public const int SampleRate = 24000;
         public const int SamplesPerBlock = SampleRate / 50;

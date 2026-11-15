@@ -26,8 +26,12 @@ namespace DeskBox.Ai
         public bool Ready, Interrupted, TurnComplete, ReconnectRequested;
         public string Caption;
         public readonly List<byte[]> Audio = new List<byte[]>();
-        public readonly List<VoiceSceneCall> SceneCalls = new List<VoiceSceneCall>();
+        public bool InputEnded;
+        public string UserCaption;
     }
+
+    internal interface IVoiceInput : IDisposable { int Read(short[] samples); }
+    internal interface IVoiceOutput : IDisposable { void Play(byte[] pcm); void Flush(); double? PlaybackLevel(); }
 
     internal sealed class GeminiLiveVoiceProvider : IRealtimeVoiceProvider
     {
@@ -98,6 +102,7 @@ namespace DeskBox.Ai
                 model = model.StartsWith("models/", StringComparison.Ordinal) ? model : "models/" + model,
                 generationConfig = new { responseModalities = new[] { "AUDIO" } },
                 outputAudioTranscription = new object(),
+                inputAudioTranscription = new object(),
                 systemInstruction = new { parts = new[] { new { text = "默认使用简体中文回答。没有设备实时数据时，明确说明是工程示意。" } } }
             } });
         }
@@ -124,6 +129,8 @@ namespace DeskBox.Ai
             };
             var transcription = Read(content, "outputTranscription") as IDictionary<string, object>;
             packet.Caption = Read(transcription, "text") as string;
+            var input = Read(content, "inputTranscription") as IDictionary<string, object>;
+            packet.UserCaption = Read(input, "text") as string;
             // On interruption the owner must flush its existing playback queue too.
             if (packet.Interrupted) return packet;
             var turn = Read(content, "modelTurn") as IDictionary<string, object>;
