@@ -70,7 +70,7 @@ namespace DeskBox.UI
                     var body = bounds(center - width / 2, 135, width, 700);
                     if (scene == "avatar")
                         SilverwingProjection.Draw(g, body, level, speaking, muted, paused, reduced, seconds,
-                            particles ? (float)Math.Min(1, styleSeconds / 1.1) : preview ? 1 : (float)Math.Min(1, seconds / 1.2), strength, particles);
+                            particles ? paused ? 1 : (float)Math.Min(1, styleSeconds / 1.1) : preview ? 1 : (float)Math.Min(1, seconds / 1.2), strength, particles);
                     else if (Presence != null) DrawLayer(g, Presence, body, .84f + .16f * pulse);
                     else Label(g, "AI", title, Cyan, body);
                     if (reveal <= 0)

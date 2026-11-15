@@ -81,15 +81,23 @@ internal static class SilverwingAccept
                 var sessionBefore = Field(form, "_session");
                 coreType.GetField("Muted").SetValue(core, true);
                 coreType.GetField("OutputMuted").SetValue(core, true);
+                coreType.GetField("Paused").SetValue(core, true);
                 coreType.GetField("_transcript", Private).SetValue(core, "风格切换保留字幕");
                 selector.SelectedIndex = 1;
                 Check((bool)coreType.GetProperty("ParticleStyle").GetValue(core, null), "Setup selector enables the particle style");
                 Check((bool)coreType.GetField("Muted").GetValue(core), "Style switching preserves microphone mute");
                 Check((bool)coreType.GetField("OutputMuted").GetValue(core), "Style switching preserves speaker mute");
+                Check((bool)coreType.GetField("Paused").GetValue(core), "Style switching preserves pause");
                 Check((string)Field(core, "_transcript") == "风格切换保留字幕", "Style switching preserves captions");
                 Check(Field(form, "_session") == sessionBefore && !(bool)Field(form, "_dropPlayback"), "Style switching never replaces the call or flushes playback");
+                core.Size = new Size(1280, 800);
+                using (var paused = new Bitmap(1280, 800)) {
+                    core.DrawToBitmap(paused, new Rectangle(0, 0, 1280, 800));
+                    Check(Light(paused, .5, .22, .08, .09) > 30, "Changing style while paused keeps the figure visible");
+                }
                 coreType.GetField("Muted").SetValue(core, false);
                 coreType.GetField("OutputMuted").SetValue(core, false);
+                coreType.GetField("Paused").SetValue(core, false);
                 coreType.GetField("_transcript", Private).SetValue(core, "");
                 coreType.GetField("_visualSeconds", Private).SetValue(core, 2.0);
                 foreach (var size in new[] { new Size(1600, 900), new Size(1280, 800), new Size(1024, 768) })
