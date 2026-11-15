@@ -1,0 +1,110 @@
+[
+  {
+    "name": "01-presence",
+    "build": 0,
+    "exit": 0,
+    "focus": 0,
+    "presenceMove": 0,
+    "caption": "正在聆听",
+    "time": 0.7,
+    "interrupted": false,
+    "playing": false,
+    "tip": [
+      1292.8070156920494,
+      760.8691500343872
+    ],
+    "head": [
+      1377.5360474229951,
+      366.7545635604169
+    ],
+    "probe": {
+      "totalSegments": 2573,
+      "visibleSegments": 0,
+      "completeSegments": 0,
+      "build": 0,
+      "fade": 0
+    },
+    "renderer": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  {
+    "name": "02-building",
+    "build": 0.4242424242424241,
+    "exit": 0,
+    "focus": 0,
+    "presenceMove": 1,
+    "caption": "这个是温度探头。",
+    "time": 4.55,
+    "interrupted": false,
+    "playing": false,
+    "tip": [
+      1292.8070156920494,
+      760.8691500343872
+    ],
+    "head": [
+      1377.5360474229951,
+      366.7545635604169
+    ],
+    "probe": {
+      "totalSegments": 2573,
+      "visibleSegments": 352,
+      "completeSegments": 329,
+      "build": 0.4242424242424241,
+      "fade": 0
+    },
+    "renderer": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  {
+    "name": "03-probe-front",
+    "build": 1,
+    "exit": 0,
+    "focus": 1,
+    "presenceMove": 1,
+    "caption": "它的尖端是感温位置。",
+    "time": 6.6,
+    "interrupted": false,
+    "playing": false,
+    "tip": [
+      1293.3696057212828,
+      765.6238260739374
+    ],
+    "head": [
+      1388.5241738506722,
+      369.0342965263734
+    ],
+    "probe": {
+      "totalSegments": 2573,
+      "visibleSegments": 2573,
+      "completeSegments": 2573,
+      "build": 1,
+      "fade": 0
+    },
+    "renderer": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  {
+    "name": "04-probe-side",
+    "build": 1,
+    "exit": 0,
+    "focus": 1,
+    "presenceMove": 1,
+    "caption": "它的尖端是感温位置。",
+    "time": 6.6,
+    "interrupted": false,
+    "playing": false,
+    "tip": [
+      1287.031211402557,
+      748.6154103724939
+    ],
+    "head": [
+      1332.9276049661396,
+      357.63756486785826
+    ],
+    "probe": {
+      "totalSegments": 2573,
+      "visibleSegments": 2573,
+      "completeSegments": 2573,
+      "build": 1,
+      "fade": 0
+    },
+    "renderer": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  }
+]

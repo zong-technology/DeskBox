@@ -1,0 +1,28 @@
+name: DeskBox iOS simulator build
+"on":
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native SwiftUI application
+        run: |
+          xcodebuild -version
+          xcodebuild -project mobile/DeskBoxMobile/DeskBoxMobile.xcodeproj \
+            -scheme DeskBoxMobile -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/deskbox-ios" CODE_SIGNING_ALLOWED=NO build
+      - name: Package simulator application
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/deskbox-ios/Build/Products/Debug-iphonesimulator/DeskBoxMobile.app" \
+            "$RUNNER_TEMP/DeskBoxMobile-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskBoxMobile-simulator-not-iphone
+          path: ${{ runner.temp }}/DeskBoxMobile-simulator.zip
+          retention-days: 7
