@@ -1,10 +1,34 @@
-# DeskBox · 全息 AI 实时通话
+# DeskBox · NOVA 全息通讯舱
 
-原生 HTML / CSS / Canvas + Node.js，无第三方运行时依赖。动态粒子全息人像配合 OpenAI Realtime WebRTC 实时语音，支持打断、麦克风静音、挂断、声音与语言选择，以及实时字幕。全息形象为屏幕内的视觉效果，不需要投影硬件。
+DeskBox 软件内的沉浸式全息 AI 语音空间。Three.js / WebGL 三维粒子人像、面部轮廓、扫描线、泛光、多层空间投影环及透视网格，随倾听、思考和 AI 发声状态响应。桌面窗口内支持实时语音、直接打断、静音、挂断、字幕和设置；全息为屏幕内的空间视觉效果。
 
-## 本地运行
+![全息通讯舱实际界面](docs/holographic-chamber.png)
 
-使用 Node.js 22.9+（推荐 Node.js 24）。
+## 桌面软件
+
+需要 Node.js 22.9+（推荐 24）。
+
+```bash
+npm ci
+npm run desktop
+```
+
+在软件的「系统设置」中填写 OpenAI API 密钥，保存后点击「建立语音连接」。桌面模式会自动启动本机服务，无需另开浏览器或终端服务器。密钥不会返回页面，系统安全存储可用时通过 Electron safeStorage 加密存入当前用户目录；系统密钥链不可用时仅在本次运行的内存中使用。打包产物不包含开发者密钥。
+
+窗口默认启用 GPU 渲染。右上角可进入全屏，鼠标在投影上移动可改变观察角度。设置中可以选择声音、语言、回复音量和减少动态效果。没有密钥也可使用「启动全息演示」，该模式不启用麦克风，不生成虚假对话或连接指标。
+
+### 打包
+
+```bash
+# Windows x64，输出 release/DeskBox-0.1.0-win.zip
+npm run pack -- --win zip --x64
+# macOS：在对应架构的 Mac 上运行
+npm run pack -- --mac zip
+```
+
+Windows 压缩包解压后运行 DeskBox.exe。当前打包配置未做应用签名；Windows 实机音频、系统密钥库与 macOS 打包需要在对应系统验收。Electron 渲染进程启用隔离与沙箱，禁止 Node.js 访问、外部导航与弹窗，麦克风仅向本机应用页面开放。
+
+## 浏览器开发
 
 ```bash
 cp .env.example .env
@@ -12,24 +36,27 @@ cp .env.example .env
 npm start
 ```
 
-打开 http://127.0.0.1:3000 。无需 npm install。未配置密钥时可使用「体验全息效果」，该模式不会开启麦克风或模拟 AI 通话。
+打开 http://127.0.0.1:3000 。`npm start` 会先构建本地三维渲染资源；除可选的外部字体外，运行时不依赖 CDN。浏览器模式的 API 密钥在服务器环境变量配置，桌面模式也支持开发用 `.env`。
 
-## 真实通话
+## 真实语音
 
-1. 为 OpenAI API 账号配置有效密钥、可用额度及 `gpt-realtime-2.1` 模型权限。
-2. 点击「开始通话」并允许麦克风权限，即可与 NOVA 交谈。语音活动检测会自动回复，支持直接说话打断。
-3. 点击麦克风可静音；点击「结束通话」、连接失败或关闭页面时，会停止麦克风轨道并关闭连接。
+需要有效的 OpenAI API 密钥、可用额度及 `gpt-realtime-2.1` 模型权限。语音通过 WebRTC 与 OpenAI 连接，字幕转写使用 `gpt-4o-mini-transcribe`，会产生 API 费用。
 
-密钥仅在服务器使用，浏览器通过 `/api/call` 交换 SDP，随后通过 WebRTC 与 OpenAI 连接。语音发送至 OpenAI 处理；字幕只保留在当前页面内存中，刷新即清除。实时语音和字幕转写会产生 API 费用。
+语音活动检测自动回复，可直接说话打断。实际麦克风与 AI 输出音量驱动投影及波形，延迟来自 WebRTC 选中连接的往返时间，未连接时不显示虚构数据。字幕只保留在当前页面内存，刷新即清除。挂断、连接失败或关闭窗口会释放麦克风并关闭连接。
 
-远程访问必须使用 HTTPS（localhost 除外）并允许 WebRTC 网络通信。默认仅监听 `127.0.0.1`；如需设置 `HOST=0.0.0.0` 部署，必须先在反向代理添加身份验证与使用限额，避免任何访客消耗你的 API 额度。本版本用于本地单用户运行，未提供公共服务的登录和配额系统。
+浏览器远程访问需要 HTTPS（localhost 除外）并允许 WebRTC 网络通信。默认仅监听 `127.0.0.1`。如将服务公开，须先加上身份验证与使用配额；本版本定位为本地单用户软件。
 
 ## 验证
 
 ```bash
+npm run build
 npm test
 node --check public/app.js
-node --check server.mjs
+node --check desktop/main.mjs
 ```
 
-自动检查覆盖接口校验、跨站拦截、密钥隔离、SDP 转发、上游错误、通话生命周期与取消时的麦克风清理。真实麦克风、浏览器音频播放和 OpenAI 连通性需使用有效密钥做端到端验证。
+自动检查覆盖接口校验、跨站拦截、密钥隔离与切换、SDP 转发、上游错误、字幕、语音状态、取消连接时的麦克风清理。浏览器视觉检查覆盖全息渲染、演示、设置及窄屏布局。真实 OpenAI 通话仍需使用有效密钥做端到端验证。
+
+## 模型来源
+
+全息人像使用 Lee Perry-Smith 的 Infinite 3D Head Scan（[来源](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/LeePerrySmith)，CC BY 3.0，基于 www.triplegangers.com），转化为粒子和线框后渲染。授权说明位于 `public/assets/LeePerrySmith_License.txt`。模型加载失败时使用内置程序化人像。

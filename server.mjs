@@ -7,9 +7,12 @@ const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
+  ['/hologram.bundle.js', ['hologram.bundle.js', 'text/javascript; charset=utf-8']],
+  ['/assets/nova-head.glb', ['assets/nova-head.glb', 'model/gltf-binary']],
+  ['/assets/LeePerrySmith_License.txt', ['assets/LeePerrySmith_License.txt', 'text/plain; charset=utf-8']],
 ]);
 
-export function createServer({ apiKey = process.env.OPENAI_API_KEY, upstream = fetch } = {}) {
+export function createServer({ apiKey = process.env.OPENAI_API_KEY, getApiKey = () => apiKey, upstream = fetch } = {}) {
   return http.createServer(async (req, res) => {
     const send = (status, body, type = 'application/json') => {
       res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
@@ -17,14 +20,15 @@ export function createServer({ apiKey = process.env.OPENAI_API_KEY, upstream = f
     };
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (req.method === 'GET' && url.pathname === '/api/status') return send(200, { configured: Boolean(apiKey) });
+      if (req.method === 'GET' && url.pathname === '/api/status') return send(200, { configured: Boolean(getApiKey()) });
       if (req.method === 'POST' && url.pathname === '/api/call') {
         // Reject cross-origin use of the server's paid API credentials.
         const origin = req.headers.origin;
         if (!origin || !URL.canParse(origin) || new URL(origin).host !== req.headers.host || req.headers['sec-fetch-site'] === 'cross-site') {
           return send(403, { error: '不允许跨站发起通话。' });
         }
-        if (!apiKey) return send(503, { error: '语音服务尚未配置，请由管理员配置 OPENAI_API_KEY。' });
+        const key = getApiKey();
+        if (!key) return send(503, { error: '语音服务尚未配置，请在设置中配置服务密钥。' });
         if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: '请求格式错误。' });
         const chunks = [];
         let size = 0;
@@ -51,7 +55,7 @@ export function createServer({ apiKey = process.env.OPENAI_API_KEY, upstream = f
         form.set('sdp', body.sdp);
         form.set('session', JSON.stringify(session));
         const response = await upstream('https://api.openai.com/v1/realtime/calls', {
-          method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form,
+          method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form,
           signal: AbortSignal.timeout(25000),
         });
         if (!response.ok) {

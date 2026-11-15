@@ -10,6 +10,23 @@ let muted = false;
 let configured = false;
 let activity = 0;
 let assistantSpeaking = false;
+const visual = window.holoState = { mode: 'idle', mic: 0, output: 0 };
+
+function setMode(mode) {
+  visual.mode = mode;
+  document.body.dataset.mode = mode;
+  const labels = {
+    idle: ['AWAITING CONNECTION', '待命 · AWAITING LINK'],
+    connecting: ['ESTABLISHING LINK', '连接中 · CONNECTING'],
+    listening: ['LISTENING TO YOU', '倾听 · LISTENING'],
+    thinking: ['PROCESSING THOUGHT', '思考 · PROCESSING'],
+    speaking: ['VOICE RESPONSE ACTIVE', '回应 · SPEAKING'],
+    muted: ['MICROPHONE MUTED', '静音 · MUTED'],
+    preview: ['VISUAL PREVIEW ONLY', '演示 · VISUAL ONLY'],
+  };
+  $('mode-label').textContent = labels[mode][0];
+  $('core-state').textContent = labels[mode][1];
+}
 
 function notice(message, error = false) {
   $('notice').textContent = message;
@@ -23,16 +40,20 @@ function setState(next) {
   const connecting = next === 'connecting';
   callButton.classList.toggle('end', connected || connecting);
   callButton.querySelector('use').setAttribute('href', connected || connecting ? '#end' : '#phone');
-  callButton.querySelector('span').textContent = connecting ? '取消连接' : connected ? '结束通话' : '开始通话';
+  callButton.querySelector('span').textContent = connecting ? '取消连接' : connected ? '结束通话' : '建立语音连接';
   muteButton.disabled = !connected;
   $('voice').disabled = $('language').disabled = connected || connecting;
   previewButton.disabled = connected || connecting;
   $('live-badge').classList.toggle('active', connected || preview);
-  $('live-badge').innerHTML = `<i></i> ${connecting ? '连接中' : connected ? '通话中' : preview ? '视觉预览' : '待机中'}`;
-  $('call-label').textContent = connecting ? '正在连接 NOVA…' : connected ? '已连接 · 00:00' : '准备好开始了吗？';
-  $('call-detail').textContent = connected ? '自然交流，随时可以打断' : connecting ? '正在建立安全语音连接' : '开启麦克风，自然地说出你的想法';
-  $('stage-status').textContent = connecting ? '正在与你建立连接' : connected ? '我在听，请说吧' : preview ? '全息视觉预览 · 未连接语音' : '在这里，随时倾听';
-  $('transcript-indicator').textContent = connected ? '实时转写' : connecting ? '连接中' : '等待通话';
+  $('live-badge').innerHTML = `<i></i> ${connecting ? '连接中' : connected ? '通话中' : preview ? '视觉预览' : '系统待命'}`;
+  $('call-label').textContent = connecting ? '正在连接 NOVA…' : connected ? '已连接 · 00:00' : '准备建立连接';
+  $('call-detail').textContent = connected ? '自然交流 · 随时打断' : connecting ? '建立安全语音链路' : '实时语音 · 自然打断';
+  $('stage-status').textContent = connecting ? '正在与你建立连接…' : connected ? '我在听，请说吧。' : preview ? '全息视觉预览 · 未连接语音' : '我在这里，等待与你连接。';
+  $('transcript-indicator').textContent = connected ? 'LIVE TRANSCRIPT' : connecting ? 'CONNECTING' : 'STANDBY';
+  $('link-state').textContent = connected ? '已连接 / LIVE' : connecting ? '连接中' : '未连接';
+  $('mic-state').textContent = connected ? '已开启' : '未开启';
+  $('audio-state').textContent = connected ? '正在接收音频' : preview ? '视觉演示 · 无音频输入' : '等待音频输入';
+  setMode(connecting ? 'connecting' : connected ? 'listening' : preview ? 'preview' : 'idle');
 }
 
 function stopCall() {
@@ -42,6 +63,7 @@ function stopCall() {
     clearTimeout(session.timeout);
     clearTimeout(session.disconnectTimeout);
     clearInterval(session.timer);
+    clearInterval(session.statsTimer);
     session.abort.abort();
     session.channel?.close();
     session.peer?.close();
@@ -53,6 +75,9 @@ function stopCall() {
   muted = false;
   activity = 0;
   assistantSpeaking = false;
+  visual.mic = visual.output = 0;
+  $('latency').innerHTML = '— <small>ms</small>';
+  $('input-level').innerHTML = '— <small>dB</small>';
   muteButton.setAttribute('aria-pressed', 'false');
   muteButton.setAttribute('aria-label', '静音麦克风');
   setState('idle');
@@ -87,15 +112,26 @@ function onEvent(session, event) {
   if (event.type === 'conversation.item.input_audio_transcription.completed') addTranscript(session, event.item_id, 'user', event.transcript);
   if (event.type === 'response.output_audio_transcript.delta') addTranscript(session, event.item_id, 'assistant', event.delta, true);
   if (event.type === 'response.output_audio_transcript.done') addTranscript(session, event.item_id, 'assistant', event.transcript);
-  if (event.type === 'input_audio_buffer.speech_started') $('stage-status').textContent = '正在倾听你的声音…';
-  if (event.type === 'input_audio_buffer.speech_stopped') $('stage-status').textContent = '正在思考…';
+  if (event.type === 'input_audio_buffer.speech_started') {
+    session.userSpeaking = true;
+    assistantSpeaking = false;
+    setMode('listening');
+    $('stage-status').textContent = '正在倾听你的声音…';
+  }
+  if (event.type === 'input_audio_buffer.speech_stopped') {
+    session.userSpeaking = false;
+    setMode('thinking');
+    $('stage-status').textContent = '正在思考…';
+  }
   if (event.type === 'output_audio_buffer.started') {
     assistantSpeaking = true;
+    setMode('speaking');
     $('stage-status').textContent = 'NOVA 正在回应';
   }
   if (['output_audio_buffer.stopped', 'output_audio_buffer.cleared'].includes(event.type)) {
     assistantSpeaking = false;
-    $('stage-status').textContent = muted ? '麦克风已静音' : '我在听，请说吧';
+    setMode(muted ? 'muted' : 'listening');
+    $('stage-status').textContent = muted ? '麦克风已静音' : session.userSpeaking ? '正在倾听你的声音…' : '我在听，请说吧。';
   }
   if (event.type === 'conversation.item.input_audio_transcription.failed') notice('这句话的字幕转写失败，你仍可以继续通话。', true);
   if (event.type === 'response.done' && event.response?.status === 'failed') fail(session, 'AI 回应失败，请检查语音服务额度后重试。');
@@ -104,7 +140,8 @@ function onEvent(session, event) {
 
 async function startCall() {
   if (!configured) {
-    notice('语音服务尚未就绪，请先配置服务器密钥。你可以点击「体验全息效果」预览。', true);
+    notice('语音服务尚未就绪，可在设置中配置服务，或点击「启动全息演示」体验投影。', true);
+    if (window.deskbox) $('settings-dialog').showModal();
     return;
   }
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
@@ -113,7 +150,7 @@ async function startCall() {
   }
   preview = false;
   previewButton.setAttribute('aria-pressed', 'false');
-  previewButton.innerHTML = '体验全息效果 <svg><use href="#arrow"/></svg>';
+  previewLabel();
   const session = { abort: new AbortController(), entries: new Map() };
   current = session;
   setState('connecting');
@@ -130,6 +167,12 @@ async function startCall() {
     peer.ontrack = (event) => {
       if (session !== current) return;
       audio.srcObject = event.streams[0] || new MediaStream([event.track]);
+      if (session.context) {
+        session.outputAnalyser = session.context.createAnalyser();
+        session.outputAnalyser.fftSize = 256;
+        session.outputSamples = new Uint8Array(session.outputAnalyser.frequencyBinCount);
+        session.context.createMediaStreamSource(audio.srcObject).connect(session.outputAnalyser);
+      }
       audio.play().catch(() => { if (session === current) notice('浏览器暂停了声音播放，点击页面即可恢复。', true); });
     };
     peer.onconnectionstatechange = () => {
@@ -145,10 +188,20 @@ async function startCall() {
             const elapsed = Math.floor((Date.now() - session.started) / 1000);
             $('call-label').textContent = `已连接 · ${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
           }, 1000);
+          session.statsTimer = setInterval(async () => {
+            try {
+              const stats = await peer.getStats();
+              if (session !== current) return;
+              let selected;
+              stats.forEach((item) => { if (item.type === 'transport' && item.selectedCandidatePairId) selected = stats.get(item.selectedCandidatePairId); });
+              if (selected?.currentRoundTripTime !== undefined) $('latency').innerHTML = `${Math.round(selected.currentRoundTripTime * 1000)} <small>ms</small>`;
+            } catch { /* Stats may be unavailable while the connection recovers. */ }
+          }, 2000);
         }
       }
       if (peer.connectionState === 'failed' || peer.connectionState === 'closed') fail(session, '语音连接已断开，请重新发起通话。');
       if (peer.connectionState === 'disconnected') {
+        $('link-state').textContent = '正在恢复';
         notice('网络暂时断开，正在尝试恢复…', true);
         clearTimeout(session.disconnectTimeout);
         session.disconnectTimeout = setTimeout(() => fail(session, '网络连接已中断，请重新发起通话。'), 10000);
@@ -199,11 +252,17 @@ muteButton.addEventListener('click', () => {
   muteButton.setAttribute('aria-pressed', String(muted));
   muteButton.setAttribute('aria-label', muted ? '取消静音' : '静音麦克风');
   $('stage-status').textContent = muted ? '麦克风已静音' : '我在听，请说吧';
+  $('mic-state').textContent = muted ? '已静音' : '已开启';
+  $('audio-state').textContent = muted ? '麦克风已静音' : '正在接收音频';
+  if (!assistantSpeaking) setMode(muted ? 'muted' : 'listening');
 });
+function previewLabel() {
+  previewButton.innerHTML = `<svg><use href="#spark"/></svg><span>${preview ? '结束全息演示' : '启动全息演示'}<small>VISUAL PREVIEW · 无需麦克风</small></span><b>↗</b>`;
+}
 previewButton.addEventListener('click', () => {
   preview = !preview;
   previewButton.setAttribute('aria-pressed', String(preview));
-  previewButton.innerHTML = `${preview ? '结束视觉预览' : '体验全息效果'} <svg><use href="#arrow"/></svg>`;
+  previewLabel();
   setState('idle');
   notice(preview ? '正在预览全息动态效果 · 未开启麦克风，未连接 AI' : '麦克风仅在你发起通话后开启');
 });
@@ -211,121 +270,85 @@ document.addEventListener('click', () => {
   if (state === 'connected' && audio.paused && audio.srcObject) audio.play().then(() => notice('声音播放已恢复。')).catch(() => {});
 });
 window.addEventListener('pagehide', stopCall);
+function updateService(ready) {
+  configured = ready;
+  $('service-status').classList.toggle('ready', configured);
+  $('service-status').innerHTML = `<i></i>${configured ? '语音服务就绪' : '语音服务待配置'}`;
+}
 fetch('/api/status').then((response) => {
   if (!response.ok) throw new Error('status unavailable');
   return response.json();
 }).then((status) => {
-  configured = status.configured === true;
-  $('service-status').classList.toggle('ready', configured);
-  $('service-status').innerHTML = `<i></i>${configured ? '语音服务已就绪' : '语音服务待配置'}`;
+  updateService(status.configured === true);
 }).catch(() => { $('service-status').innerHTML = '<i></i>语音服务不可用'; });
 
-// A procedural point-cloud bust: no image assets, 3D runtime, or tracking needed.
-const canvas = $('hologram');
-const ctx = canvas.getContext('2d');
-const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const points = [];
-let width = 0, height = 0;
-let lastFrame = 0;
-for (let row = 0; row < 91; row++) {
-  const v = row / 90;
-  const y = -1.23 + v * 1.65;
-  const slice = Math.sin(Math.PI * v) ** .55;
-  const jaw = v > .57 ? 1 - (v - .57) * .75 : 1;
-  for (let col = 0; col < 105; col++) {
-    const angle = col / 105 * Math.PI * 2;
-    let x = Math.cos(angle) * .57 * slice * jaw;
-    let z = Math.sin(angle) * .46 * slice;
-    const front = Math.max(0, -Math.sin(angle));
-    // Sculpt nose, brow, eye sockets, and mouth into the front of the head.
-    const nose = Math.exp(-((x / .10) ** 2) - ((y + .33) / .22) ** 2) * .20;
-    const eyes = Math.exp(-(((Math.abs(x) - .22) / .11) ** 2) - ((y + .52) / .055) ** 2);
-    const mouth = Math.exp(-((x / .21) ** 2) - ((y + .02) / .035) ** 2);
-    z -= front ** 7 * (nose - eyes * .07 - mouth * .05);
-    points.push({ x, y, z, glow: eyes * front ** 10, seed: col + row * 1.9 });
-  }
+for (const id of ['open-settings', 'console-settings']) $(id).addEventListener('click', () => $('settings-dialog').showModal());
+for (const id of ['close-settings', 'done-settings']) $(id).addEventListener('click', () => $('settings-dialog').close());
+$('volume').addEventListener('input', () => { audio.volume = Number($('volume').value); });
+$('motion').addEventListener('change', () => { document.body.dataset.motion = $('motion').value; });
+$('fullscreen').addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen();
+  } catch { notice('当前窗口无法进入全屏，可尝试最大化窗口。', true); }
+});
+document.addEventListener('fullscreenchange', () => $('fullscreen').setAttribute('aria-label', document.fullscreenElement ? '退出全屏' : '进入全屏'));
+if (window.deskbox) {
+  $('desktop-key-settings').hidden = false;
+  $('web-key-notice').hidden = true;
+  $('save-key').addEventListener('click', async () => {
+    const key = $('api-key').value.trim();
+    if (!key) { $('key-notice').textContent = '请输入有效的 API 密钥。'; return; }
+    $('save-key').disabled = true;
+    try {
+      const result = await window.deskbox.saveApiKey(key);
+      $('api-key').value = '';
+      updateService(result.configured);
+      $('key-notice').textContent = result.persisted ? '已加密保存到此设备，密钥有效性将在通话时验证。' : '密钥仅在本次运行中使用：系统安全存储当前不可用。';
+      notice('服务密钥已配置，可以建立语音连接。');
+    } catch { $('key-notice').textContent = '保存失败，请检查密钥格式和系统存储权限。'; }
+    finally { $('save-key').disabled = false; }
+  });
 }
-for (let row = 0; row < 28; row++) {
-  const v = row / 27;
-  for (let col = 0; col < 110; col++) {
-    const a = col / 110 * Math.PI * 2;
-    const radius = .21 + Math.max(0, v - .27) ** .7 * 1.05;
-    points.push({ x: Math.cos(a) * radius, y: .30 + v * .65, z: Math.sin(a) * (.20 + v * .14), glow: 0, seed: col + row });
-  }
-}
-new ResizeObserver(([entry]) => {
-  width = entry.contentRect.width;
-  height = entry.contentRect.height;
-  const ratio = Math.min(devicePixelRatio || 1, 2);
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-}).observe(canvas);
 
-function draw(timestamp) {
-  requestAnimationFrame(draw);
-  if (document.hidden || timestamp - lastFrame < (reducedMotion.matches ? 250 : 32)) return;
-  lastFrame = timestamp;
-  const t = reducedMotion.matches ? 0 : timestamp / 1000;
-  if (current?.analyser && !muted) {
-    current.analyser.getByteTimeDomainData(current.samples);
-    const rms = Math.sqrt(current.samples.reduce((sum, sample) => sum + ((sample - 128) / 128) ** 2, 0) / current.samples.length);
-    activity += (Math.min(1, rms * 7) - activity) * .2;
-  } else activity *= .9;
-  const energy = Math.max(activity, assistantSpeaking ? .5 + Math.sin(t * 9) * .18 : preview ? .4 + Math.sin(t * 3) * .2 : 0);
-  ctx.clearRect(0, 0, width, height);
-  const scale = Math.min(width * .31, height * .32);
-  const centerX = width / 2;
-  const centerY = height * .43;
-  const rotation = -.12 + Math.sin(t * .4) * .14;
-  const cos = Math.cos(rotation), sin = Math.sin(rotation);
-  const baseY = centerY + scale * 1.15;
-  const glow = ctx.createRadialGradient(centerX, centerY, 5, centerX, centerY, scale * 1.5);
-  glow.addColorStop(0, `rgba(52,220,206,${.04 + energy * .035})`);
-  glow.addColorStop(1, 'rgba(52,220,206,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, width, height);
-  ctx.save();
-  ctx.strokeStyle = '#73e7d2';
-  for (let i = 0; i < 5; i++) {
-    ctx.globalAlpha = .12 + i * .025;
-    ctx.lineWidth = i === 3 ? 1.5 : .7;
-    ctx.beginPath();
-    ctx.ellipse(centerX, baseY + i * 3, scale * (1.02 + i * .07), scale * (.13 + i * .015), 0, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  // Projection rays rise from the base; brighter during speech.
-  const beam = ctx.createLinearGradient(0, centerY - scale, 0, baseY);
-  beam.addColorStop(0, 'rgba(81,241,215,0)');
-  beam.addColorStop(1, `rgba(81,241,215,${.035 + energy * .025})`);
-  ctx.fillStyle = beam;
-  ctx.globalAlpha = 1;
-  ctx.beginPath();
-  ctx.moveTo(centerX - scale * .65, centerY - scale);
-  ctx.lineTo(centerX + scale * .65, centerY - scale);
-  ctx.lineTo(centerX + scale * 1.1, baseY);
-  ctx.lineTo(centerX - scale * 1.1, baseY);
-  ctx.fill();
-  for (const point of points) {
-    const x = point.x * cos + point.z * sin;
-    const z = -point.x * sin + point.z * cos;
-    const depth = 3 / (3 + z);
-    const flicker = .75 + Math.sin(point.seed * 3 + t * 1.4) * .25;
-    const scan = Math.max(0, 1 - Math.abs(point.y - ((t * .3) % 2.4 - 1.3)) * 12);
-    ctx.globalAlpha = Math.min(1, (z < 0 ? .64 : .15) * flicker + point.glow * .7 + scan * .25 + energy * .09);
-    ctx.fillStyle = point.glow > .45 ? '#c3fff1' : '#6cebd8';
-    const jitter = energy * Math.sin(point.seed + t * 7) * .005;
-    const size = (point.glow > .45 ? 1.45 : .85) * depth;
-    ctx.fillRect(centerX + (x + jitter) * scale * depth, centerY + (point.y + Math.sin(t * .8) * .018) * scale * depth, size, size);
-  }
-  // A sparse field gives the projection depth without obscuring the face.
-  ctx.fillStyle = '#7debd9';
-  for (let i = 0; i < 55; i++) {
-    const x = centerX + Math.sin(i * 127.1) * scale * 1.5;
-    const y = centerY + (((i * .791 - t * .06) % 2.7 + 2.7) % 2.7 - 1.5) * scale;
-    ctx.globalAlpha = .08 + (Math.sin(i + t) + 1) * .1;
-    ctx.fillRect(x, y, 1, 1);
-  }
-  ctx.restore();
+const waveform = $('waveform');
+const waveContext = waveform.getContext('2d');
+let waveWidth = 200, waveHeight = 55, previousFrame = 0;
+new ResizeObserver(([entry]) => {
+  waveWidth = entry.contentRect.width;
+  waveHeight = entry.contentRect.height;
+  const ratio = Math.min(devicePixelRatio || 1, 2);
+  waveform.width = waveWidth * ratio;
+  waveform.height = waveHeight * ratio;
+  waveContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+}).observe(waveform);
+function sample(analyser, values) {
+  if (!analyser) return 0;
+  analyser.getByteTimeDomainData(values);
+  return Math.sqrt(values.reduce((sum, value) => sum + ((value - 128) / 128) ** 2, 0) / values.length);
 }
-requestAnimationFrame(draw);
+function updateAudio(timestamp) {
+  requestAnimationFrame(updateAudio);
+  if (document.hidden || timestamp - previousFrame < 40) return;
+  previousFrame = timestamp;
+  const rms = current && !muted ? sample(current.analyser, current.samples) : 0;
+  activity += (Math.min(1, rms * 8) - activity) * .25;
+  visual.mic = activity;
+  visual.output = current ? Math.min(1, sample(current.outputAnalyser, current.outputSamples) * 6) : 0;
+  if (state === 'connected') $('input-level').innerHTML = `${rms > .001 ? Math.round(20 * Math.log10(rms)) : '−∞'} <small>dB</small>`;
+  waveContext.clearRect(0, 0, waveWidth, waveHeight);
+  waveContext.strokeStyle = '#1c3a4b';
+  waveContext.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    waveContext.beginPath(); waveContext.moveTo(0, waveHeight * i / 4); waveContext.lineTo(waveWidth, waveHeight * i / 4); waveContext.stroke();
+  }
+  waveContext.beginPath();
+  waveContext.strokeStyle = muted ? '#598095' : '#64d7ee';
+  for (let i = 0; i < 100; i++) {
+    const value = current?.samples && !muted ? (current.samples[Math.floor(i / 100 * current.samples.length)] - 128) / 128 : 0;
+    const y = waveHeight / 2 + value * waveHeight * 1.8;
+    if (i === 0) waveContext.moveTo(0, y); else waveContext.lineTo(i / 99 * waveWidth, y);
+  }
+  waveContext.stroke();
+}
+requestAnimationFrame(updateAudio);

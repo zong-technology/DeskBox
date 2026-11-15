@@ -16,7 +16,7 @@ function call(url, body, headers = {}) {
 test('serves the app and reports missing credentials without revealing secrets', async (t) => {
   const url = await serve(t, { apiKey: '' });
   assert.deepEqual(await (await fetch(`${url}/api/status`)).json(), { configured: false });
-  assert.match(await (await fetch(url)).text(), /全息通话/);
+  assert.match(await (await fetch(url)).text(), /全息通讯舱/);
   assert.equal((await fetch(`${url}/app.js`)).headers.get('content-type'), 'text/javascript; charset=utf-8');
   assert.equal((await fetch(`${url}/.env`)).status, 404);
   assert.equal((await fetch(`${url}/%2e%2e/server.mjs`)).status, 404);
@@ -68,4 +68,19 @@ test('sanitizes upstream failures and handles network timeouts', async (t) => {
   }
   const url = await serve(t, { apiKey: 'test-secret', upstream: async () => { throw new DOMException('timeout', 'TimeoutError'); } });
   assert.equal((await call(url, { sdp: 'v=0', voice: 'marin', language: 'zh' })).status, 504);
+});
+
+test('desktop credentials can be configured without restarting or exposing the key', async (t) => {
+  let key = '';
+  const url = await serve(t, {
+    getApiKey: () => key,
+    upstream: async (_, options) => {
+      assert.equal(options.headers.Authorization, 'Bearer runtime-secret');
+      return new Response('v=0 answer');
+    },
+  });
+  assert.deepEqual(await (await fetch(`${url}/api/status`)).json(), { configured: false });
+  key = 'runtime-secret';
+  assert.deepEqual(await (await fetch(`${url}/api/status`)).json(), { configured: true });
+  assert.equal((await call(url, { sdp: 'v=0', voice: 'marin', language: 'zh' })).status, 200);
 });

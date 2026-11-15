@@ -76,11 +76,18 @@ test('visual preview never opens the microphone; real call can mute, show transc
   assert.equal(b.peer().connectionState, 'connected');
   assert.equal(b.element('mute').disabled, false);
   assert.equal(b.element('voice').disabled, true);
+  assert.equal(b.element('core-state').textContent, '倾听 · LISTENING');
   b.element('mute').click();
   assert.equal(b.track.enabled, false);
   b.element('mute').click();
   assert.equal(b.track.enabled, true);
   const channel = b.peer().channel;
+  channel.onmessage({ data: JSON.stringify({ type: 'input_audio_buffer.speech_stopped' }) });
+  assert.equal(b.element('core-state').textContent, '思考 · PROCESSING');
+  channel.onmessage({ data: JSON.stringify({ type: 'output_audio_buffer.started' }) });
+  assert.equal(b.element('core-state').textContent, '回应 · SPEAKING');
+  channel.onmessage({ data: JSON.stringify({ type: 'input_audio_buffer.speech_started' }) });
+  assert.equal(b.element('core-state').textContent, '倾听 · LISTENING');
   channel.onmessage({ data: JSON.stringify({ type: 'response.output_audio_transcript.delta', item_id: 'a', delta: '<hello>' }) });
   channel.onmessage({ data: JSON.stringify({ type: 'response.output_audio_transcript.delta', item_id: 'a', delta: ' world' }) });
   const entry = b.element('transcript').children[0];
