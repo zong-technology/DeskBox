@@ -1,7 +1,7 @@
 name: Windows hologram candidate
 on:
   pull_request:
-    paths: ['src/**', 'assets/**', 'public/assets/**', 'build.ps1', 'tools/silverwing-accept.cs', '.github/workflows/windows-hologram.yml']
+    paths: ['src/**', 'assets/**', 'public/assets/**', 'packaging/**', 'build.ps1', 'tools/silverwing-accept.cs', 'tools/package-windows.ps1', 'tools/setup-accept.ps1', 'tools/rollback-install.ps1', 'tools/ui-regression.ps1', '.github/workflows/windows-hologram.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,3 +32,34 @@ jobs:
             dist/SHA256.txt
             dist/hologram-qa/
           if-no-files-found: error
+      - name: Prepare Windows installer compiler
+        shell: powershell
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+      - name: Package Windows setup
+        shell: powershell
+        run: .\tools\package-windows.ps1
+      - name: Verify installation, upgrade, rollback and installed UI
+        timeout-minutes: 8
+        shell: powershell
+        run: .\tools\setup-accept.ps1 -SetupPath .\dist\installer\DeskBox-2.1.0-hologram.1-Setup.exe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBox-Windows-Setup
+          path: dist/installer/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBox-Windows-Install-Checks
+          path: |
+            dist/installer-qa/*.log
+            dist/installer-qa/*.json
+            dist/installer-qa/*.png
+            dist/installer-qa/installed-hologram/
+            dist/ui-qa-*/*.log
+            dist/ui-qa-*/**/*.png
