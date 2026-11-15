@@ -214,6 +214,11 @@ namespace DeskBox.UI.Views
             host.Controls.Add(btnSettings);
             y += 44;
 
+            var hologram = new DarkButton("全息 AI 通话") { Left = 4, Top = y, Width = 200 };
+            hologram.Click += delegate { var main = FindForm() as MainForm; if (main != null) main.ShowLiveVoice(); };
+            host.Controls.Add(hologram);
+            y += 44;
+
             host.Controls.Add(new Label { Text = "工程快捷提示", Left = 4, Top = y, AutoSize = true, ForeColor = Palette.TextDim, Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold), BackColor = Palette.Bg });
             y += 26;
             AddPromptButton(host, "PLC 故障树", "请按“现象→可能原因→低风险检查→修复→回退验证”的结构分析以下 PLC 故障：", 4, y);

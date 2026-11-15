@@ -36,9 +36,13 @@ internal static class SilverwingAccept
             using (var form = (Form)Activator.CreateInstance(type, true))
             {
                 Console.WriteLine("Creating preview window");
-                form.Show();
-                Application.DoEvents();
                 var core = (Control)Field(form, "_core");
+                var timer = (Timer)Field(core, "_animation");
+                timer.Stop(); // Deterministic captures must not pump an endless animated WM_PAINT queue.
+                form.Show();
+                Console.WriteLine("Window created");
+                Application.DoEvents();
+                Console.WriteLine("Initial paint completed");
                 var coreType = core.GetType();
                 Check((string)Field(core, "_scene") == "avatar", "Default scene is the reference character");
                 Button preview = null;
@@ -91,7 +95,7 @@ internal static class SilverwingAccept
                     core.DrawToBitmap(bitmap, new Rectangle(0, 0, 1280, 800));
                     bitmap.Save(Path.Combine(output, "native-reduced-muted.png"), ImageFormat.Png);
                 }
-                var timer = (Timer)Field(core, "_animation");
+                timer.Start();
                 Console.WriteLine("Disposing preview window");
                 form.Close();
                 Check(!timer.Enabled, "Closing disposes the animation timer");

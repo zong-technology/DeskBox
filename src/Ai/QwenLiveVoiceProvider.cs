@@ -124,7 +124,7 @@ namespace DeskBox.Ai
             const string instructions = "默认用简体中文交流。没有设备实时数据时，明确说明是工程示意。话题切换到反应器、PLC 通信或项目进度时，调用一次 deskbox_show_scene。收到工具结果后直接口头答复，不重复调用。项目进度由本地界面显示，勿编造。";
             var tools = new[] { new { type = "function", function = new {
                 name = VoiceSceneCall.ToolName,
-                description = "切换 DeskBox 的本地场景。reactor=反应器示意，plc=PLC 通信拓扑示意，progress=当前项目进度，core=返回智能核心。",
+                description = "切换 DeskBox 的本地场景。avatar=返回默认银紫龙翼全身投影，reactor=反应器示意，plc=PLC 通信拓扑示意，progress=当前项目进度，core=用户指定的无面孔核心。",
                 parameters = new { type = "object", properties = new { scene = new { type = "string", @enum = VoiceSceneCall.Allowed } },
                     required = new[] { "scene" } }
             } } };

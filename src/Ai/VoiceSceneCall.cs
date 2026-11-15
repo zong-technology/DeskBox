@@ -8,7 +8,7 @@ namespace DeskBox.Ai
     internal sealed class VoiceSceneCall
     {
         public const string ToolName = "deskbox_show_scene";
-        public static readonly string[] Allowed = { "core", "reactor", "plc", "progress" };
+        public static readonly string[] Allowed = { "avatar", "core", "reactor", "plc", "progress" };
         public readonly string Id, Scene;
 
         public VoiceSceneCall(string id, string name, string arguments)
