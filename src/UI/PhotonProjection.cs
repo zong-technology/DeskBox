@@ -46,7 +46,7 @@ namespace DeskBox.UI
                             Y = y / (float)source.Height,
                             Phase = phase,
                             Depth = (float)Math.Cos((x / (float)source.Width - .5f) * Math.PI) * .6f + phase * .4f,
-                            Light = (byte)(35 + luminance * 195), Edge = edge,
+                            Light = (byte)(15 + Math.Pow(luminance, 2.4) * 240), Edge = edge,
                         });
                     }
             }
@@ -83,7 +83,8 @@ namespace DeskBox.UI
                 float wave = (float)Math.Sin(time * .9f + point.Phase * 6.28f);
                 float x = padding + point.X * body.Width;
                 float y = padding + point.Y * body.Height;
-                x += wave * point.Depth * body.Width * .006f * motion;
+                bool face = point.Y < .24f && point.Y > .07f && Math.Abs(point.X - .5f) < .15f;
+                x += (float)Math.Sin(time * .7f + point.Y * 5) * point.Depth * body.Width * (face ? .001f : .006f) * motion;
                 x += (point.Phase - .5f) * body.Width * assembling * .22f;
                 y += (1 - point.Y) * body.Height * assembling * .7f;
                 // The central face stays stable; motion is shallow and never rotates the illustration.
@@ -92,19 +93,26 @@ namespace DeskBox.UI
                 float sweep = reduced ? 0 : Math.Max(0, 1 - Math.Abs(point.Y - scan) * 24);
                 float shimmer = reduced ? 1 : .88f + .12f * (float)Math.Sin(time * 1.1f + point.Phase * 24);
                 float intensity = (point.Light / 255f) * shimmer * (.65f + strength * .45f + energy * .2f) + sweep * strength * .24f;
-                int alpha = (int)(Math.Min(1, intensity) * (point.Edge ? 210 : 170) * reveal);
+                int alpha = (int)(Math.Min(1, intensity) * (point.Edge ? 255 : 240) * reveal);
                 float violet = speaking ? .7f : .22f + point.Phase * .32f;
                 int red = muted ? 135 : (int)(95 + violet * 116);
                 int green = muted ? 169 : (int)(225 - violet * 38);
                 int blue = 255;
-                Dot(x, y, red, green, blue, alpha);
-                if (point.Edge || i % 9 == 0)
+                Dot(x, y, red, green, blue, (int)(alpha * 1.85f));
                 {
-                    int glow = (int)(alpha * (.10f + strength * .12f));
+                    int glow = (int)(alpha * (.16f + strength * .20f));
                     Add((int)x - 1, (int)y, red, green, blue, glow);
                     Add((int)x + 1, (int)y, red, green, blue, glow);
                     Add((int)x, (int)y - 1, red, green, blue, glow);
                     Add((int)x, (int)y + 1, red, green, blue, glow);
+                }
+                if (i % 67 == 0)
+                {
+                    Dot(x, y, 225, 245, 255, alpha);
+                    Add((int)x - 2, (int)y, red, green, blue, alpha / 5);
+                    Add((int)x + 2, (int)y, red, green, blue, alpha / 5);
+                    Add((int)x, (int)y - 2, red, green, blue, alpha / 5);
+                    Add((int)x, (int)y + 2, red, green, blue, alpha / 5);
                 }
                 if (i % 7 == 0)
                     Dot(padding + point.X * body.Width, padding + body.Height + (1 - point.Y) * body.Height * .09f,

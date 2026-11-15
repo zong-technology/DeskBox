@@ -397,7 +397,7 @@ namespace DeskBox.UI
             private float _probeReveal, _tipReveal;
             private DateTime _signalAt;
             private readonly ContextMenuStrip _sceneMenu = new ContextMenuStrip();
-            private readonly ContextMenuStrip _styleMenu = new ContextMenuStrip();
+            private readonly ContextMenuStrip _styleMenu = MenuBuilder.Create(Palette.For("midnight", "#b9a4ff"));
             private string _transcript = "";
             private readonly Dictionary<string, Rectangle> _actions = new Dictionary<string, Rectangle>();
             private DateTime _started;
@@ -541,6 +541,7 @@ namespace DeskBox.UI
                 };
                 _animation.Start();
                 BackColor = Color.FromArgb(9, 21, 36);
+                _styleMenu.ShowCheckMargin = true;
                 _styleMenu.Items.Add(new ToolStripMenuItem("银紫龙翼 · 原画全息", null, delegate { SetProjectionStyle(false); }) { Checked = true });
                 _styleMenu.Items.Add(new ToolStripMenuItem("星辉光粒子 · 全身投影", null, delegate { SetProjectionStyle(true); }));
                 _sceneMenu.Items.Add("银紫龙翼全身投影", null, delegate { ClearProjection(); ShowScene("avatar"); });
