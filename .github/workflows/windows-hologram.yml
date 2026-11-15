@@ -1,7 +1,5 @@
 name: Windows hologram candidate
 on:
-  push:
-    branches: [feat/holographic-ai-call]
   pull_request:
     paths: ['src/**', 'assets/**', 'public/assets/**', 'build.ps1', 'tools/silverwing-accept.cs', '.github/workflows/windows-hologram.yml']
   workflow_dispatch:
@@ -16,6 +14,7 @@ jobs:
         shell: powershell
         run: .\build.ps1 -OutDir dist -NoPause
       - name: Exercise isolated native projection and preview
+        timeout-minutes: 2
         shell: powershell
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'

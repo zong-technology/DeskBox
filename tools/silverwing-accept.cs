@@ -19,6 +19,8 @@ internal static class SilverwingAccept
     {
         try
         {
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
+            Console.WriteLine("Loading isolated native renderer");
             var assembly = Assembly.LoadFrom(Path.GetFullPath(args[0]));
             string output = Path.GetFullPath(args[1]);
             Directory.CreateDirectory(output);
@@ -33,6 +35,7 @@ internal static class SilverwingAccept
             var type = assembly.GetType("DeskBox.UI.LiveVoiceForm", true);
             using (var form = (Form)Activator.CreateInstance(type, true))
             {
+                Console.WriteLine("Creating preview window");
                 form.Show();
                 Application.DoEvents();
                 var core = (Control)Field(form, "_core");
@@ -50,6 +53,8 @@ internal static class SilverwingAccept
 
                 foreach (var size in new[] { new Size(1600, 900), new Size(1280, 800), new Size(1024, 768) })
                 {
+                    Console.WriteLine("Rendering " + size);
+                    core.Dock = DockStyle.None;
                     core.Size = size;
                     using (var bitmap = new Bitmap(size.Width, size.Height))
                     {
@@ -87,6 +92,7 @@ internal static class SilverwingAccept
                     bitmap.Save(Path.Combine(output, "native-reduced-muted.png"), ImageFormat.Png);
                 }
                 var timer = (Timer)Field(core, "_animation");
+                Console.WriteLine("Disposing preview window");
                 form.Close();
                 Check(!timer.Enabled, "Closing disposes the animation timer");
             }
