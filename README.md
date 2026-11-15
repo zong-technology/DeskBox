@@ -12,7 +12,7 @@
 
 AI&SI 实际文档读取与内容搜索：[文档技能使用说明](docs/AI文档技能使用说明.md)。
 
-AI&SI 的「全息 AI 通话」已接入银紫龙翼全身角色，直接使用原生实时语音界面和千问 / Gemini 语音链路。角色、分层底座、倒影和状态光效由 WinForms 绘制并嵌入 EXE；无需 Node、Electron 或浏览器。可先点击「预览全息（无需麦克风）」查看，再配置实时语音服务。使用方式与验证边界见 [全息通话说明](docs/SILVERWING-NATIVE.md)。
+AI&SI 的「全息 AI 通话」已接入银紫龙翼全身角色，直接使用原生实时语音界面和千问 / Gemini 语音链路。角色、分层底座、倒影和状态光效由 WinForms 绘制并嵌入 EXE；无需 Node、Electron 或浏览器。可先点击「预览全息（无需麦克风）」查看，再配置实时语音服务。「更改全息风格」可在原画全息与新增的星辉光粒子之间切换，通话连接和字幕保持。使用方式与验证边界见 [全息通话说明](docs/SILVERWING-NATIVE.md)。
 
 ![原生 WinForms 全息预览（隔离检查宿主）](docs/silverwing-native.png)
 
