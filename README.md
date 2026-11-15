@@ -14,6 +14,8 @@ AI&SI 实际文档读取与内容搜索：[文档技能使用说明](docs/AI文�
 
 AI&SI 的「全息 AI 通话」已接入银紫龙翼全身角色，直接使用原生实时语音界面和千问 / Gemini 语音链路。角色、分层底座、倒影和状态光效由 WinForms 绘制并嵌入 EXE；无需 Node、Electron 或浏览器。可先点击「预览全息（无需麦克风）」查看，再配置实时语音服务。使用方式与验证边界见 [全息通话说明](docs/SILVERWING-NATIVE.md)。
 
+![原生 WinForms 全息预览（隔离检查宿主）](docs/silverwing-native.png)
+
 最新验证版本与启动路径：[当前版本说明](docs/LATEST-REVIEW.md)。不同路径的旧进程必须从托盘退出后，才能加载新程序功能。
 
 面向自动化、DCS、Siemens PLC、系统工程与制药设备验证工作：

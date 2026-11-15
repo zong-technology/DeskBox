@@ -42,3 +42,7 @@ $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 检查宿主只创建实时语音窗体和离屏绘图，不启动 DeskBox 主程序、不调用服务商、不读取音频设备。它检查嵌入资源、预览无会话、返回状态、控制边界、定时器释放，并在 1600×900、1280×800、1024×768 保存 WinForms 渲染图。GitHub Actions 的 `Windows hologram candidate` 自动执行相同检查，提供候选 EXE 与截图。
 
 这些检查不替代 Windows 用户桌面的实际 DPI、麦克风、服务配额、通话延迟、安装升级和回退验收；参考仓库既有 `docs/UI-TOOLCHAIN.md`。真实千问 / Gemini 通话需要有效密钥；云端工作区没有使用用户的生产数据或安装目录。
+
+本轮验证：Windows Server 2025 / .NET Framework 原生编译通过（5 条既有警告），129 项资源、预览状态与布局断言通过，三个尺寸的原生绘制截图已核对。1280×800 离屏宿主中，缓存后的 6 帧平均绘制耗时 24.7 ms；此值不是用户设备上的帧率保证。可选 Web 预览的 10 项自动检查通过，Chromium 确认专注视图、Esc 返回、窄屏无横向溢出和 WebGL 上下文恢复。
+
+构建与检查记录：https://github.com/zong-technology/DeskBox/actions/runs/43725606338 。原生预览图见 `docs/silverwing-native.png`；真实服务端通话没有在该检查中发起。
