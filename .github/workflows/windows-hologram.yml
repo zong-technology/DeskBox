@@ -1,0 +1,35 @@
+name: Windows hologram candidate
+on:
+  push:
+    branches: [feat/holographic-ai-call]
+  pull_request:
+    paths: ['src/**', 'assets/**', 'public/assets/**', 'build.ps1', 'tools/silverwing-accept.cs', '.github/workflows/windows-hologram.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native DeskBox
+        shell: powershell
+        run: .\build.ps1 -OutDir dist -NoPause
+      - name: Exercise isolated native projection and preview
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:dist\silverwing-accept.exe tools\silverwing-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Acceptance host compile failed' }
+          & .\dist\silverwing-accept.exe .\dist\DeskBox.exe .\dist\hologram-qa
+          if ($LASTEXITCODE -ne 0) { throw 'Native hologram checks failed' }
+          Get-FileHash .\dist\DeskBox.exe -Algorithm SHA256 | Format-List | Out-File .\dist\SHA256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBox-Native-Silverwing
+          path: |
+            dist/DeskBox.exe
+            dist/SHA256.txt
+            dist/hologram-qa/
+          if-no-files-found: error

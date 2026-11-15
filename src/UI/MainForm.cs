@@ -2041,7 +2041,7 @@ namespace DeskBox.UI
         internal void ShowLiveVoice()
         {
             if (_liveVoice != null) return;
-            var voice = new LiveVoiceForm(() => _workspaces.Current);
+            var voice = new LiveVoiceForm(() => _workspaces.Current, _providers);
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
             voice.Disposed += delegate

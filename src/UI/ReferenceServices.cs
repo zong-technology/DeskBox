@@ -24,7 +24,7 @@ namespace DeskBox.UI
             DarkButton allFiles = null, currentProject = null;
             if(id=="ai")
             {
-                SetSampleHeading(page, "ENGINEERING COPILOT", "实时语音", () =>
+                SetSampleHeading(page, "ENGINEERING COPILOT", "全息 AI 通话", () =>
                 {
                     var main = FindForm() as MainForm;
                     if (main != null) main.ShowLiveVoice();

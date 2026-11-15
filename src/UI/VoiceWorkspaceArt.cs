@@ -35,7 +35,7 @@ namespace DeskBox.UI
         public static void Draw(Graphics g, Size size, bool speaking, bool muted, double level,
             string elapsed, string scene, EngineerWorkspace workspace, bool paused, bool outputMuted,
             bool captions, string transcript, double yaw, double pitch, double zoom,
-            float reveal, float focus, bool reduced, Dictionary<string, Rectangle> actions)
+            float reveal, float focus, bool reduced, bool preview, double seconds, float strength, Dictionary<string, Rectangle> actions)
         {
             g.Clear(Page);
             actions.Clear();
@@ -43,7 +43,7 @@ namespace DeskBox.UI
                 new Rectangle(x * size.Width / 1920, y * size.Height / 1080,
                     Math.Max(1, w * size.Width / 1920), Math.Max(1, h * size.Height / 1080));
             float scale = Math.Max(.65f, Math.Min(1.2f, size.Width / 1920f));
-            string status = paused ? "已暂停" : speaking ? "AI 正在回答" : muted ? "麦克风已关闭" : "正在聆听";
+            string status = preview ? "全息预览 · 未连接语音 / 麦克风未开启" : paused ? "已暂停" : speaking ? "AI 正在回答" : muted ? "麦克风已关闭" : "正在聆听";
             using (var small = new Font("Microsoft YaHei UI", 12 * scale))
             using (var title = new Font(small.FontFamily, 15 * scale, FontStyle.Bold))
             using (var caption = new Font(small.FontFamily, 21 * scale))
@@ -51,22 +51,25 @@ namespace DeskBox.UI
             using (var frame = Palette.RoundedRect(bounds(24, 24, 1872, 1032), 12))
             {
                 g.DrawPath(border, frame);
-                Label(g, "DESKBOX  LIVE  WORKBENCH", title, Text, bounds(76, 55, 605, 55), false);
+                Label(g, "DESKBOX  /  SILVERWING", title, Text, bounds(76, 55, 605, 55), false);
                 g.DrawLine(border, bounds(670, 81, 1, 1).Location, bounds(1240, 81, 1, 1).Location);
-                Label(g, "●  LIVE  /  " + elapsed, small, Cyan, bounds(1260, 55, 235, 55));
+                Label(g, (preview ? "VISUAL PREVIEW" : "●  LIVE  /  " + elapsed), small, Cyan, bounds(1260, 55, 235, 55));
                 Button(g, actions, "reduced", bounds(1505, 54, 155, 48), reduced ? "标准动效" : "减少动效", small, Muted);
                 Button(g, actions, "back", bounds(1690, 54, 150, 48), "返回助手", small, Muted);
 
                 var plot = bounds(160, 135, 1600, 695);
-                if (scene != "core" && reveal <= 0)
+                if (scene != "core" && scene != "avatar" && reveal <= 0)
                     VoiceSceneView.Draw(g, plot, scene, workspace, small, yaw, pitch, zoom);
                 else
                 {
                     float pulse = reduced || paused ? 0 : (float)level;
-                    int width = (int)(1400 - 740 * reveal + 110 * pulse);
+                    int width = (int)(reveal > 0 ? 650 : 1260);
                     int center = (int)(960 - 535 * reveal);
-                    var body = bounds(center - width / 2, (int)(152 + 262 * reveal), width, (int)(640 - 275 * reveal));
-                    if (Presence != null) DrawLayer(g, Presence, body, .84f + .16f * pulse);
+                    var body = bounds(center - width / 2, 135, width, 700);
+                    if (scene == "avatar")
+                        SilverwingProjection.Draw(g, body, level, speaking, muted, paused, reduced, seconds,
+                            preview ? 1 : (float)Math.Min(1, seconds / 1.2), strength);
+                    else if (Presence != null) DrawLayer(g, Presence, body, .84f + .16f * pulse);
                     else Label(g, "AI", title, Cyan, body);
                     if (reveal > 0 && Probe != null)
                     {
@@ -106,10 +109,10 @@ namespace DeskBox.UI
                 Label(g, captions && !string.IsNullOrWhiteSpace(transcript) ? transcript : status,
                     caption, Text, bounds(175, 858, 1570, 67));
                 g.DrawLine(border, bounds(86, 940, 1, 1).Location, bounds(1834, 940, 1, 1).Location);
-                Button(g, actions, "mic", bounds(585, 966, 144, 55), muted ? "开启麦克风" : "麦克风", small, Cyan);
+                Button(g, actions, "mic", bounds(585, 966, 144, 55), preview ? "未开启" : muted ? "开启麦克风" : "麦克风", small, preview ? Muted : Cyan);
                 Button(g, actions, "pause", bounds(737, 966, 144, 55), paused ? "恢复" : "暂停", small, Muted);
                 Button(g, actions, "caption", bounds(889, 966, 144, 55), captions ? "字幕 · 开" : "字幕 · 关", small, captions ? Cyan : Muted);
-                Button(g, actions, "end", bounds(1041, 966, 144, 55), "结束", small, Red);
+                Button(g, actions, "end", bounds(1041, 966, 144, 55), preview ? "结束预览" : "结束", small, Red);
                 Button(g, actions, "speaker", bounds(1290, 966, 200, 55), outputMuted ? "扬声器 · 关" : "扬声器 · 开", small, Muted);
                 Button(g, actions, "visual", bounds(1510, 966, 140, 55), "场景", small, Muted);
             }

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Collections.Generic;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -32,20 +33,37 @@ namespace DeskBox.UI
         private CancellationTokenSource _session;
         private bool _muted, _closeAfterSession, _dropPlayback;
 
-        public LiveVoiceForm() : this(null) { }
+        public LiveVoiceForm() : this(null, null) { }
 
-        public LiveVoiceForm(Func<EngineerWorkspace> currentProject)
+        public LiveVoiceForm(Func<EngineerWorkspace> currentProject, ProviderStore savedProviders = null)
         {
             _core.CurrentProject = currentProject;
-            _core.ReturnRequested = Close;
+            _core.ReturnRequested = delegate {
+                if (_core.Preview) { _core.SetWorkspace(false); _setup.Visible = true; _setup.BringToFront(); _connect.Focus(); }
+                else Close();
+            };
             _core.MuteRequested = delegate { if (_mute.Enabled) ToggleMute(); };
             _core.PlaybackResetRequested = delegate { _dropPlayback = true; };
-            Text = "AI&SI · 实时语音";
-            ClientSize = new Size(660, 440);
-            MinimumSize = new Size(590, 380);
+            Text = "AI&SI · 银紫龙翼全息通话";
+            ClientSize = new Size(1100, 800);
+            MinimumSize = new Size(900, 700);
             StartPosition = FormStartPosition.CenterParent;
             _keys[0] = Environment.GetEnvironmentVariable("DASHSCOPE_API_KEY") ?? "";
             _keys[1] = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? "";
+            // Only reuse credentials for the matching official service, never a similarly named proxy.
+            if (savedProviders != null)
+                foreach (var saved in savedProviders.Providers.Where(p => p.Enabled).OrderByDescending(p => p.IsDefault))
+                {
+                    Uri uri;
+                    if (string.IsNullOrWhiteSpace(saved.ApiKey) || !Uri.TryCreate(saved.BaseUrl, UriKind.Absolute, out uri) || uri.Scheme != "https") continue;
+                    int index = uri.Host == "dashscope.aliyuncs.com" || uri.Host == "dashscope-intl.aliyuncs.com" ? 0
+                        : uri.Host == "generativelanguage.googleapis.com" ? 1 : -1;
+                    if (index >= 0 && string.IsNullOrEmpty(_keys[index])) {
+                        _keys[index] = saved.ApiKey;
+                        if (index == 0 && uri.Host == "dashscope-intl.aliyuncs.com")
+                            _endpoints[0] = QwenLiveVoiceProvider.DefaultEndpoint.Replace("dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com");
+                    }
+                }
             _provider.Items.AddRange(new object[] { "千问百炼 · Omni Realtime", "Google · Gemini Live" });
             _provider.SelectedIndexChanged += delegate { SelectProvider(); };
             _provider.SelectedIndex = 0;
@@ -59,18 +77,38 @@ namespace DeskBox.UI
             Row(controls, "API Key", _key);
             controls.Controls.AddRange(new Control[] { _connect, _mute, _status });
             controls.SetFlowBreak(_status, true);
-            foreach (var entry in new[] { new[]{"core","智能核心"}, new[]{"reactor","反应器"}, new[]{"plc","PLC 拓扑"}, new[]{"progress","项目进度"} })
+            foreach (var entry in new[] { new[]{"avatar","银紫龙翼"}, new[]{"core","无面孔核心"}, new[]{"reactor","反应器"}, new[]{"plc","PLC 拓扑"}, new[]{"progress","项目进度"} })
             {
                 var id = entry[0];
                 var button = new Button { Text = entry[1], Width = 98 };
                 button.Click += delegate { _core.ShowScene(id); };
                 controls.Controls.Add(button);
             }
+            var preview = new Button { Text = "预览全息（无需麦克风）", AutoSize = true };
+            preview.Click += delegate {
+                _core.SetWorkspace(true, true);
+                _setup.Visible = false;
+                _core.BringToFront();
+                _core.Focus();
+            };
+            controls.Controls.Add(preview);
             Controls.Add(_core);
             Controls.Add(controls);
+            BackColor = controls.BackColor = Color.FromArgb(9, 17, 30);
+            ForeColor = controls.ForeColor = Color.FromArgb(223, 231, 245);
+            Font = new Font("Microsoft YaHei UI", 9);
+            foreach (Control control in controls.Controls) StyleSetup(control);
             _fetch.Click += async delegate { await FetchModels(); };
             _connect.Click += async delegate { if (_session != null) _session.Cancel(); else await RunSession(); };
             _mute.Click += delegate { ToggleMute(); };
+        }
+
+        private static void StyleSetup(Control control)
+        {
+            control.ForeColor = Color.FromArgb(223, 231, 245);
+            control.BackColor = Color.FromArgb(18, 29, 46);
+            var button = control as Button;
+            if (button != null) { button.FlatStyle = FlatStyle.Flat; button.FlatAppearance.BorderColor = Color.FromArgb(62, 77, 102); }
         }
 
         public void EmbedIn(Control owner)
@@ -81,6 +119,7 @@ namespace DeskBox.UI
             MinimumSize = Size.Empty;
             Dock = DockStyle.Fill;
             var back = new Button { Text = "返回 AI 助手", Width = 120 };
+            StyleSetup(back);
             back.Click += delegate { Close(); };
             _setup.Controls.Add(back);
             _status.Text = "连接后进入沉浸模式。Esc 返回 AI 助手，Ctrl+M 切换麦克风。";
@@ -97,7 +136,7 @@ namespace DeskBox.UI
             _core.SetWorkspace(active);
             if (active)
             {
-                _core.ShowScene("core");
+                _core.ShowScene("avatar");
                 _core.BringToFront();
                 _core.Focus();
             }
@@ -117,7 +156,12 @@ namespace DeskBox.UI
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (_embedded && keyData == Keys.Escape) { Close(); return true; }
+            if (keyData == Keys.Escape) {
+                if (_core.Preview) _core.ReturnRequested();
+                else if (_embedded) Close();
+                else return base.ProcessCmdKey(ref msg, keyData);
+                return true;
+            }
             if (_embedded && _session != null && _mute.Enabled && keyData == (Keys.Control | Keys.M))
             {
                 ToggleMute();
@@ -330,6 +374,11 @@ namespace DeskBox.UI
             private double _level;
             private bool _speaking, _workspace;
             public bool Muted, Paused, OutputMuted;
+            public bool Preview { get; private set; }
+            private float _strength = .6f;
+            private double _visualSeconds;
+            private readonly System.Windows.Forms.Timer _animation = new System.Windows.Forms.Timer { Interval = 33 };
+            private string _focusedAction;
             public Action ReturnRequested, MuteRequested, PlaybackResetRequested;
             private bool _captions = true, _captionFinished;
             private bool _probeCue, _tipCue, _probePlayed, _reduced;
@@ -340,9 +389,11 @@ namespace DeskBox.UI
             private readonly Dictionary<string, Rectangle> _actions = new Dictionary<string, Rectangle>();
             private DateTime _started;
 
-            public void SetWorkspace(bool active)
+            public void SetWorkspace(bool active, bool preview = false)
             {
                 _workspace = active;
+                Preview = active && preview;
+                _visualSeconds = 0;
                 Paused = OutputMuted = false;
                 _transcript = "";
                 _captionFinished = true;
@@ -350,7 +401,7 @@ namespace DeskBox.UI
                 ClearProjection();
                 Invalidate();
             }
-            private string _scene = "core";
+            private string _scene = "avatar";
             public Func<EngineerWorkspace> CurrentProject;
             private double _yaw = 0.48, _pitch = 0.30, _zoom = 1;
             private Point _lastDrag;
@@ -426,28 +477,65 @@ namespace DeskBox.UI
                 Invalidate();
             }
 
+            protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+            {
+                if (_workspace && (keyData == Keys.Tab || keyData == (Keys.Shift | Keys.Tab)))
+                {
+                    var ordered = _actions.OrderBy(x => x.Value.Top).ThenBy(x => x.Value.Left).Select(x => x.Key).ToList();
+                    if (ordered.Count > 0) {
+                        int index = ordered.IndexOf(_focusedAction);
+                        int direction = keyData == Keys.Tab ? 1 : -1;
+                        _focusedAction = ordered[(index + direction + ordered.Count) % ordered.Count];
+                        Invalidate();
+                    }
+                    return true;
+                }
+                if (_workspace && (keyData == Keys.Enter || keyData == Keys.Space) && _focusedAction != null)
+                {
+                    Rectangle area;
+                    if (_actions.TryGetValue(_focusedAction, out area))
+                        OnMouseUp(new MouseEventArgs(MouseButtons.Left, 1, area.Left + area.Width / 2, area.Top + area.Height / 2, 0));
+                    return true;
+                }
+                return base.ProcessCmdKey(ref msg, keyData);
+            }
+
             public CoreView()
             {
                 DoubleBuffered = true;
                 TabStop = true;
-                AccessibleName = "智能中枢";
+                AccessibleName = "银紫龙翼全息通话，Tab 选择控制，回车操作";
+                SetStyle(ControlStyles.ResizeRedraw, true);
+                _animation.Tick += delegate {
+                    if (!Visible || IsDisposed) return;
+                    if (!_reduced && !Paused) _visualSeconds += .033;
+                    Invalidate();
+                };
+                _animation.Start();
                 BackColor = Color.FromArgb(9, 21, 36);
-                _sceneMenu.Items.Add("AI 本体", null, delegate { ClearProjection(); ShowScene("core"); });
+                _sceneMenu.Items.Add("银紫龙翼全身投影", null, delegate { ClearProjection(); ShowScene("avatar"); });
+                _sceneMenu.Items.Add("无面孔核心", null, delegate { ClearProjection(); ShowScene("core"); });
                 _sceneMenu.Items.Add("反应器", null, delegate { ClearProjection(); ShowScene("reactor"); });
                 _sceneMenu.Items.Add("PLC 拓扑", null, delegate { ClearProjection(); ShowScene("plc"); });
                 _sceneMenu.Items.Add("项目进度", null, delegate { ClearProjection(); ShowScene("progress"); });
+                var strength = new ToolStripMenuItem("投影光效强度");
+                foreach (float value in new[] { .35f, .6f, .9f }) {
+                    float selected = value;
+                    strength.DropDownItems.Add((value * 100).ToString("0") + "%", null, delegate { _strength = selected; Invalidate(); });
+                }
+                _sceneMenu.Items.Add(strength);
             }
 
             protected override void Dispose(bool disposing)
             {
-                if (disposing) _sceneMenu.Dispose();
+                if (disposing) { _animation.Stop(); _animation.Dispose(); _sceneMenu.Dispose(); }
                 base.Dispose(disposing);
             }
 
             private void ResetPlayback()
             {
                 ClearProjection();
-                ShowScene("core");
+                ShowScene("avatar");
                 if (PlaybackResetRequested != null) PlaybackResetRequested();
             }
 
@@ -463,7 +551,7 @@ namespace DeskBox.UI
                     _transcript = "";
                     _captionFinished = true;
                     ClearProjection();
-                    ShowScene("core");
+                    if (_scene != "core") ShowScene("avatar");
                     return;
                 }
                 if (!string.IsNullOrEmpty(packet.Caption))
@@ -493,7 +581,7 @@ namespace DeskBox.UI
                     if (speaking && _probeCue)
                     {
                         _probePlayed = true;
-                        if (_scene != "core") ShowScene("core");
+                        if (_scene != "core" && _scene != "avatar") ShowScene("avatar");
                     }
                     if (!speaking && _captionFinished && _probePlayed)
                         _probeCue = _tipCue = _probePlayed = false;
@@ -515,7 +603,14 @@ namespace DeskBox.UI
                     VoiceWorkspaceArt.Draw(g, ClientSize, _speaking, Muted, _level, elapsed.ToString(@"mm\:ss"), _scene,
                         _scene == "progress" && CurrentProject != null ? CurrentProject() : null,
                         Paused, OutputMuted, _captions, _transcript, _yaw, _pitch, _zoom,
-                        _probeReveal, _tipReveal, _reduced, _actions);
+                        _probeReveal, _tipReveal, _reduced, Preview, _visualSeconds, _strength, _actions);
+                    Rectangle focused;
+                    if (Focused && _focusedAction != null && _actions.TryGetValue(_focusedAction, out focused))
+                        ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(focused, 3, 3), Color.White, BackColor);
+                    return;
+                }
+                if (_scene == "avatar") {
+                    SilverwingProjection.Draw(g, ClientRectangle, 0, false, false, false, _reduced, _visualSeconds, 1, _strength);
                     return;
                 }
                 float cx = ClientSize.Width / 2f, cy = ClientSize.Height / 2f;

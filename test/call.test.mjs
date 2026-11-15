@@ -144,3 +144,18 @@ test('a suspended visualization audio context never blocks the real voice connec
   b.element('call').click();
   assert.equal(b.track.stopped, true);
 });
+
+test('a recovered voice connection restores link status without changing mute', async (t) => {
+  const b = await browser(t);
+  b.element('call').click();
+  await flush();
+  b.element('mute').click();
+  b.peer().connectionState = 'disconnected';
+  b.peer().onconnectionstatechange();
+  assert.equal(b.element('link-state').textContent, '正在恢复');
+  b.peer().connectionState = 'connected';
+  b.peer().onconnectionstatechange();
+  assert.equal(b.element('link-state').textContent, '已连接 / LIVE');
+  assert.equal(b.track.enabled, false);
+  assert.match(b.element('notice').textContent, /已恢复/);
+});
