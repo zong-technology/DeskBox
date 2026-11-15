@@ -27,9 +27,11 @@ test('validates input and blocks cross-origin calls before contacting OpenAI', a
   const url = await serve(t, { apiKey: 'test-secret', upstream: () => { assert.fail('upstream must not be called'); } });
   const body = { sdp: 'v=0\r\n', voice: 'marin', language: 'zh' };
   assert.equal((await call(url, body, { Origin: 'https://other.example' })).status, 403);
+  assert.equal((await call(url, body, { Origin: 'null' })).status, 403);
   assert.equal((await fetch(`${url}/api/call`, { method: 'POST' })).status, 403);
   assert.equal((await call(url, body, { 'Content-Type': 'text/plain' })).status, 415);
   assert.equal((await call(url, { ...body, voice: 'invalid' })).status, 400);
+  assert.equal((await call(url, null)).status, 400);
   assert.equal((await call(url, { ...body, sdp: 'not sdp' })).status, 400);
   assert.equal((await call(url, { ...body, sdp: 'v=0' + 'x'.repeat(65536) })).status, 413);
   assert.equal((await fetch(`${url}/api/call`, { method: 'POST', headers: { Origin: url, 'Content-Type': 'application/json' }, body: '{' })).status, 400);

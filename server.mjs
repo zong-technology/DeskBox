@@ -21,7 +21,7 @@ export function createServer({ apiKey = process.env.OPENAI_API_KEY, upstream = f
       if (req.method === 'POST' && url.pathname === '/api/call') {
         // Reject cross-origin use of the server's paid API credentials.
         const origin = req.headers.origin;
-        if (!origin || new URL(origin).host !== req.headers.host || req.headers['sec-fetch-site'] === 'cross-site') {
+        if (!origin || !URL.canParse(origin) || new URL(origin).host !== req.headers.host || req.headers['sec-fetch-site'] === 'cross-site') {
           return send(403, { error: '不允许跨站发起通话。' });
         }
         if (!apiKey) return send(503, { error: '语音服务尚未配置，请由管理员配置 OPENAI_API_KEY。' });
@@ -36,7 +36,7 @@ export function createServer({ apiKey = process.env.OPENAI_API_KEY, upstream = f
         let body;
         try { body = JSON.parse(Buffer.concat(chunks).toString()); }
         catch { return send(400, { error: '请求内容无效。' }); }
-        if (typeof body.sdp !== 'string' || !body.sdp.startsWith('v=0') || !['marin', 'cedar'].includes(body.voice) || !['zh', 'en'].includes(body.language)) {
+        if (!body || typeof body.sdp !== 'string' || !body.sdp.startsWith('v=0') || !['marin', 'cedar'].includes(body.voice) || !['zh', 'en'].includes(body.language)) {
           return send(400, { error: '通话参数无效。' });
         }
         const session = {
