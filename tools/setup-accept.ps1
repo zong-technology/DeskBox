@@ -158,6 +158,7 @@ $hologramHost = Join-Path $root 'dist\silverwing-accept.exe'
 Check ($LASTEXITCODE -eq 0) 'Installed hologram and style checks pass'
 
 # UI matrix uses an identical copy of the installed payload, with synthetic fixtures only.
+& (Join-Path $root 'tools\prepare-ci-display.ps1')
 & (Join-Path $root 'tools\ui-regression.ps1') -ExpectedDpi 96 -SourceExe $installed
 Check ($?) 'Installed-payload 12-page navigation and three-layout matrix at 96 DPI'
 
