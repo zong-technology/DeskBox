@@ -11,7 +11,7 @@ const container = document.getElementById('scene');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
 } catch {
   container.classList.add('render-fallback');
   document.getElementById('render-error').hidden = false;
@@ -28,11 +28,13 @@ if (renderer) {
   camera.lookAt(0, .6, 0);
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), .85, .65, .25);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), .32, .5, .7);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   const figure = new THREE.Group();
   figure.position.y = -.12;
+  figure.rotation.y = -.35;
+  figure.scale.x = .94;
   scene.add(figure);
 
   const positions = [], weights = [], seeds = [];
@@ -76,39 +78,38 @@ if (renderer) {
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('feature', new THREE.Float32BufferAttribute(weights, 2));
   geometry.setAttribute('seed', new THREE.Float32BufferAttribute(seeds, 1));
-  const uniforms = { uTime: { value: 0 }, uEnergy: { value: 0 }, uAssemble: { value: 0 }, uPixelRatio: { value: renderer.getPixelRatio() }, uColor: { value: new THREE.Color('#61cfff') } };
+  const uniforms = { uTime: { value: 0 }, uEnergy: { value: 0 }, uAssemble: { value: 0 }, uPixelRatio: { value: renderer.getPixelRatio() }, uColor: { value: new THREE.Color('#71cfe0') } };
   const particles = new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: `
       attribute vec2 feature;
       attribute float seed;
       uniform float uTime, uEnergy, uAssemble, uPixelRatio;
-      varying float vAlpha, vEye;
+      varying float vAlpha;
       void main() {
         vec3 p = position;
         float progress = smoothstep(0., 1., clamp(uAssemble * 1.7 - (position.y + .8) * .15, 0., 1.));
         p.xz *= 1. + (1. - progress) * 1.7;
         p.y = mix(-1., position.y, progress);
         p.y += sin(uTime * .8) * .025;
-        p.y += feature.y * sin(seed) * uEnergy * .045;
-        p.z += feature.y * uEnergy * .035;
+        p.y += feature.y * sin(seed) * uEnergy * .012;
+        p.z += feature.y * uEnergy * .012;
         p.x += sin(uTime * 2. + seed) * .003 * uEnergy;
         vec4 mv = modelViewMatrix * vec4(p, 1.);
         gl_Position = projectionMatrix * mv;
-        gl_PointSize = clamp((9. + feature.x * 6.) * uPixelRatio / -mv.z, .8, 4.);
+        gl_PointSize = clamp(6. * uPixelRatio / -mv.z, .6, 1.7);
         float scan = pow(max(0., 1. - abs(position.y - mod(uTime * .5, 3.5) + .7) * 9.), 2.);
-        vAlpha = (.21 + smoothstep(-.1, .4, position.z) * .47 + scan * .45 + feature.x * .5) * progress;
-        vAlpha *= .83 + sin(seed + uTime * 1.4) * .17;
-        vEye = feature.x;
+        vAlpha = (.035 + smoothstep(-.1, .4, position.z) * .10 + scan * .08) * progress;
+        vAlpha *= smoothstep(-.65, -.1, position.y);
       }`,
     fragmentShader: `
       uniform vec3 uColor;
-      varying float vAlpha, vEye;
+      varying float vAlpha;
       void main() {
         float d = length(gl_PointCoord - .5);
         if(d > .5) discard;
         float soft = 1. - smoothstep(.1, .5, d);
-        gl_FragColor = vec4(mix(uColor, vec3(.7, 1., 1.), vEye), vAlpha * soft);
+        gl_FragColor = vec4(uColor, vAlpha * soft);
       }`,
   });
   figure.add(new THREE.Points(geometry, particles));
@@ -158,7 +159,7 @@ if (renderer) {
     const sampler = new MeshSurfaceSampler(new THREE.Mesh(scan)).build();
     const point = new THREE.Vector3();
     const sampled = [], features = [], seeds = [];
-    for (let i = 0; i < 38000; i++) {
+    for (let i = 0; i < 11000; i++) {
       sampler.sample(point);
       sampled.push(point.x, point.y, point.z);
       const front = THREE.MathUtils.smoothstep(point.z, .25, .6);
@@ -175,7 +176,51 @@ if (renderer) {
     meshGeometry.dispose();
     meshGeometry.copy(edges);
     edges.dispose();
-    scan.dispose();
+    scan.computeVertexNormals();
+    const surface = new THREE.ShaderMaterial({
+      uniforms, transparent: true, depthWrite: false, side: THREE.FrontSide,
+      vertexShader: `
+        uniform float uTime, uEnergy;
+        varying vec3 vNormal, vView, vPosition;
+        void main() {
+          vec3 p = position;
+          p.y += sin(uTime * .8) * .025;
+          float mouth = exp(-pow(p.x / .22, 2.) - pow((p.y - 1.06) / .07, 2.));
+          p.z += mouth * uEnergy * .012;
+          vec4 mv = modelViewMatrix * vec4(p, 1.);
+          vNormal = normalize(normalMatrix * normal);
+          vView = normalize(-mv.xyz);
+          vPosition = p;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float uTime, uAssemble, uEnergy;
+        uniform vec3 uColor;
+        varying vec3 vNormal, vView, vPosition;
+        void main() {
+          vec3 n = normalize(vNormal);
+          float rim = pow(1. - max(0., dot(n, normalize(vView))), 2.4);
+          float key = max(0., dot(n, normalize(vec3(-.8, 1.2, 1.5))));
+          float fill = max(0., dot(n, normalize(vec3(1., .2, .4))));
+          float lines = smoothstep(.80, .97, sin(vPosition.y * 190.));
+          float scan = exp(-pow((vPosition.y - mod(uTime * .28, 4.) + .8) * 12., 2.));
+          vec3 color = vec3(.008, .045, .08) + uColor * (key * .20 + fill * .045 + rim * .8);
+          color += uColor * (lines * .025 + scan * .08 + uEnergy * .025);
+          float fade = smoothstep(-.65, -.12, vPosition.y);
+          float reveal = smoothstep(vPosition.y + .8, vPosition.y + 1.1, uAssemble * 4.5);
+          gl_FragColor = vec4(color, (.80 + rim * .18) * fade * reveal);
+        }`,
+    });
+    // Populate depth first so the translucent face cannot reveal the rear skull.
+    const depth = new THREE.ShaderMaterial({
+      uniforms, vertexShader: surface.vertexShader,
+      fragmentShader: 'void main(){gl_FragColor=vec4(0.);}',
+      colorWrite: false, depthWrite: true, side: THREE.FrontSide,
+    });
+    figure.add(new THREE.Mesh(scan, depth));
+    const skin = new THREE.Mesh(scan, surface);
+    skin.renderOrder = 1;
+    figure.add(skin);
     hasScan = true;
     container.dataset.detail = 'scanned';
   }, undefined, () => { container.dataset.detail = 'procedural'; });
@@ -194,19 +239,19 @@ if (renderer) {
   platform.position.y = -1.13;
   scene.add(platform);
   const rings = [];
-  for (let i = 0; i < 7; i++) {
-    const ring = arc(1.54 + i * .16, i * .8, Math.PI * (i % 2 ? 1.5 : 1.95), i === 2 ? 0xb2f4ff : 0x3f9dce, i === 2 ? .8 : .22 + i * .025);
+  for (let i = 0; i < 4; i++) {
+    const ring = arc(1.65 + i * .24, i * .8, Math.PI * (i % 2 ? 1.5 : 1.95), i === 2 ? 0xb2f4ff : 0x3f9dce, i === 2 ? .45 : .15);
     ring.position.y = i * -.016;
     platform.add(ring);
     rings.push(ring);
   }
   const ticks = [];
-  for (let i = 0; i < 160; i++) {
-    const a = i / 160 * Math.PI * 2;
+  for (let i = 0; i < 96; i++) {
+    const a = i / 96 * Math.PI * 2;
     const r = i % 10 === 0 ? 2.75 : 2.66;
     ticks.push(new THREE.Vector3(Math.cos(a) * 2.6, 0, Math.sin(a) * 2.6), new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
   }
-  platform.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ticks), new THREE.LineBasicMaterial({ color: 0x5599b4, transparent: true, opacity: .38 })));
+  platform.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ticks), new THREE.LineBasicMaterial({ color: 0x5599b4, transparent: true, opacity: .22 })));
   const halo = new THREE.Group();
   halo.position.set(0, .68, -.62);
   halo.add(arc(2.13, .4, Math.PI * 1.4, 0x276688, .18, true));
@@ -216,7 +261,7 @@ if (renderer) {
   const grid = new THREE.GridHelper(30, 60, 0x1a526a, 0x103045);
   grid.position.y = -1.28;
   grid.material.transparent = true;
-  grid.material.opacity = .32;
+  grid.material.opacity = .12;
   scene.add(grid);
 
   // Transparent projection cone: emission from the circular base to the figure.
@@ -228,10 +273,10 @@ if (renderer) {
   beam.position.y = .72;
   scene.add(beam);
   const dustPositions = [];
-  for (let i = 0; i < 420; i++) dustPositions.push(Math.sin(i * 127.1) * 3.4, (i * .761 % 4.5) - 1.2, Math.cos(i * 33.3) * 1.8);
+  for (let i = 0; i < 85; i++) dustPositions.push(Math.sin(i * 127.1) * 3.4, (i * .761 % 4.5) - 1.2, Math.cos(i * 33.3) * 1.8);
   const dustGeometry = new THREE.BufferGeometry();
   dustGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dustPositions, 3));
-  const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({ color: 0x6ad5ed, size: .012, transparent: true, opacity: .35, depthWrite: false, blending: THREE.AdditiveBlending }));
+  const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({ color: 0x6ad5ed, size: .012, transparent: true, opacity: .18, depthWrite: false, blending: THREE.AdditiveBlending }));
   scene.add(dust);
 
   new ResizeObserver(([entry]) => {
@@ -253,7 +298,7 @@ if (renderer) {
   canvas.addEventListener('webglcontextrestored', () => { document.getElementById('render-error').hidden = true; });
 
   let previous = 0, elapsed = 0, assembly = 0, assemblyStarted = null, energy = 0, previousMode = 'idle';
-  const ice = new THREE.Color('#61cfff'), amber = new THREE.Color('#e7c38d');
+  const ice = new THREE.Color('#71cfe0'), amber = new THREE.Color('#e7c38d');
   function frame(timestamp) {
     requestAnimationFrame(frame);
     const visual = window.holoState || { mode: 'idle', mic: 0, output: 0 };
@@ -272,10 +317,10 @@ if (renderer) {
     uniforms.uEnergy.value = energy;
     uniforms.uAssemble.value = assembly;
     uniforms.uColor.value.lerp(visual.mode === 'thinking' ? amber : ice, .04);
-    meshMaterial.opacity = .12 * assembly;
+    meshMaterial.opacity = hasScan ? 0 : .06 * assembly;
     features.visible = assembly === 1 && !hasScan;
     mouth.scale.y = 1 + energy * 6;
-    figure.rotation.y += ((reduced ? -.12 : -.12 + Math.sin(elapsed * .3) * .08 + pointer.x * .5) - figure.rotation.y) * .035;
+    figure.rotation.y += ((reduced ? -.35 : -.35 + Math.sin(elapsed * .2) * .035 + pointer.x * .3) - figure.rotation.y) * .035;
     figure.rotation.x += ((reduced ? 0 : pointer.y * .08) - figure.rotation.x) * .035;
     figure.position.y = -.12 + (reduced ? 0 : Math.sin(elapsed * .7) * .025);
     rings.forEach((ring, i) => { ring.rotation.y = elapsed * (i % 2 ? -.1 : .12) * (1 + energy * .7) + i; });
@@ -283,7 +328,7 @@ if (renderer) {
     halo.rotation.z = reduced ? 0 : Math.sin(elapsed * .15) * .1;
     halo.children[1].rotation.y = reduced ? 0 : Math.sin(elapsed * .1) * .15;
     dust.rotation.y = elapsed * .015;
-    bloom.strength = .7 + energy * .45;
+    bloom.strength = .28 + energy * .12;
     composer.render();
   }
   requestAnimationFrame(frame);
