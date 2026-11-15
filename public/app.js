@@ -10,7 +10,7 @@ let muted = false;
 let configured = false;
 let activity = 0;
 let assistantSpeaking = false;
-const visual = window.holoState = { mode: 'idle', mic: 0, output: 0, avatar: 'dragon', strength: .6 };
+const visual = window.holoState = { mode: 'idle', mic: 0, output: 0, avatar: 'dragon', strength: .6, spectrum: new Float32Array(32) };
 
 function setMode(mode) {
   visual.mode = mode;
@@ -76,6 +76,7 @@ function stopCall() {
   activity = 0;
   assistantSpeaking = false;
   visual.mic = visual.output = 0;
+  visual.spectrum.fill(0);
   $('latency').innerHTML = '— <small>ms</small>';
   $('input-level').innerHTML = '— <small>dB</small>';
   muteButton.setAttribute('aria-pressed', 'false');
@@ -171,6 +172,7 @@ async function startCall() {
         session.outputAnalyser = session.context.createAnalyser();
         session.outputAnalyser.fftSize = 256;
         session.outputSamples = new Uint8Array(session.outputAnalyser.frequencyBinCount);
+        session.outputBands = new Uint8Array(session.outputAnalyser.frequencyBinCount);
         session.context.createMediaStreamSource(audio.srcObject).connect(session.outputAnalyser);
       }
       audio.play().catch(() => { if (session === current) notice('浏览器暂停了声音播放，点击页面即可恢复。', true); });
@@ -178,8 +180,12 @@ async function startCall() {
     peer.onconnectionstatechange = () => {
       if (session !== current) return;
       if (peer.connectionState === 'connected') {
+        const recovered = Boolean(session.disconnectTimeout);
         clearTimeout(session.timeout);
         clearTimeout(session.disconnectTimeout);
+        session.disconnectTimeout = null;
+        $('link-state').textContent = '已连接 / LIVE';
+        if (recovered) notice('语音连接已恢复。');
         if (state !== 'connected') {
           session.started = Date.now();
           setState('connected');
@@ -216,6 +222,7 @@ async function startCall() {
       const analyser = session.analyser = context.createAnalyser();
       analyser.fftSize = 256;
       session.samples = new Uint8Array(analyser.frequencyBinCount);
+      session.bands = new Uint8Array(analyser.frequencyBinCount);
       context.createMediaStreamSource(stream).connect(analyser);
       // Browser autoplay rules may keep this promise pending until another click.
       // Optional visualization must never block the actual voice connection.
@@ -294,6 +301,16 @@ $('avatar-style').addEventListener('change', () => {
 });
 $('holo-strength').addEventListener('input', () => { visual.strength = Number($('holo-strength').value); });
 $('motion').addEventListener('change', () => { document.body.dataset.motion = $('motion').value; });
+function focusView(active) {
+  document.body.dataset.focus = String(active);
+  $('focus-view').setAttribute('aria-pressed', String(active));
+  $('focus-view').setAttribute('aria-label', active ? '退出专注投影' : '专注投影');
+  $('focus-view').querySelector('span').textContent = active ? '退出专注' : '专注投影';
+}
+$('focus-view').addEventListener('click', () => focusView(document.body.dataset.focus !== 'true'));
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !$('settings-dialog').open && document.body.dataset.focus === 'true') focusView(false);
+});
 $('fullscreen').addEventListener('click', async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -343,6 +360,15 @@ function updateAudio(timestamp) {
   activity += (Math.min(1, rms * 8) - activity) * .25;
   visual.mic = activity;
   visual.output = current ? Math.min(1, sample(current.outputAnalyser, current.outputSamples) * 6) : 0;
+  const analyser = assistantSpeaking ? current?.outputAnalyser : !muted ? current?.analyser : null;
+  const bands = assistantSpeaking ? current?.outputBands : current?.bands;
+  if (analyser && bands) analyser.getByteFrequencyData(bands);
+  for (let i = 0; i < visual.spectrum.length; i++) {
+    // Log-spaced bands from the current speaker, shared with the emitter ring.
+    const bin = Math.min((bands?.length || 1) - 1, Math.round(1.13 ** i));
+    const target = analyser && bands ? bands[bin] / 255 : 0;
+    visual.spectrum[i] += (target - visual.spectrum[i]) * .3;
+  }
   if (state === 'connected') $('input-level').innerHTML = `${rms > .001 ? Math.round(20 * Math.log10(rms)) : '−∞'} <small>dB</small>`;
   waveContext.clearRect(0, 0, waveWidth, waveHeight);
   waveContext.strokeStyle = '#1c3a4b';
