@@ -71,6 +71,27 @@ namespace DeskBox.UI
                             preview ? 1 : (float)Math.Min(1, seconds / 1.2), strength);
                     else if (Presence != null) DrawLayer(g, Presence, body, .84f + .16f * pulse);
                     else Label(g, "AI", title, Cyan, body);
+                    if (reveal <= 0)
+                    {
+                        Color stateColor = preview ? Muted : speaking ? Color.FromArgb(195, 174, 255) : Cyan;
+                        var left = bounds(110, 300, 310, 235);
+                        var right = bounds(1510, 325, 300, 205);
+                        using (var panel = new SolidBrush(Color.FromArgb(9, 17, 27)))
+                        using (var edge = new Pen(Color.FromArgb(52, 69, 86)))
+                        {
+                            g.FillRectangle(panel, left); g.DrawRectangle(edge, left);
+                            g.DrawLine(edge, left.Left, left.Top + left.Height * .28f, left.Right, left.Top + left.Height * .28f);
+                            g.DrawLine(edge, right.Left, right.Top, right.Right, right.Top);
+                        }
+                        Label(g, "VOICE  /  语音链路", small, stateColor, bounds(130, 312, 270, 40), false);
+                        Label(g, preview ? "未连接 · 视觉预览" : "已连接 · 实时语音", small, Text, bounds(130, 380, 270, 38), false);
+                        Label(g, preview ? "麦克风未开启" : muted || paused ? "麦克风已关闭" : "麦克风已开启", small, Muted, bounds(130, 428, 270, 38), false);
+                        Label(g, preview ? "预览不发送声音" : outputMuted ? "扬声器已静音" : speaking ? "NOVA 正在回应" : "等待你的声音", small, Muted, bounds(130, 476, 270, 38), false);
+                        Label(g, "SILVERWING  /  银翼", small, Color.FromArgb(192, 175, 229), bounds(1510, 345, 300, 40), false);
+                        Label(g, "全身投影 · 与你同在", small, Muted, bounds(1510, 397, 300, 38), false);
+                        Label(g, "Tab 选择  /  Enter 操作", small, Muted, bounds(1510, 455, 300, 38), false);
+                        Label(g, preview ? "Esc 返回语音设置" : "Esc 结束并返回助手", small, Muted, bounds(1510, 500, 300, 38), false);
+                    }
                     if (reveal > 0 && Probe != null)
                     {
                         var item = DrawLayer(g, Probe, bounds(975, 139, 750, 670), reveal);

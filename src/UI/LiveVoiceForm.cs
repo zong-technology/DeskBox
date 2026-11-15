@@ -379,6 +379,7 @@ namespace DeskBox.UI
             private double _visualSeconds;
             private readonly System.Windows.Forms.Timer _animation = new System.Windows.Forms.Timer { Interval = 33 };
             private string _focusedAction;
+            private bool _dirty = true;
             public Action ReturnRequested, MuteRequested, PlaybackResetRequested;
             private bool _captions = true, _captionFinished;
             private bool _probeCue, _tipCue, _probePlayed, _reduced;
@@ -508,8 +509,9 @@ namespace DeskBox.UI
                 SetStyle(ControlStyles.ResizeRedraw, true);
                 _animation.Tick += delegate {
                     if (!Visible || IsDisposed) return;
-                    if (!_reduced && !Paused) _visualSeconds += .033;
-                    Invalidate();
+                    _animation.Interval = _reduced ? 150 : 33;
+                    if (!_reduced && !Paused) { _visualSeconds += .033; _dirty = true; }
+                    if (_dirty) { _dirty = false; Invalidate(); }
                 };
                 _animation.Start();
                 BackColor = Color.FromArgb(9, 21, 36);
@@ -573,6 +575,7 @@ namespace DeskBox.UI
             {
                 _level = Math.Min(1, level * 4);
                 _speaking = speaking;
+                _dirty = true;
                 if (_workspace)
                 {
                     var now = DateTime.UtcNow;
@@ -590,7 +593,6 @@ namespace DeskBox.UI
                     float focus = _tipCue && _probeReveal >= .85f ? 1 : 0;
                     _tipReveal += Math.Max(-step, Math.Min(step, focus - _tipReveal));
                 }
-                Invalidate();
             }
 
             protected override void OnPaint(PaintEventArgs e)

@@ -9,6 +9,7 @@ namespace DeskBox.UI
     internal static class SilverwingProjection
     {
         private static readonly Bitmap Character = Load();
+        private static Bitmap scaledCharacter;
 
         private static Bitmap Load()
         {
@@ -37,6 +38,8 @@ namespace DeskBox.UI
             float floor = top + h;
             float sway = (float)Math.Sin(time * .65) * h * .0015f;
             var body = new RectangleF(cx - w / 2, top + sway, w, h);
+            body = Rectangle.Round(body);
+            var image = AtSize((int)body.Width, (int)body.Height);
 
             // Low-contrast ambient light stays behind the face and gown.
             using (var path = new GraphicsPath())
@@ -84,16 +87,16 @@ namespace DeskBox.UI
                     g.FillPath(glow, path);
                 }
             }
-            if (Character != null)
+            if (image != null)
             {
                 // Reflection is compressed onto the floor and fades away from the feet.
                 for (int i = 0; i < 12; i++)
                 {
-                    float sourceH = Character.Height / 12f;
-                    var source = new RectangleF(0, Character.Height - sourceH * (i + 1), Character.Width, sourceH);
+                    float sourceH = image.Height / 12f;
+                    var source = new RectangleF(0, image.Height - sourceH * (i + 1), image.Width, sourceH);
                     var destination = new RectangleF(body.Left, floor + h * .10f * i / 12, w, h * .10f / 12 + 1);
                     using (var opacity = Attributes(.09f * (1 - i / 12f)))
-                        g.DrawImage(Character, Rectangle.Round(destination), source.X, source.Y, source.Width, source.Height, GraphicsUnit.Pixel, opacity);
+                        g.DrawImage(image, Rectangle.Round(destination), source.X, source.Y, source.Width, source.Height, GraphicsUnit.Pixel, opacity);
                 }
             }
             for (int i = 0; i < 4; i++)
@@ -121,7 +124,7 @@ namespace DeskBox.UI
                     g.DrawLine(pen, x, y, x, y - height);
                 }
 
-            if (Character != null)
+            if (image != null)
             {
                 var revealClip = g.Save();
                 float amount = reduced ? 1 : Math.Max(0, Math.Min(1, formation));
@@ -130,20 +133,20 @@ namespace DeskBox.UI
                 using (var edge = Attributes(.13f * strength, accent))
                 {
                     var outline = body; outline.X -= 1.4f;
-                    g.DrawImage(Character, Rectangle.Round(outline), 0, 0, Character.Width, Character.Height, GraphicsUnit.Pixel, edge);
+                    g.DrawImage(image, Rectangle.Round(outline), 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, edge);
                     outline.X += 2.8f;
-                    g.DrawImage(Character, Rectangle.Round(outline), 0, 0, Character.Width, Character.Height, GraphicsUnit.Pixel, edge);
+                    g.DrawImage(image, Rectangle.Round(outline), 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, edge);
                 }
                 using (var opacity = Attributes(1 - .035f * strength))
-                    g.DrawImage(Character, Rectangle.Round(body), 0, 0, Character.Width, Character.Height, GraphicsUnit.Pixel, opacity);
+                    g.DrawImage(image, Rectangle.Round(body), 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, opacity);
                 if (!reduced && strength > 0)
                 {
                     // Only the lower gown catches the passing light, below the protected face.
                     float scan = (time * .055f % 1) * .68f + .27f;
                     var strip = new RectangleF(body.Left, body.Top + h * scan, w, Math.Max(1.3f, h * .003f));
                     using (var light = Attributes(.13f * strength, accent))
-                        g.DrawImage(Character, Rectangle.Round(strip), 0, Character.Height * scan, Character.Width,
-                            Character.Height * strip.Height / h, GraphicsUnit.Pixel, light);
+                        g.DrawImage(image, Rectangle.Round(strip), 0, image.Height * scan, image.Width,
+                            image.Height * strip.Height / h, GraphicsUnit.Pixel, light);
                 }
                 g.Restore(revealClip);
             }
@@ -152,6 +155,26 @@ namespace DeskBox.UI
                 using (var pen = new Pen(accent, 2)) g.DrawEllipse(pen, circle);
             }
             g.Restore(saved);
+        }
+
+        // Scale once per viewport. Per-frame tinting must not resample the 1536px source repeatedly.
+        private static Bitmap AtSize(int width, int height)
+        {
+            if (Character == null) return null;
+            width = Math.Max(1, width); height = Math.Max(1, height);
+            if (scaledCharacter != null && scaledCharacter.Width == width && scaledCharacter.Height == height)
+                return scaledCharacter;
+            var next = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+            using (var graphics = Graphics.FromImage(next)) {
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                using (var attributes = new ImageAttributes()) {
+                    attributes.SetWrapMode(WrapMode.TileFlipXY);
+                    graphics.DrawImage(Character, new Rectangle(0, 0, width, height), 0, 0, Character.Width, Character.Height, GraphicsUnit.Pixel, attributes);
+                }
+            }
+            if (scaledCharacter != null) scaledCharacter.Dispose();
+            scaledCharacter = next;
+            return scaledCharacter;
         }
 
         private static ImageAttributes Attributes(float alpha, Color? tint = null)

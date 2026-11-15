@@ -88,6 +88,9 @@ internal static class SilverwingAccept
                 using (var bitmap = new Bitmap(1280, 800)) {
                     core.DrawToBitmap(bitmap, new Rectangle(0, 0, 1280, 800));
                     bitmap.Save(Path.Combine(output, "native-speaking.png"), ImageFormat.Png);
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    for (int frame = 0; frame < 6; frame++) core.DrawToBitmap(bitmap, new Rectangle(0, 0, 1280, 800));
+                    Console.WriteLine("Cached native render mean: " + (clock.Elapsed.TotalMilliseconds / 6).ToString("0.0") + " ms (offscreen CI host)");
                 }
                 coreType.GetField("_reduced", Private).SetValue(core, true);
                 coreType.GetField("Muted").SetValue(core, true);
