@@ -1,0 +1,10 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using DeskBox.UI;
+
+public class DarkInputAccept
+{
+ static int p,f;static void C(string n,bool ok,string d){if(ok){p++;Console.WriteLine("PASS  "+n+"  ["+d+"]");}else{f++;Console.WriteLine("FAIL  "+n+"  ["+d+"]");}}
+ [STAThread] public static int Main(){var cyber=Palette.For("cyber","#41D9FF");var day=Palette.For("daylight","#5785FF");using(var form=new Form{Size=new Size(700,400)})using(var single=new DarkInput{Left=10,Top=10,Width=400,Height=34,Text="中文 PLC DB10.DBX2.3"})using(var multi=new DarkInput{Left=10,Top=60,Width=500,Height=160,Text="第一行\r\n第二行 OQ 验证"}){multi.Inner.Multiline=true;multi.Inner.ScrollBars=ScrollBars.Vertical;single.Placeholder="输入工程内容";multi.Placeholder="多行内容";single.Palette=cyber;multi.Palette=cyber;form.Controls.Add(single);form.Controls.Add(multi);form.Show();form.PerformLayout();single.PerformLayout();multi.PerformLayout();Application.DoEvents();C("中文内容保留",single.Text.Contains("中文")&&single.Inner.Text==single.Text,single.Text);C("深色前景色同步",single.Inner.ForeColor==cyber.Text,single.Inner.ForeColor.ToString());C("深色背景同步",single.Inner.BackColor==cyber.PanelAlt,single.Inner.BackColor.ToString());C("单行TextBox在边框内",single.Inner.Bounds.Left>=0&&single.Inner.Right<=single.Width&&single.Inner.Top>=0&&single.Inner.Bottom<=single.Height,single.Inner.Bounds.ToString());C("多行输入占满容器",multi.Inner.Height>=multi.Height-14&&multi.Inner.Multiline,multi.Inner.Bounds.ToString());C("多行文字完整",multi.Inner.Text.Contains("第二行")&&multi.Inner.Lines.Length==2,multi.Inner.Lines.Length.ToString());single.Palette=day;C("浅色主题前景色同步",single.Inner.ForeColor==day.Text,single.Inner.ForeColor.ToString());C("浅色主题背景同步",single.Inner.BackColor==day.PanelAlt,single.Inner.BackColor.ToString());C("占位文字属性保留",single.Placeholder=="输入工程内容","ok");bool painted=true;try{using(var bmp=new Bitmap(form.Width,form.Height))form.DrawToBitmap(bmp,form.ClientRectangle);}catch{painted=false;}C("原生输入框可渲染",painted,"painted");form.Close();}Console.WriteLine("\n==== DarkInput 验收: PASS "+p+" / FAIL "+f+" ====");return f==0?0:1;}
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "01-presence",
+    "changedBytes": 0,
+    "totalBytes": 1075200,
+    "exactMatch": true
+  },
+  {
+    "name": "02-building",
+    "changedBytes": 0,
+    "totalBytes": 1075200,
+    "exactMatch": true
+  },
+  {
+    "name": "03-probe-front",
+    "changedBytes": 0,
+    "totalBytes": 1075200,
+    "exactMatch": true
+  },
+  {
+    "name": "04-probe-side",
+    "changedBytes": 0,
+    "totalBytes": 1075200,
+    "exactMatch": true
+  }
+]

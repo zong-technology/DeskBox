@@ -1,0 +1,20 @@
+# Headless route for the user's existing custom DeepSeek Harness provider.
+# This file contains only provider metadata and an environment credential reference.
+# No API key or account token is stored here.
+- id: credentials
+  disabled: false
+- id: agent-default-model
+  config:
+    provider: deepseek-officia
+    model: deepseek-v4.1-flash-1017
+- id: llm-pi-ai
+  config:
+    providers:
+      deepseek-officia:
+        displayName: deepseek-officia
+        apiKeyEnv: DEEPSEEK_OFFICIA_API_KEY
+        api: openai-completions
+        baseURL: https://moonshot.kk18.chat/v1
+        models:
+          - id: deepseek-v4.1-flash-1017
+            name: deepseek-v4.1-flash-1017

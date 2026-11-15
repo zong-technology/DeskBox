@@ -1,0 +1,40 @@
+{
+  "checks": [
+    {
+      "name": "开场没有设备",
+      "passed": true
+    },
+    {
+      "name": "中间帧为部分几何",
+      "passed": true
+    },
+    {
+      "name": "两个视角改变头部和尖端投影",
+      "passed": true
+    },
+    {
+      "name": "打断清空 build",
+      "passed": true
+    },
+    {
+      "name": "超过旧时间点仍无重播 build",
+      "passed": true
+    },
+    {
+      "name": "打断清空 tip",
+      "passed": true
+    },
+    {
+      "name": "超过旧时间点仍无重播 tip",
+      "passed": true
+    },
+    {
+      "name": "减少动效即时成像",
+      "passed": true
+    },
+    {
+      "name": "减少动效即时退场",
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+CREATE TABLE IF NOT EXISTS ai_jobs (id TEXT PRIMARY KEY,owner TEXT NOT NULL,device TEXT NOT NULL,messages TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued',response TEXT NOT NULL DEFAULT '',stage TEXT NOT NULL DEFAULT '等待电脑接入',error TEXT NOT NULL DEFAULT '',provider TEXT NOT NULL DEFAULT '',model TEXT NOT NULL DEFAULT '',cancelled INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL,updated INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS ai_jobs_owner_status ON ai_jobs(owner,status,created);

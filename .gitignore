@@ -1,3 +1,48 @@
+# Build / release artifacts
+dist/
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+
+# Runtime and user data (may contain encrypted credentials or private content)
+data/
+**/data/
+*.jsonl
+*.log
+*.tmp
+*.bak
+*.migrated
+*.bad-*
+
+# IDE / local tooling
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.cache
+
+# Local test output
+TestResults/
+coverage/
+tools/*.out
+tools/*.png
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
+.wrangler/
+
+# Cloud service has its own private Sites source repository and deployment history.
+cloud/deskbox-account-sync/
+cloud/deskbox-worker/.wrangler.generated.json
+cloud/deskbox-worker/.deployment-state.json
+cloud/deskbox-worker/.wrangler/
+
+# Optional hologram web preview
 .env
 node_modules/
 *.log

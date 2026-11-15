@@ -1,0 +1,76 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>DeskBox · 实时语音</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#02070b;color:#edf7fc;font:15px system-ui}header{height:54px;display:flex;gap:16px;align-items:center;padding:0 24px}button{font:inherit;background:#101e27;color:inherit;border:1px solid #385664;border-radius:6px;padding:5px 13px;cursor:pointer}canvas{display:block;width:min(100vw,calc((100vh - 54px)*1.7777778));height:auto;margin:auto}</style>
+<header><strong>DeskBox · 实时语音原型</strong><button id="main">播放主线</button><button id="cut">播放打断分支</button><label><input type="checkbox" id="less">减少动效</label><button id="reset">重置</button><span>点击麦克风或按 I 打断</span></header>
+<canvas width="1920" height="1080" aria-label="实时语音工作区"></canvas>
+<script>
+const c=document.querySelector('canvas'),g=c.getContext('2d'),$=id=>document.getElementById(id);
+let art, mode='main', t=0, playing=false, reduced=false, interrupt=false, ended=false, cc=true, token=0;
+const load=name=>new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=name+'.svg'});
+function smooth(t){t=Math.max(0,Math.min(1,t));return t*t*(3-2*t)}
+function state(t,mode,reduced){
+ const cut=mode==='cut'&&t>=6.2;
+ const appear=reduced?+(t>=3.85):smooth((t-3.85)/1.05);
+ const fade=reduced?+(t>=8.55):smooth((t-8.55)/2.25);
+ const object=cut?0:appear*(1-fade);
+ const focus=cut||t<5.5||t>=8.55?0:reduced?1:smooth((t-5.5)/.55);
+ const caption=cut?'已打断 · 正在聆听':t<1.5?'正在聆听':t<3.85?'好，我来解释一下。':t<5.5?'这是温度探头。':t<8.55?'探头尖端是感温位置。':t<10.8?'说回刚才的话题，我们继续聊。':'正在聆听';
+ return {object,focus,caption,beam:reduced?0:object,x:360-210*object,y:165+283*object,scale:1-.48*object,t:cut?0:t};
+}
+function label(s,x,y,size=22,color='#edf7fc',align='left',weight=400){g.fillStyle=color;g.font=weight+' '+size+'px "Microsoft YaHei UI",system-ui';g.textAlign=align;g.fillText(s,x,y)}
+function line(points,color,w=1){g.beginPath();points.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.strokeStyle=color;g.lineWidth=w;g.stroke()}
+function ring(x,y,r,color,w=1){g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.strokeStyle=color;g.lineWidth=w;g.stroke()}
+function draw(s){
+ const cyan='#61e6f3',amber='#ffbe73',muted='#9db0bb',border='#28404c';
+ g.fillStyle='#02070b';g.fillRect(0,0,1920,1080);
+ g.beginPath();g.roundRect(24,24,1872,1032,20);g.strokeStyle=border;g.lineWidth=1.5;g.stroke();
+ label('DESKBOX',76,91,29,'#edf7fc','left',700);label('LIVE',232,91,29,cyan,'left',700);label('WORKBENCH',321,91,29);
+ line([[535,81],[1550,81]],border);label('●  LIVE',1600,90,20,cyan);label('演示会话',1740,90,20,muted);
+ const pulse=reduced?0:Math.sin(s.t*3.5);
+ g.globalAlpha=.91+.08*pulse;g.drawImage(art[0],s.x,s.y+pulse*4,1200*s.scale,620*s.scale);
+ if(s.beam){g.globalAlpha=s.beam;g.drawImage(art[2],464,310,720,470)}
+ if(s.object){g.globalAlpha=s.object;g.drawImage(art[1],1040,190,480,610);line([[1416,343],[1512,254],[1810,254]],amber,1.3);ring(1416,343,4,amber,2);label('TT-101 / 温度探头 · 示意',1514,239,21)}
+ if(s.focus){g.globalAlpha=s.focus;ring(1291,746,19,amber,2);ring(1291,746,27,'#a96634');line([[1318,746],[1434,685],[1670,685]],amber,1.3);label('感温端',1444,670,22,amber)}
+ g.globalAlpha=1;
+ if(cc)label(s.caption,960,904,28,'#edf7fc','center');
+ line([[86,951],[706,951]],border);line([[1214,951],[1834,951]],border);
+ ['麦克风','暂停','字幕','结束'].forEach((name,i)=>{
+ const x=840+80*i,y=995,color=i===0?cyan:i===3?'#f97478':muted;
+ ring(x,y,29,color,1.4);
+ if(i===0){g.beginPath();g.roundRect(x-4,y-10,8,15,4);g.stroke();g.beginPath();g.arc(x,y+1,8,0,Math.PI);g.stroke();line([[x,y+9],[x,y+14]],color,2)}
+ if(i===1){if(playing){line([[x-4,y-8],[x-4,y+8]],color,3);line([[x+4,y-8],[x+4,y+8]],color,3)}else line([[x-4,y-8],[x+8,y],[x-4,y+8],[x-4,y-8]],color,2)}
+ if(i===2){g.strokeStyle=color;g.strokeRect(x-11,y-8,22,16);label('CC',x,y+4,9,color,'center',700)}
+ if(i===3){g.beginPath();g.arc(x,y+11,15,Math.PI*1.25,Math.PI*1.75);g.strokeStyle=color;g.lineWidth=5;g.stroke()}
+ label(name,x,y+50,13,color,'center');
+ });
+}
+function render(){draw(interrupt||ended?{...state(0,'main',reduced),caption:ended?'会话已结束':'已打断 · 正在聆听'}:state(t,mode,reduced))}
+function pause(){playing=false;++token;render()}
+function play(from=0){
+ playing=true;interrupt=ended=false;const start=performance.now()-1000*from,id=++token;
+ function next(now){if(id!==token)return;t=(now-start)/1000;if(t>=(mode==='cut'?8.9:12.2)){pause();return}render();requestAnimationFrame(next)}
+ requestAnimationFrame(next);
+}
+function cut(){interrupt=true;ended=false;pause()}
+$('main').onclick=()=>{mode='main';play()};$('cut').onclick=()=>{mode='cut';play()};
+$('reset').onclick=()=>{t=0;interrupt=ended=false;cc=true;pause()};
+$('less').onchange=e=>{reduced=e.target.checked;render()};
+addEventListener('keydown',e=>{if(e.key.toLowerCase()==='i')cut()});
+c.onclick=e=>{
+ const r=c.getBoundingClientRect(),x=(e.clientX-r.x)*1920/r.width,y=(e.clientY-r.y)*1080/r.height;
+ const i=Math.round((x-840)/80);
+ if(Math.hypot(x-840-i*80,y-995)>31)return;
+ if(i===0)cut();if(i===1&&!ended&&!interrupt){if(playing)pause();else play(t<12.2?t:0)}
+ if(i===2){cc=!cc;render()}if(i===3){ended=true;pause()}
+};
+window.voiceState=state;
+window.showVoiceFrame=(time,m='main',r=false)=>{t=time;mode=m;reduced=r;interrupt=ended=false;pause()};
+window.recordVoice=(m='main')=>{
+ const stream=c.captureStream(30),mime=['video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8'].find(x=>MediaRecorder.isTypeSupported(x));
+ const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:6500000}),chunks=[];
+ rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+ rec.onstop=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(chunks,{type:mime}));a.download=(m==='main'?'实时语音-完整演示':'实时语音-打断分支')+(mime.includes('mp4')?'.mp4':'.webm');a.click();stream.getTracks().forEach(track=>track.stop())};
+ showVoiceFrame(0,m);rec.start();play();
+ setTimeout(()=>rec.stop(),m==='main'?12400:9100);
+};
+Promise.all(['aiArt','probe','beamArt'].map(load)).then(all=>{art=all;render();window.voiceReady=true});
+</script></html>
