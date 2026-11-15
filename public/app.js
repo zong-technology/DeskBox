@@ -217,7 +217,9 @@ async function startCall() {
       analyser.fftSize = 256;
       session.samples = new Uint8Array(analyser.frequencyBinCount);
       context.createMediaStreamSource(stream).connect(analyser);
-      await context.resume();
+      // Browser autoplay rules may keep this promise pending until another click.
+      // Optional visualization must never block the actual voice connection.
+      context.resume().catch(() => {});
     } catch { /* Audio visualization is optional. */ }
     if (session !== current) return;
     const offer = await peer.createOffer();
@@ -267,6 +269,7 @@ previewButton.addEventListener('click', () => {
   notice(preview ? '正在预览全息动态效果 · 未开启麦克风，未连接 AI' : '麦克风仅在你发起通话后开启');
 });
 document.addEventListener('click', () => {
+  current?.context?.resume().catch(() => {});
   if (state === 'connected' && audio.paused && audio.srcObject) audio.play().then(() => notice('声音播放已恢复。')).catch(() => {});
 });
 window.addEventListener('pagehide', stopCall);

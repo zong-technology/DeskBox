@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
 const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(setImmediate); };
 
-async function browser(t, getUserMedia) {
+async function browser(t, getUserMedia, AudioContext) {
   class Element {
     textContent = '';
     innerHTML = '';
@@ -53,6 +53,7 @@ async function browser(t, getUserMedia) {
   const windowHandlers = {};
   let permissionCalls = 0;
   const sandbox = {
+    ...(AudioContext ? { AudioContext } : {}),
     document: { getElementById: element, body: new Element(), createElement: () => new Element(), addEventListener() {} },
     window: { isSecureContext: true, RTCPeerConnection: Peer, addEventListener: (name, handler) => { windowHandlers[name] = handler; } },
     navigator: { mediaDevices: { getUserMedia: async () => { permissionCalls++; return getUserMedia ? getUserMedia(stream) : stream; } } },
@@ -127,4 +128,19 @@ test('denied permissions and lost connections reset controls and release microph
   assert.equal(b.track.stopped, true);
   assert.equal(b.element('mute').disabled, true);
   assert.match(b.element('notice').textContent, /连接已断开/);
+});
+
+test('a suspended visualization audio context never blocks the real voice connection', async (t) => {
+  class SuspendedContext {
+    resume() { return new Promise(() => {}); }
+    close() { return Promise.resolve(); }
+    createAnalyser() { return { frequencyBinCount: 128 }; }
+    createMediaStreamSource() { return { connect() {} }; }
+  }
+  const b = await browser(t, undefined, SuspendedContext);
+  b.element('call').click();
+  await flush();
+  assert.equal(b.peer().connectionState, 'connected');
+  b.element('call').click();
+  assert.equal(b.track.stopped, true);
 });
