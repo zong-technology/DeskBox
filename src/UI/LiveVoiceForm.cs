@@ -29,6 +29,7 @@ namespace DeskBox.UI
         private readonly Label _status = new Label { Text = "待机 · 开始后将音频发送至所填的语音服务。", AutoSize = true };
         private readonly CoreView _core = new CoreView { Dock = DockStyle.Fill };
         private readonly FlowLayoutPanel _setup;
+        private readonly ComboBox _hologramStyle = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280, AccessibleName = "更改全息风格" };
         private bool _embedded;
         private CancellationTokenSource _session;
         private bool _muted, _closeAfterSession, _dropPlayback;
@@ -67,7 +68,7 @@ namespace DeskBox.UI
             _provider.Items.AddRange(new object[] { "千问百炼 · Omni Realtime", "Google · Gemini Live" });
             _provider.SelectedIndexChanged += delegate { SelectProvider(); };
             _provider.SelectedIndex = 0;
-            var controls = _setup = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 204, Padding = new Padding(8), AutoScroll = true };
+            var controls = _setup = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 240, Padding = new Padding(8), AutoScroll = true };
             Row(controls, "供应商", _provider);
             Row(controls, "WSS 地址", _endpoint);
             controls.Controls.Add(new Label { Text = "语音模型", Width = 72 });
@@ -75,6 +76,13 @@ namespace DeskBox.UI
             controls.Controls.Add(_fetch);
             controls.SetFlowBreak(_fetch, true);
             Row(controls, "API Key", _key);
+            _hologramStyle.Items.AddRange(new object[] { "银紫龙翼 · 原画全息", "星辉光粒子 · 全身投影" });
+            _hologramStyle.SelectedIndex = 0;
+            _hologramStyle.SelectedIndexChanged += delegate { _core.SetProjectionStyle(_hologramStyle.SelectedIndex == 1); };
+            _core.ProjectionStyleChanged = particles => { _hologramStyle.SelectedIndex = particles ? 1 : 0; };
+            controls.Controls.Add(new Label { Text = "更改全息风格", Width = 112 });
+            controls.Controls.Add(_hologramStyle);
+            controls.SetFlowBreak(_hologramStyle, true);
             controls.Controls.AddRange(new Control[] { _connect, _mute, _status });
             controls.SetFlowBreak(_status, true);
             foreach (var entry in new[] { new[]{"avatar","银紫龙翼"}, new[]{"core","无面孔核心"}, new[]{"reactor","反应器"}, new[]{"plc","PLC 拓扑"}, new[]{"progress","项目进度"} })
@@ -377,6 +385,9 @@ namespace DeskBox.UI
             public bool Preview { get; private set; }
             private float _strength = .6f;
             private double _visualSeconds;
+            private double _styleAt;
+            public bool ParticleStyle { get; private set; }
+            public Action<bool> ProjectionStyleChanged;
             private readonly System.Windows.Forms.Timer _animation = new System.Windows.Forms.Timer { Interval = 33 };
             private string _focusedAction;
             private bool _dirty = true;
@@ -386,6 +397,7 @@ namespace DeskBox.UI
             private float _probeReveal, _tipReveal;
             private DateTime _signalAt;
             private readonly ContextMenuStrip _sceneMenu = new ContextMenuStrip();
+            private readonly ContextMenuStrip _styleMenu = new ContextMenuStrip();
             private string _transcript = "";
             private readonly Dictionary<string, Rectangle> _actions = new Dictionary<string, Rectangle>();
             private DateTime _started;
@@ -395,6 +407,7 @@ namespace DeskBox.UI
                 _workspace = active;
                 Preview = active && preview;
                 _visualSeconds = 0;
+                _styleAt = 0;
                 Paused = OutputMuted = false;
                 _transcript = "";
                 _captionFinished = true;
@@ -413,6 +426,18 @@ namespace DeskBox.UI
                 _scene = scene;
                 Cursor = scene == "reactor" ? Cursors.Hand : Cursors.Default;
                 Invalidate();
+            }
+
+            public void SetProjectionStyle(bool particles)
+            {
+                if (ParticleStyle == particles) return;
+                ParticleStyle = particles;
+                _styleAt = _visualSeconds;
+                ((ToolStripMenuItem)_styleMenu.Items[0]).Checked = !particles;
+                ((ToolStripMenuItem)_styleMenu.Items[1]).Checked = particles;
+                ClearProjection();
+                ShowScene("avatar");
+                if (ProjectionStyleChanged != null) ProjectionStyleChanged(particles);
             }
 
             protected override void OnMouseDown(MouseEventArgs e)
@@ -452,6 +477,7 @@ namespace DeskBox.UI
                         case "pause": Paused = !Paused; ResetPlayback(); break;
                         case "caption": _captions = !_captions; break;
                         case "visual": _sceneMenu.Show(this, e.Location); break;
+                        case "style": _styleMenu.Show(this, e.Location); break;
                         case "reduced": _reduced = !_reduced; break;
                         default: ShowScene(action.Key); break;
                     }
@@ -515,6 +541,8 @@ namespace DeskBox.UI
                 };
                 _animation.Start();
                 BackColor = Color.FromArgb(9, 21, 36);
+                _styleMenu.Items.Add(new ToolStripMenuItem("银紫龙翼 · 原画全息", null, delegate { SetProjectionStyle(false); }) { Checked = true });
+                _styleMenu.Items.Add(new ToolStripMenuItem("星辉光粒子 · 全身投影", null, delegate { SetProjectionStyle(true); }));
                 _sceneMenu.Items.Add("银紫龙翼全身投影", null, delegate { ClearProjection(); ShowScene("avatar"); });
                 _sceneMenu.Items.Add("无面孔核心", null, delegate { ClearProjection(); ShowScene("core"); });
                 _sceneMenu.Items.Add("反应器", null, delegate { ClearProjection(); ShowScene("reactor"); });
@@ -530,7 +558,7 @@ namespace DeskBox.UI
 
             protected override void Dispose(bool disposing)
             {
-                if (disposing) { _animation.Stop(); _animation.Dispose(); _sceneMenu.Dispose(); }
+                if (disposing) { _animation.Stop(); _animation.Dispose(); _sceneMenu.Dispose(); _styleMenu.Dispose(); }
                 base.Dispose(disposing);
             }
 
@@ -605,14 +633,14 @@ namespace DeskBox.UI
                     VoiceWorkspaceArt.Draw(g, ClientSize, _speaking, Muted, _level, elapsed.ToString(@"mm\:ss"), _scene,
                         _scene == "progress" && CurrentProject != null ? CurrentProject() : null,
                         Paused, OutputMuted, _captions, _transcript, _yaw, _pitch, _zoom,
-                        _probeReveal, _tipReveal, _reduced, Preview, _visualSeconds, _strength, _actions);
+                        _probeReveal, _tipReveal, _reduced, Preview, _visualSeconds, _strength, ParticleStyle, _visualSeconds - _styleAt, _actions);
                     Rectangle focused;
                     if (Focused && _focusedAction != null && _actions.TryGetValue(_focusedAction, out focused))
                         ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(focused, 3, 3), Color.White, BackColor);
                     return;
                 }
                 if (_scene == "avatar") {
-                    SilverwingProjection.Draw(g, ClientRectangle, 0, false, false, false, _reduced, _visualSeconds, 1, _strength);
+                    SilverwingProjection.Draw(g, ClientRectangle, 0, false, false, false, _reduced, _visualSeconds, 1, _strength, ParticleStyle);
                     return;
                 }
                 float cx = ClientSize.Width / 2f, cy = ClientSize.Height / 2f;

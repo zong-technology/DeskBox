@@ -45,6 +45,7 @@ internal static class SilverwingAccept
                 Console.WriteLine("Initial paint completed");
                 var coreType = core.GetType();
                 Check((string)Field(core, "_scene") == "avatar", "Default scene is the reference character");
+                Check(!(bool)coreType.GetProperty("ParticleStyle").GetValue(core, null), "Original hologram remains the default");
                 Button preview = null;
                 foreach (Control control in ((Control)Field(form, "_setup")).Controls)
                     if (control is Button && control.Text.StartsWith("预览全息")) preview = (Button)control;
@@ -74,6 +75,67 @@ internal static class SilverwingAccept
                     var hitboxes = new List<Rectangle>(actions.Values);
                     for (int i = 0; i < hitboxes.Count; i++) for (int j = i + 1; j < hitboxes.Count; j++)
                         Check(!hitboxes[i].IntersectsWith(hitboxes[j]), "Controls never overlap");
+                }
+                // Switch the actual setup selector, then use the immersive style menu to switch back.
+                var selector = (ComboBox)Field(form, "_hologramStyle");
+                var sessionBefore = Field(form, "_session");
+                coreType.GetField("Muted").SetValue(core, true);
+                coreType.GetField("OutputMuted").SetValue(core, true);
+                coreType.GetField("_transcript", Private).SetValue(core, "风格切换保留字幕");
+                selector.SelectedIndex = 1;
+                Check((bool)coreType.GetProperty("ParticleStyle").GetValue(core, null), "Setup selector enables the particle style");
+                Check((bool)coreType.GetField("Muted").GetValue(core), "Style switching preserves microphone mute");
+                Check((bool)coreType.GetField("OutputMuted").GetValue(core), "Style switching preserves speaker mute");
+                Check((string)Field(core, "_transcript") == "风格切换保留字幕", "Style switching preserves captions");
+                Check(Field(form, "_session") == sessionBefore && !(bool)Field(form, "_dropPlayback"), "Style switching never replaces the call or flushes playback");
+                coreType.GetField("Muted").SetValue(core, false);
+                coreType.GetField("OutputMuted").SetValue(core, false);
+                coreType.GetField("_transcript", Private).SetValue(core, "");
+                coreType.GetField("_visualSeconds", Private).SetValue(core, 2.0);
+                foreach (var size in new[] { new Size(1600, 900), new Size(1280, 800), new Size(1024, 768) })
+                {
+                    core.Size = size;
+                    using (var bitmap = new Bitmap(size.Width, size.Height)) {
+                        core.DrawToBitmap(bitmap, new Rectangle(Point.Empty, size));
+                        bitmap.Save(Path.Combine(output, "native-photon-" + size.Width + ".png"), ImageFormat.Png);
+                        Check(Light(bitmap, .5, .22, .08, .09) > 30, "Particle face remains visible at " + size);
+                        Check(Light(bitmap, .5, .62, .18, .10) > 100, "Particle gown remains visible at " + size);
+                    }
+                    var actions = (Dictionary<string, Rectangle>)Field(core, "_actions");
+                    Check(actions.ContainsKey("style"), "Immersive view has a style entry");
+                    Check(new Rectangle(Point.Empty, size).Contains(actions["style"]), "Style button fits at " + size);
+                }
+                int count = (int)assembly.GetType("DeskBox.UI.PhotonProjection").GetProperty("PointCount").GetValue(null, null);
+                Check(count > 5000, "Particle style uses actual sampled light points");
+                Console.WriteLine("Particle samples: " + count);
+                core.Size = new Size(1280, 800);
+                using (var a = new Bitmap(1280, 800)) using (var b = new Bitmap(1280, 800)) {
+                    core.DrawToBitmap(a, new Rectangle(0, 0, 1280, 800));
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    for (int frame = 0; frame < 6; frame++) core.DrawToBitmap(a, new Rectangle(0, 0, 1280, 800));
+                    Console.WriteLine("Particle render mean: " + (clock.Elapsed.TotalMilliseconds / 6).ToString("0.0") + " ms (offscreen CI host)");
+                    using (var original = new Bitmap(Path.Combine(output, "native-preview-1280.png")))
+                        Check(Differences(a, original) > 2000, "Particle projection is visually distinct from the original");
+                    coreType.GetField("_reduced", Private).SetValue(core, true);
+                    core.DrawToBitmap(a, new Rectangle(0, 0, 1280, 800));
+                    coreType.GetField("_visualSeconds", Private).SetValue(core, 4.0);
+                    core.DrawToBitmap(b, new Rectangle(0, 0, 1280, 800));
+                    Check(Differences(a, b) == 0, "Reduced motion freezes particle movement");
+                    a.Save(Path.Combine(output, "native-photon-reduced.png"), ImageFormat.Png);
+                    coreType.GetField("_reduced", Private).SetValue(core, false);
+                    coreType.GetMethod("UpdateSignal").Invoke(core, new object[] { .2, true });
+                    core.DrawToBitmap(b, new Rectangle(0, 0, 1280, 800));
+                    Check(Differences(a, b) > 300, "Actual voice signal changes the particle projection");
+                }
+                var styleMenu = (ContextMenuStrip)Field(core, "_styleMenu");
+                ((ToolStripMenuItem)styleMenu.Items[0]).PerformClick();
+                Check(selector.SelectedIndex == 0, "Immersive menu synchronizes the setup selector");
+                Check(!(bool)coreType.GetProperty("ParticleStyle").GetValue(core, null), "Original style can be restored");
+                coreType.GetMethod("UpdateSignal").Invoke(core, new object[] { 0.0, false });
+                coreType.GetField("_visualSeconds", Private).SetValue(core, 0.0);
+                using (var restored = new Bitmap(1280, 800)) using (var original = new Bitmap(Path.Combine(output, "native-preview-1280.png"))) {
+                    core.DrawToBitmap(restored, new Rectangle(0, 0, 1280, 800));
+                    Check(Differences(restored, original) == 0, "Restoring the original style preserves its appearance");
                 }
                 // Return from preview using the same action as the native end button.
                 var returnAction = (Action)coreType.GetField("ReturnRequested").GetValue(core);
@@ -117,6 +179,25 @@ internal static class SilverwingAccept
                 var color = image.GetPixel(px, py);
                 if (color.R > 110 && color.G > 100 && color.B > 130) count++;
             }
+        return count;
+    }
+
+    private static int Light(Bitmap image, double x, double y, double width, double height)
+    {
+        int count = 0;
+        for (int py = (int)((y - height / 2) * image.Height); py < (y + height / 2) * image.Height; py += 2)
+            for (int px = (int)((x - width / 2) * image.Width); px < (x + width / 2) * image.Width; px += 2) {
+                var color = image.GetPixel(px, py);
+                if (color.B > 65 && color.G > 45) count++;
+            }
+        return count;
+    }
+
+    private static int Differences(Bitmap a, Bitmap b)
+    {
+        int count = 0;
+        for (int y = 0; y < a.Height; y += 3) for (int x = 0; x < a.Width; x += 3)
+            if (a.GetPixel(x, y).ToArgb() != b.GetPixel(x, y).ToArgb()) count++;
         return count;
     }
 }

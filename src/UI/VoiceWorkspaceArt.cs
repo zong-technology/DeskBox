@@ -35,7 +35,8 @@ namespace DeskBox.UI
         public static void Draw(Graphics g, Size size, bool speaking, bool muted, double level,
             string elapsed, string scene, EngineerWorkspace workspace, bool paused, bool outputMuted,
             bool captions, string transcript, double yaw, double pitch, double zoom,
-            float reveal, float focus, bool reduced, bool preview, double seconds, float strength, Dictionary<string, Rectangle> actions)
+            float reveal, float focus, bool reduced, bool preview, double seconds, float strength,
+            bool particles, double styleSeconds, Dictionary<string, Rectangle> actions)
         {
             g.Clear(Page);
             actions.Clear();
@@ -51,8 +52,9 @@ namespace DeskBox.UI
             using (var frame = Palette.RoundedRect(bounds(24, 24, 1872, 1032), 12))
             {
                 g.DrawPath(border, frame);
-                Label(g, "DESKBOX  /  SILVERWING", title, Text, bounds(76, 55, 605, 55), false);
-                g.DrawLine(border, bounds(670, 81, 1, 1).Location, bounds(1240, 81, 1, 1).Location);
+                Label(g, particles ? "DESKBOX  /  PHOTON" : "DESKBOX  /  SILVERWING", title, Text, bounds(76, 55, 605, 55), false);
+                g.DrawLine(border, bounds(670, 81, 1, 1).Location, bounds(1000, 81, 1, 1).Location);
+                Button(g, actions, "style", bounds(1025, 54, 210, 48), "更改全息风格", small, Color.FromArgb(192, 175, 229));
                 Label(g, (preview ? "VISUAL PREVIEW" : "●  LIVE  /  " + elapsed), small, Cyan, bounds(1260, 55, 235, 55));
                 Button(g, actions, "reduced", bounds(1505, 54, 155, 48), reduced ? "标准动效" : "减少动效", small, Muted);
                 Button(g, actions, "back", bounds(1690, 54, 150, 48), "返回助手", small, Muted);
@@ -68,7 +70,7 @@ namespace DeskBox.UI
                     var body = bounds(center - width / 2, 135, width, 700);
                     if (scene == "avatar")
                         SilverwingProjection.Draw(g, body, level, speaking, muted, paused, reduced, seconds,
-                            preview ? 1 : (float)Math.Min(1, seconds / 1.2), strength);
+                            particles ? (float)Math.Min(1, styleSeconds / 1.1) : preview ? 1 : (float)Math.Min(1, seconds / 1.2), strength, particles);
                     else if (Presence != null) DrawLayer(g, Presence, body, .84f + .16f * pulse);
                     else Label(g, "AI", title, Cyan, body);
                     if (reveal <= 0)
@@ -87,8 +89,8 @@ namespace DeskBox.UI
                         Label(g, preview ? "未连接 · 视觉预览" : "已连接 · 实时语音", small, Text, bounds(130, 380, 270, 38), false);
                         Label(g, preview ? "麦克风未开启" : muted || paused ? "麦克风已关闭" : "麦克风已开启", small, Muted, bounds(130, 428, 270, 38), false);
                         Label(g, preview ? "预览不发送声音" : outputMuted ? "扬声器已静音" : speaking ? "NOVA 正在回应" : "等待你的声音", small, Muted, bounds(130, 476, 270, 38), false);
-                        Label(g, "SILVERWING  /  银翼", small, Color.FromArgb(192, 175, 229), bounds(1510, 345, 300, 40), false);
-                        Label(g, "全身投影 · 与你同在", small, Muted, bounds(1510, 397, 300, 38), false);
+                        Label(g, particles ? "PHOTON  /  星辉光粒子" : "SILVERWING  /  银翼", small, Color.FromArgb(192, 175, 229), bounds(1510, 345, 300, 40), false);
+                        Label(g, particles ? "光粒成形 · 与你同在" : "全身投影 · 与你同在", small, Muted, bounds(1510, 397, 300, 38), false);
                         Label(g, "Tab 选择  /  Enter 操作", small, Muted, bounds(1510, 455, 300, 38), false);
                         Label(g, preview ? "Esc 返回语音设置" : "Esc 结束并返回助手", small, Muted, bounds(1510, 500, 300, 38), false);
                     }

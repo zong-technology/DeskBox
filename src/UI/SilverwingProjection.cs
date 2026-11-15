@@ -21,7 +21,7 @@ namespace DeskBox.UI
         }
 
         public static void Draw(Graphics g, Rectangle area, double level, bool speaking, bool muted,
-            bool paused, bool reduced, double seconds, float formation, float strength)
+            bool paused, bool reduced, double seconds, float formation, float strength, bool particles = false)
         {
             if (area.Width < 4 || area.Height < 4) return;
             var saved = g.Save();
@@ -39,7 +39,7 @@ namespace DeskBox.UI
             float sway = (float)Math.Sin(time * .65) * h * .0015f;
             var body = new RectangleF(cx - w / 2, top + sway, w, h);
             body = Rectangle.Round(body);
-            var image = AtSize((int)body.Width, (int)body.Height);
+            var image = particles ? null : AtSize((int)body.Width, (int)body.Height);
 
             // Low-contrast ambient light stays behind the face and gown.
             using (var path = new GraphicsPath())
@@ -124,7 +124,9 @@ namespace DeskBox.UI
                     g.DrawLine(pen, x, y, x, y - height);
                 }
 
-            if (image != null)
+            if (particles && Character != null)
+                PhotonProjection.Draw(g, body, Character, seconds, (float)level, formation, strength, reduced, paused, speaking, muted);
+            else if (image != null)
             {
                 var revealClip = g.Save();
                 float amount = reduced ? 1 : Math.Max(0, Math.Min(1, formation));
