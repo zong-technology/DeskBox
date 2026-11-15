@@ -288,6 +288,7 @@ fetch('/api/status').then((response) => {
 for (const id of ['open-settings', 'console-settings']) $(id).addEventListener('click', () => $('settings-dialog').showModal());
 for (const id of ['close-settings', 'done-settings']) $(id).addEventListener('click', () => $('settings-dialog').close());
 $('volume').addEventListener('input', () => { audio.volume = Number($('volume').value); });
+$('avatar-style').addEventListener('change', () => { visual.avatar = $('avatar-style').value; });
 $('motion').addEventListener('change', () => { document.body.dataset.motion = $('motion').value; });
 $('fullscreen').addEventListener('click', async () => {
   try {

@@ -1,6 +1,6 @@
 # DeskBox · NOVA 全息通讯舱
 
-DeskBox 软件内的沉浸式全息 AI 语音空间。Three.js / WebGL 冰蓝透明曲面人像、柔和轮廓光、细扫描线、稀疏粒子、多层空间投影环及透视网格，随倾听、思考和 AI 发声状态响应。桌面窗口内支持实时语音、直接打断、静音、挂断、字幕和设置；全息为屏幕内的空间视觉效果。
+DeskBox 软件内的沉浸式全息 AI 语音空间。Three.js / WebGL 全身女性风格角色、柔和轮廓光、细扫描线与语音驱动口型、多层空间投影环及透视网格，随倾听、思考和 AI 发声状态响应。桌面窗口内支持实时语音、直接打断、静音、挂断、字幕和设置；全息为屏幕内的空间视觉效果。
 
 ![全息通讯舱实际界面](docs/holographic-chamber.png)
 
@@ -15,7 +15,7 @@ npm run desktop
 
 在软件的「系统设置」中填写 OpenAI API 密钥，保存后点击「建立语音连接」。桌面模式会自动启动本机服务，无需另开浏览器或终端服务器。密钥不会返回页面，系统安全存储可用时通过 Electron safeStorage 加密存入当前用户目录；系统密钥链不可用时仅在本次运行的内存中使用。打包产物不包含开发者密钥。
 
-窗口默认启用 GPU 渲染。右上角可进入全屏，鼠标在投影上移动可改变观察角度。设置中可以选择声音、语言、回复音量和减少动态效果。没有密钥也可使用「启动全息演示」，该模式不启用麦克风，不生成虚假对话或连接指标。
+窗口默认启用 GPU 渲染。右上角可进入全屏，鼠标在投影上移动可改变观察角度。设置中可以选择全身女性角色或无面孔核心，也可以调整声音、语言、回复音量和减少动态效果。没有密钥也可使用「启动全息演示」，该模式不启用麦克风，不生成虚假对话或连接指标。
 
 ### 打包
 
@@ -59,4 +59,4 @@ node --check desktop/main.mjs
 
 ## 模型来源
 
-全息人像使用 Lee Perry-Smith 的 Infinite 3D Head Scan（[来源](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/LeePerrySmith)，CC BY 3.0，基于 www.triplegangers.com），转化为粒子和线框后渲染。授权说明位于 `public/assets/LeePerrySmith_License.txt`。模型加载失败时使用内置程序化人像。
+全身女性风格角色基于 pixiv Inc. 的 `VRM1_Constraint_Twist_Sample v1.0.1`（[来源](https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm/examples/models)），按 [VRM Public License 1.0](https://vrm.dev/licenses/1.0/) 使用。模型内嵌元数据允许修改及再分发、允许商业用途。本项目调整了站姿、材质、灯光及动作表现，并非原创建模。模型与授权说明随应用分发，见 `public/assets/NOVA-model-license.txt`。模型加载失败时显示不带面孔的抽象全息核心。
