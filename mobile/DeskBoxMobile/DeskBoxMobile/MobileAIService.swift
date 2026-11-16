@@ -37,7 +37,7 @@ struct CloudAIResult: Decodable {
     init() {
         guard FileManager.default.fileExists(atPath: historyURL.path) else { return }
         do { messages = try JSONDecoder().decode([MobileAIMessage].self, from: Data(contentsOf: historyURL)) }
-        catch { loadFailed = true; error = "文字记录读取失败，原文件已保留，暂停覆盖。" }
+        catch { loadFailed = true; self.error = "文字记录读取失败，原文件已保留，暂停覆盖。" }
     }
     private func save() { guard !loadFailed else { return }; do { try JSONEncoder().encode(Array(messages.suffix(60))).write(to: historyURL, options: .atomic); savedAt = Date() } catch { self.error = "AI历史保存失败，当前内容仍保留在内存" } }
     func send(_ text: String, sync: SyncClient) {
