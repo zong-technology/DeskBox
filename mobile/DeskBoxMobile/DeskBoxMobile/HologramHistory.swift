@@ -7,6 +7,7 @@ struct HologramMessage: Codable, Identifiable {
     var text: String
     var date = Date()
     var partial = false
+    var streaming: Bool? = nil
 }
 struct HologramSession: Codable, Identifiable {
     var id = UUID().uuidString
@@ -22,7 +23,12 @@ struct HologramSession: Codable, Identifiable {
     init(url: URL? = nil) {
         self.url = url ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-history.json")
         guard FileManager.default.fileExists(atPath: self.url.path) else { return }
-        do { sessions = try JSONDecoder().decode([HologramSession].self, from: Data(contentsOf: self.url)) }
+        do {
+            sessions = try JSONDecoder().decode([HologramSession].self, from: Data(contentsOf: self.url))
+            for session in sessions.indices { for message in sessions[session].messages.indices where sessions[session].messages[message].streaming == true {
+                sessions[session].messages[message].streaming = false; sessions[session].messages[message].partial = true
+            } }
+        }
         catch { loadFailed = true; self.error = "全息记录读取失败，原文件已保留，暂停覆盖。" }
     }
     func upsert(_ session: HologramSession) {
@@ -52,16 +58,20 @@ struct HologramRecorder {
             let id = assistantID ?? UUID().uuidString; assistantID = id
             put(id: id, role: "assistant", text: packet.caption, append: true)
         }
-        if packet.turnComplete { assistantID = nil; userID = nil }
+        if packet.turnComplete {
+            if let id = assistantID, let index = session.messages.firstIndex(where: { $0.id == id }) { session.messages[index].streaming = false }
+            assistantID = nil; userID = nil
+        }
     }
     mutating func tool(_ name: String, result: String) { put(id: UUID().uuidString, role: "tool", text: name + "\n" + result, append: false) }
     mutating func close() { markAssistantPartial(); userID = nil }
     private mutating func markAssistantPartial() {
-        if let id = assistantID, let index = session.messages.firstIndex(where: { $0.id == id }) { session.messages[index].partial = true }; assistantID = nil
+        if let id = assistantID, let index = session.messages.firstIndex(where: { $0.id == id }) { session.messages[index].partial = true; session.messages[index].streaming = false }; assistantID = nil
     }
     private mutating func put(id: String, role: String, text: String, append: Bool) {
         if let index = session.messages.firstIndex(where: { $0.id == id }) { session.messages[index].text = append ? session.messages[index].text + text : text }
         else { session.messages.append(HologramMessage(id: id, role: role, text: text, date: started[id] ?? Date())); session.messages.sort { $0.date < $1.date } }
+        if role == "assistant", let index = session.messages.firstIndex(where: { $0.id == id }) { session.messages[index].streaming = true }
     }
 }
 

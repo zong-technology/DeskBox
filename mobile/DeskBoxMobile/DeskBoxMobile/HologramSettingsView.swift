@@ -21,7 +21,7 @@ struct HologramSettingsView: View {
                 Picker("服务", selection: $profile.service) { Text("Google · Gemini Live").tag(HologramService.gemini); Text("千问百炼 · Omni Realtime").tag(HologramService.qwen) }
                 TextField("WSS 服务地址", text: $profile.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                 TextField("实时语音模型", text: $profile.model).textInputAutocapitalization(.never).autocorrectionDisabled()
-                SecureField(saved.key.isEmpty ? "API 密钥" : "已保存，留空保留", text: $secret).textInputAutocapitalization(.never).autocorrectionDisabled()
+                SecureField(saved.key.isEmpty || profile.service != saved.service ? "API 密钥" : "已保存，留空保留", text: $secret).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Text("在这里配置一次，通话中只显示全息与字幕。手机密钥保存在系统钥匙串，不通过私人云同步；电脑中继文字AI的密钥仍留在电脑。").font(.caption).foregroundStyle(.secondary)
             }
             Section {
