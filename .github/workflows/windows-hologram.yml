@@ -3,7 +3,7 @@ on:
   push:
     branches: [release/windows-hologram-3]
   pull_request:
-    paths: ['src/**', 'assets/**', 'public/assets/**', 'packaging/**', 'build.ps1', 'tools/silverwing-accept.cs', 'tools/package-windows.ps1', 'tools/setup-accept.ps1', 'tools/rollback-install.ps1', 'tools/ui-regression.ps1', 'tools/prepare-ci-display.ps1', '.github/workflows/windows-hologram.yml']
+    paths: ['src/**', 'assets/**', 'public/assets/**', 'packaging/**', 'build.ps1', 'tools/silverwing-accept.cs', 'tools/render-hologram-preview.ps1', 'tools/package-windows.ps1', 'tools/setup-accept.ps1', 'tools/rollback-install.ps1', 'tools/ui-regression.ps1', 'tools/prepare-ci-display.ps1', '.github/workflows/windows-hologram.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,6 +25,9 @@ jobs:
           & .\dist\silverwing-accept.exe .\dist\DeskBox.exe .\dist\hologram-qa
           if ($LASTEXITCODE -ne 0) { throw 'Native hologram checks failed' }
           Get-FileHash .\dist\DeskBox.exe -Algorithm SHA256 | Format-List | Out-File .\dist\SHA256.txt
+      - name: Assemble the native animated preview
+        shell: powershell
+        run: .\tools\render-hologram-preview.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -79,6 +82,10 @@ jobs:
         with:
           name: DeskBox-Windows-Setup
           path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: DeskBox-Native-Silverwing
+          path: native-preview
       - uses: actions/checkout@v4
         with:
           path: source
@@ -87,5 +94,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: powershell
         run: |
-          gh release create v2.1.0-hologram.3 .\installer\DeskBox-2.1.0-hologram.3-Setup.exe .\installer\SHA256SUMS.txt .\installer\INSTALL-TEST-REPORT.md --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title 'DeskBox 2.1 hologram preview - Windows setup and upgrade' --notes-file .\source\packaging\RELEASE-NOTES.md
+          gh release create v2.1.0-hologram.3 .\installer\DeskBox-2.1.0-hologram.3-Setup.exe .\installer\SHA256SUMS.txt .\installer\INSTALL-TEST-REPORT.md .\native-preview\hologram-qa\hologram-motion.gif --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title 'DeskBox 2.1 hologram preview - Windows setup and upgrade' --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

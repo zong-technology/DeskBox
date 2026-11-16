@@ -152,6 +152,7 @@ namespace DeskBox.Ai
             var input = Read(content, "inputTranscription") as IDictionary<string, object>;
             packet.UserCaption = Read(input, "text") as string;
             packet.UserCaptionDelta = true;
+            packet.InputEnded=object.Equals(Read(input,"finished"),true);
             packet.ToolsCancelled=Read(root,"toolCallCancellation")!=null;
             var toolCall=Read(root,"toolCall") as IDictionary<string,object>;
             var functions=Read(toolCall,"functionCalls") as IList;

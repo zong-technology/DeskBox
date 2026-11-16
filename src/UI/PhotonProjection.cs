@@ -55,7 +55,7 @@ namespace DeskBox.UI
         }
 
         public static void Draw(Graphics graphics, RectangleF body, Bitmap source, double seconds,
-            float signal, float formation, float strength, bool reduced, bool paused, bool speaking, bool muted)
+            float signal, float formation, float strength, bool reduced, bool paused, bool speaking, bool muted,HologramDynamics response = null)
         {
             if (photons == null) Sample(source);
             int padding = Math.Max(12, (int)(body.Width * .12f));
@@ -69,9 +69,11 @@ namespace DeskBox.UI
                 pixels = new byte[width * height * 4];
             }
             Array.Clear(pixels, 0, pixels.Length);
-            float time = reduced ? 0 : (float)seconds;
+            float time = reduced || paused ? 0 : (float)seconds;
             float motion = reduced || paused ? 0 : 1;
-            float energy = Math.Max(0, Math.Min(1, signal));
+            float flow=motion==0 ? 0 : response==null ? time*.3f : response.Flow;
+            float energy = motion==0 ? 0 : Math.Max(0, Math.Min(1, signal));
+            float talking=response==null ? (speaking ? 1 : 0) : response.Speaking;
             float amount = reduced ? 1 : Math.Max(0, Math.Min(1, formation));
             float assembling = 1 - amount;
             float scan = time * .14f % 1;
@@ -80,24 +82,26 @@ namespace DeskBox.UI
                 var point = photons[i];
                 float reveal = Math.Max(0, Math.Min(1, (amount - (1 - point.Y) * .72f) * 4));
                 if (reveal <= 0) continue;
-                float wave = (float)Math.Sin(time * .9f + point.Phase * 6.28f);
+                float wave = (float)Math.Sin(flow * 2.1f + point.Phase * 6.28f);
                 float x = padding + point.X * body.Width;
                 float y = padding + point.Y * body.Height;
                 bool face = point.Y < .24f && point.Y > .07f && Math.Abs(point.X - .5f) < .15f;
-                x += (float)Math.Sin(time * .7f + point.Y * 5) * point.Depth * body.Width * (face ? .001f : .006f) * motion;
+                x += (float)Math.Sin(flow*1.8f + point.Y * 5) * point.Depth * body.Width * (face ? .001f : .004f+energy*.006f) * motion;
                 x += (point.Phase - .5f) * body.Width * assembling * .22f;
                 y += (1 - point.Y) * body.Height * assembling * .7f;
                 // The central face stays stable; motion is shallow and never rotates the illustration.
                 float outer = Math.Abs(point.X - .5f) * 2;
-                x += outer * wave * energy * 2 * motion;
+                x += outer * wave * energy * body.Width*.009f * motion;
                 float sweep = reduced ? 0 : Math.Max(0, 1 - Math.Abs(point.Y - scan) * 24);
                 float shimmer = reduced ? 1 : .88f + .12f * (float)Math.Sin(time * 1.1f + point.Phase * 24);
-                float intensity = (point.Light / 255f) * shimmer * (.65f + strength * .45f + energy * .2f) + sweep * strength * .24f;
+                float intensity = (point.Light / 255f) * shimmer * (.65f + strength * .45f + energy * .42f) + sweep * strength * .24f;
                 int alpha = (int)(Math.Min(1, intensity) * (point.Edge ? 255 : 240) * reveal);
-                float violet = speaking ? .7f : .22f + point.Phase * .32f;
-                int red = muted ? 135 : (int)(95 + violet * 116);
-                int green = muted ? 169 : (int)(225 - violet * 38);
-                int blue = 255;
+                int hue=face ? 34 : (int)(point.Y*48+point.Depth*46+point.Phase*27+talking*18);
+                if(point.Edge && i%5==0)hue=175+(int)(point.Y*38);
+                var tint=HologramPalette.At(hue);
+                int red = muted ? 135 : tint.R;
+                int green = muted ? 169 : tint.G;
+                int blue = muted ? 200 : tint.B;
                 Dot(x, y, red, green, blue, (int)(alpha * 1.85f));
                 {
                     int glow = (int)(alpha * (.16f + strength * .20f));
@@ -121,13 +125,14 @@ namespace DeskBox.UI
             if (!reduced)
                 for (int i = 0; i < 85; i++)
                 {
-                    float phase = (i * .618034f + time * .045f) % 1;
-                    float angle = i * 2.39996f + time * .12f;
+                    float phase = (i * .618034f + time*.012f+flow * .075f) % 1;
+                    float angle = i * 2.39996f + flow * .28f;
                     float radius = body.Width * (.34f + phase * .16f);
                     float x = padding + body.Width / 2 + (float)Math.Cos(angle) * radius;
                     float y = padding + body.Height * (1 - phase);
                     int alpha = (int)(Math.Sin(phase * Math.PI) * 95);
-                    Dot(x, y, 125, 206, 255, alpha);
+                    var tint=HologramPalette.At(i%4==0 ? 205 : i%2==0 ? 17 : 131);
+                    Dot(x, y, tint.R, tint.G, tint.B, alpha);
                 }
             var bits = frame.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
             try { Marshal.Copy(pixels, 0, bits.Scan0, pixels.Length); }

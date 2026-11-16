@@ -21,7 +21,7 @@ namespace DeskBox.UI
         }
 
         public static void Draw(Graphics g, Rectangle area, double level, bool speaking, bool muted,
-            bool paused, bool reduced, double seconds, float formation, float strength, bool particles = false)
+            bool paused, bool reduced, double seconds, float formation, float strength, bool particles = false, HologramDynamics response = null)
         {
             if (area.Width < 4 || area.Height < 4) return;
             var saved = g.Save();
@@ -30,6 +30,7 @@ namespace DeskBox.UI
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float time = reduced || paused ? 0 : (float)seconds;
             float energy = reduced || paused ? 0 : (float)Math.Max(0, Math.Min(1, level));
+            float flow=reduced || paused ? 0 : response==null ? time*.3f : response.Flow;
             Color accent = muted ? Color.FromArgb(130, 150, 184) : speaking
                 ? Color.FromArgb(193, 167, 255) : Color.FromArgb(134, 205, 242);
             float h = Math.Min(area.Height * .88f, area.Width * 1.08f);
@@ -71,7 +72,8 @@ namespace DeskBox.UI
                 for (int i = 0; i < 34; i++)
                 {
                     float x = cx + (i % 2 == 0 ? -1 : 1) * h * (.30f + (i * .173f % .17f));
-                    float y = top + h * (i * .137f % .95f) + (float)Math.Sin(time * .5 + i) * 2;
+                    float y = top + h * (i * .137f % .95f) + (float)Math.Sin(flow + i) * (2+energy*5);
+                    mote.Color=Color.FromArgb((int)(65+energy*45),muted ? accent : HologramPalette.At(i%4==0 ? 201 : 18+i%3*48));
                     g.FillEllipse(mote, x, y, i % 5 == 0 ? 2 : 1, i % 5 == 0 ? 2 : 1);
                 }
 
@@ -103,9 +105,9 @@ namespace DeskBox.UI
             {
                 var ring = emitter;
                 ring.Inflate(-i * baseW * .065f, -i * baseH * .065f);
-                using (var pen = new Pen(Color.FromArgb(i == 1 ? 150 : 65, accent), i == 1 ? 1.4f : 1))
+                using (var pen = new Pen(Color.FromArgb((int)((i==1 ? 150 : 75)*(1+energy*.3f)),muted ? accent : HologramPalette.At(i%2==0 ? 22 : 122)), i == 1 ? 1.4f : 1))
                 {
-                    g.DrawArc(pen, ring, i * 52 + time * (i % 2 == 0 ? 2 : -3), i == 1 ? 290 : 340);
+                    g.DrawArc(pen, ring, i * 52 + flow * (i % 2 == 0 ? 14 : -18), i == 1 ? 290 : 340);
                     if (i == 1)
                     {
                         pen.Color = Color.FromArgb(40, accent);
@@ -120,12 +122,12 @@ namespace DeskBox.UI
                     double a = i * Math.PI / 32;
                     float x = cx + (float)Math.Cos(a) * baseW * .435f;
                     float y = emitter.Top + baseH / 2 + (float)Math.Sin(a) * baseH * .435f;
-                    float height = h * (.002f + energy * (.012f + .016f * (float)(.5 + .5 * Math.Sin(i * 1.7))));
+                    float height = h * (.002f + energy * (.017f + .028f * (float)(.5 + .5 * Math.Sin(i * 1.7+flow*3))));
                     g.DrawLine(pen, x, y, x, y - height);
                 }
 
             if (particles && Character != null)
-                PhotonProjection.Draw(g, body, Character, seconds, (float)level, formation, strength, reduced, paused, speaking, muted);
+                PhotonProjection.Draw(g, body, Character, seconds, (float)level, formation, strength, reduced, paused, speaking, muted,response);
             else if (image != null)
             {
                 var revealClip = g.Save();

@@ -54,6 +54,7 @@ internal static class SilverwingAccept
             var history=new ChatService(recordStore,new ProviderStore());
             CheckVoiceRecords(history,settings);
             CheckVoiceTools(recordStore);
+            CheckDynamicProjection(output);
 
             var fake=new FakeProvider();int inputs=0;FakeInput lastInput=null;FakeOutput speaker=null;
             using(var host=new Form {ClientSize=new Size(1280,800)})
@@ -67,12 +68,21 @@ internal static class SilverwingAccept
                 fake.Emit(new VoicePacket {Caption="我在这里。",TurnComplete=true});Pump(()=>view.Caption=="你好，我在这里。");
                 Check(speaker.Played==1,"Real transport packets drive audio and captions");
                 Check((float)typeof(HolographicCallView).GetField("targetLevel",Hidden).GetValue(view)>.5f,"Actual playback level drives the light field");
+                var dynamics=(HologramDynamics)typeof(HolographicCallView).GetField("dynamics",Hidden).GetValue(view);
+                speaker.Amplitude=0;Pump(()=>(float)typeof(HolographicCallView).GetField("targetLevel",Hidden).GetValue(view)==0);
+                for(int i=0;i<25;i++)view.AdvanceFrame(.033);
+                Check(dynamics.Energy<.03f,"A pause in actual output audio returns the particles to a quiet envelope");
+                speaker.Amplitude=.16;Pump(()=>(float)typeof(HolographicCallView).GetField("targetLevel",Hidden).GetValue(view)>.5f);
+                for(int i=0;i<8;i++)view.AdvanceFrame(.033);
+                Check(dynamics.Energy>.7f,"Output audio resumes the particle motion without using subtitle length as a voice signal");
                 Key(view,Keys.Control|Keys.M);Pump(()=>view.Muted && lastInput.Disposed && fake.Ended>0);
                 Check(view.Muted && lastInput.Disposed,"Microphone is released on mute");
                 Key(view,Keys.Control|Keys.M);Pump(()=>inputs==2);Check(!view.Muted,"Unmute reopens input without reconnecting");
                 fake.Emit(new VoicePacket {Interrupted=true,UserCaption="先听"});Pump(()=>view.Caption=="你：先听");
                 fake.Emit(new VoicePacket {UserCaption="我说",UserCaptionDelta=true});Pump(()=>view.Caption=="你：先听我说");
                 Check(speaker.Flushed==1,"Interruption flushes queued playback");
+                Check(dynamics.Energy==0 && dynamics.Speaking==0,"Barge-in immediately stops the previous voice motion");
+                fake.Emit(new VoicePacket {InputEnded=true});Pump(()=>view.Mode==HologramMode.Thinking);
                 fake.Emit(new VoicePacket {Caption="我在听，请继续。",Audio={new byte[32]}});Pump(()=>view.Mode==HologramMode.Speaking);
                 fake.Emit(new VoicePacket {ToolCalls={new VoiceToolCall {Id="show-info",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","今日任务"},{"content","01  审核项目文档\n02  核对设备清单\n03  确认测试进度"},{"seconds",30}}}}});
                 Pump(()=>view.Information!=null && fake.ToolResults.Count==1);
@@ -149,6 +159,59 @@ internal static class SilverwingAccept
         }catch(Exception error){Console.Error.WriteLine(error);return 1;}
     }
 
+    private static Bitmap ProjectionFrame(QuantumPresence presence,HologramDynamics dynamics,HologramMode mode,double seconds,Size size,bool reduced=false)
+    {
+        var image=new Bitmap(size.Width,size.Height);
+        using(var g=Graphics.FromImage(image)){
+            g.Clear(Color.FromArgb(2,5,11));presence.Draw(g,new Rectangle(Point.Empty,size),seconds,dynamics.Energy,mode,reduced,dynamics);
+        }
+        return image;
+    }
+
+    private static void CheckDynamicProjection(string output)
+    {
+        var quiet=new HologramDynamics();for(int i=0;i<60;i++)quiet.Advance(1.0/30,HologramMode.Listening,0,false);
+        Check(quiet.Energy==0 && quiet.PulseAge.All(a=>a>1.25f),"Quiet time does not manufacture voice pulses");
+        Check(HologramDynamics.FromRms(.003)==0 && HologramDynamics.FromRms(.035)>.2f,"The audio envelope ignores low-level noise and reacts to ordinary speech RMS");
+        var active=new HologramDynamics();for(int i=0;i<20;i++)active.Advance(1.0/30,HologramMode.Speaking,.85f,false);
+        Check(active.Energy>.8f && active.Speaking>.95f,"The speech envelope has a responsive attack");
+        using(var renderer=new QuantumPresence())
+        using(var a=ProjectionFrame(renderer,quiet,HologramMode.Listening,4,new Size(1280,720)))
+        using(var b=ProjectionFrame(renderer,active,HologramMode.Speaking,4,new Size(1280,720))){
+            a.Save(Path.Combine(output,"motion-listening.png"),ImageFormat.Png);b.Save(Path.Combine(output,"motion-speaking.png"),ImageFormat.Png);
+            int cyan=0,violet=0,warm=0;
+            for(int y=0;y<b.Height;y+=2)for(int x=0;x<b.Width;x+=2){var c=b.GetPixel(x,y);
+                if(c.B>45 && c.G>c.R*1.18 && c.B>c.R*1.15)cyan++;
+                if(c.B>45 && c.R>c.G*1.18 && c.B>c.G*1.18)violet++;
+                if(c.R>45 && c.R>c.B*1.1 && c.G>c.B*.8)warm++;
+            }
+            Console.WriteLine("Spectral layers: cyan="+cyan+", violet="+violet+", warm="+warm);
+            Check(cyan>150 && violet>80 && warm>30,"Cool, violet and warm particle layers are visible simultaneously");
+            Check(Changed(a,b)>500 && Luminous(b)>Luminous(a),"Speaking changes the spatial field and light distribution");
+        }
+        for(int i=0;i<30;i++)active.Advance(1.0/30,HologramMode.Speaking,0,false);
+        Check(active.Energy<.02f,"Silent PCM inside a speaking turn settles smoothly instead of looping a fake pulse");
+        active.Interrupt();Check(active.Energy==0 && active.Speaking==0 && active.PulseAge.All(a=>a>1.25f),"Interrupting clears old energy and travelling wavefronts");
+        var reduced=new HologramDynamics();for(int i=0;i<30;i++)reduced.Advance(1.0/30,HologramMode.Listening,.6f,true);
+        Check(reduced.Flow==0 && reduced.PulseAge.All(a=>a>1.25f),"Reduced motion disables travelling waves and rotation");
+        var folder=Path.Combine(output,"motion-frames");Directory.CreateDirectory(folder);
+        var demo=new HologramDynamics();
+        using(var renderer=new QuantumPresence())for(int frame=0;frame<90;frame++){
+            double t=frame/15.0;var mode=t<1.7 ? HologramMode.Listening : t<2.4 ? HologramMode.Thinking : t<4.9 ? HologramMode.Speaking : HologramMode.Listening;
+            float signal=t>.9 && t<1.7 ? .32f : t>=2.4 && t<4.9 && (int)((t-2.4)*5)%4!=3 ? (float)(.35+.5*Math.Pow(Math.Sin(t*11),2)) : 0;
+            if(frame==74)demo.Interrupt();demo.Advance(1.0/15,mode,signal,false);
+            using(var image=ProjectionFrame(renderer,demo,mode,t+2,new Size(800,500)))
+            using(var g=Graphics.FromImage(image))
+            using(var font=new Font("Microsoft YaHei UI",12))
+            using(var brush=new SolidBrush(Color.FromArgb(220,229,242,252)))
+            using(var format=new StringFormat {Alignment=StringAlignment.Center}){
+                string caption=t<.9 ? "安静倾听" : t<1.7 ? "你：展示今天的任务。" : t<2.4 ? "正在整理你的任务。" : t<4.9 ? "我为你整理了今天的任务。" : "已停止播报，继续倾听。";
+                g.DrawString(caption,font,brush,new RectangleF(0,460,800,35),format);
+                image.Save(Path.Combine(folder,"frame-"+frame.ToString("D3")+".png"),ImageFormat.Png);
+            }
+        }
+    }
+
     private static void CheckVoiceRecords(ChatService history,RealtimeVoiceSettings settings)
     {
         var log=new VoiceConversation(history,settings);
@@ -204,7 +267,7 @@ internal static class SilverwingAccept
     }
 
     private sealed class FakeInput : IVoiceInput { public bool Disposed;public int Read(short[] samples){return 0;}public void Dispose(){Disposed=true;} }
-    private sealed class FakeOutput : IVoiceOutput {public int Played,Flushed;public bool Disposed;public void Play(byte[] pcm){Played++;}public void Flush(){Flushed++;Played=0;}public double? PlaybackLevel(){return Played>0 ? (double?).16:null;}public void Dispose(){Disposed=true;} }
+    private sealed class FakeOutput : IVoiceOutput {public int Played,Flushed;public double Amplitude=.16;public bool Disposed;public void Play(byte[] pcm){Played++;}public void Flush(){Flushed++;Played=0;}public double? PlaybackLevel(){return Played>0 ? (double?)Amplitude:null;}public void Dispose(){Disposed=true;} }
     private sealed class FakeProvider : IRealtimeVoiceProvider
     {
         public int Connected,Ended;public bool Disposed,HoldConnect,FailConnect;private TaskCompletionSource<VoicePacket> waiting;

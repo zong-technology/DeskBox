@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Threading;
@@ -20,13 +21,15 @@ namespace DeskBox.UI
         private readonly Func<int,IVoiceOutput> outputFactory;
         private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval=33 };
         private readonly QuantumPresence presence = new QuantumPresence();
+        private readonly HologramDynamics dynamics = new HologramDynamics();
+        private readonly Stopwatch animationClock = Stopwatch.StartNew();
         private readonly VoiceConversation conversation;
         private readonly HologramTools tools;
         private CancellationTokenSource session;
         private Task completion = Task.FromResult(0);
         private bool exiting, muted, thinking, captionFinished = true;
         private string caption = "", assistantCaption = "", userCaption = "";
-        private double seconds;
+        private double seconds, lastFrame;
         private float level, targetLevel;
         private HologramMode mode;
         public event EventHandler ExitRequested;
@@ -50,14 +53,21 @@ namespace DeskBox.UI
             AccessibleName="全息 AI 对话"; AccessibleDescription="Esc 返回软件；Ctrl+M 静音；连接中断时点击投影重试。";
             SetStyle(ControlStyles.ResizeRedraw,true);
             timer.Tick += delegate {
+                double now=animationClock.Elapsed.TotalSeconds,elapsed=now-lastFrame;lastFrame=now;
                 if (!Visible || IsDisposed) return;
                 timer.Interval=profile.ReducedMotion ? 150 : 33;
-                if (!profile.ReducedMotion) seconds += .033;
-                level += (targetLevel-level)*.22f;
+                AdvanceFrame(elapsed);
                 tools.Expire(DateTime.UtcNow);conversation.Flush(false);
                 Invalidate();
             };
             timer.Start();
+        }
+
+        internal void AdvanceFrame(double elapsed)
+        {
+            double dt=Math.Max(0,Math.Min(.1,elapsed));
+            if(!profile.ReducedMotion)seconds+=dt;
+            dynamics.Advance(dt,mode,targetLevel,profile.ReducedMotion);level=dynamics.Energy;
         }
 
         public void Start()
@@ -95,6 +105,7 @@ namespace DeskBox.UI
                             IVoiceInput microphone=null;
                             var samples=new short[VoiceMicrophone.SamplesPerBlock];
                             bool inputEnded=false;
+                            double lastInput=0,lastInputAt=-1;
                             mode=HologramMode.Listening; caption="我在听。";
                             receive=provider.ReceiveAsync(active.Token);
                             try {
@@ -105,18 +116,19 @@ namespace DeskBox.UI
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
                                         conversation.Accept(packet);
                                         if(packet.ToolsCancelled)tools.Clear();
-                                        if(packet.Interrupted){speaker.Flush();assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}
+                                        if(packet.Interrupted){speaker.Flush();dynamics.Interrupt();targetLevel=level=0;assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}
                                         if(packet.InputEnded)thinking=true;
                                         if(!string.IsNullOrWhiteSpace(packet.UserCaption)){
                                             userCaption=Tail(packet.UserCaptionDelta ? userCaption+packet.UserCaption : packet.UserCaption);
                                             caption="你："+userCaption;
                                         }
                                         if(!string.IsNullOrEmpty(packet.Caption)) {
+                                            thinking=true;
                                             if(captionFinished)userCaption="";
                                             assistantCaption=(captionFinished ? "" : assistantCaption)+packet.Caption;
                                             assistantCaption=Tail(assistantCaption);caption=assistantCaption;captionFinished=false;
                                         }
-                                        if(packet.TurnComplete)captionFinished=true;
+                                        if(packet.TurnComplete){captionFinished=true;thinking=false;}
                                         if(!packet.Interrupted && !packet.ToolsCancelled && packet.ToolCalls.Count>0){
                                             if(packet.ToolCalls.Count>8)throw new System.IO.InvalidDataException();
                                             var results=new List<VoiceToolResult>();
@@ -124,16 +136,19 @@ namespace DeskBox.UI
                                                 active.Token.ThrowIfCancellationRequested();
                                                 if(string.IsNullOrEmpty(call.Id) || string.IsNullOrEmpty(call.Name))continue;
                                                 var result=tools.Execute(call);results.Add(result);
+                                                if(call.Name=="hologram_show" && tools.Information!=null)dynamics.Information=1;
                                                 conversation.Tool(call.Name,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result.Response));
                                             }
                                             if(results.Count>0)await provider.CompleteToolsAsync(results,active.Token);
+                                            thinking=true;
                                         }
                                         foreach(var audio in packet.Audio)speaker.Play(audio);
                                         receive=provider.ReceiveAsync(active.Token);
                                     }
-                                    double input=0;
+                                    double input=animationClock.Elapsed.TotalSeconds-lastInputAt<.075 ? lastInput : 0;
                                     if(muted) {
                                         if(microphone!=null){microphone.Dispose();microphone=null;}
+                                        input=lastInput=0;lastInputAt=-1;
                                         if(!inputEnded)await provider.EndInputAsync(active.Token);
                                         inputEnded=true;
                                     } else {
@@ -141,15 +156,15 @@ namespace DeskBox.UI
                                         inputEnded=false;
                                         for(int i=0;i<4;i++){
                                             int count=microphone.Read(samples);if(count==0)break;
-                                            input=VoiceMicrophone.Rms(samples,count);
+                                            lastInput=VoiceMicrophone.Rms(samples,count);lastInputAt=animationClock.Elapsed.TotalSeconds;
+                                            input=Math.Max(input,lastInput);
                                             var bytes=new byte[count*2];Buffer.BlockCopy(samples,0,bytes,0,bytes.Length);
                                             await provider.SendAudioAsync(bytes,active.Token);
                                         }
                                     }
                                     var playback=speaker.PlaybackLevel();
-                                    if(playback.HasValue)thinking=false;
                                     mode=playback.HasValue ? HologramMode.Speaking : muted ? HologramMode.Muted : thinking ? HologramMode.Thinking : HologramMode.Listening;
-                                    targetLevel=(float)Math.Min(1,(playback ?? input)*6);
+                                    targetLevel=HologramDynamics.FromRms(playback ?? input);
                                     await Task.Delay(15,active.Token);
                                 }
                             } finally { if(microphone!=null)microphone.Dispose(); }
@@ -201,8 +216,8 @@ namespace DeskBox.UI
                     stage.Height=(int)(stage.Height*.59f);
                 }
             }
-            if(profile.Appearance=="quantum")presence.Draw(g,stage,seconds,level,mode,profile.ReducedMotion);
-            else SilverwingProjection.Draw(g,stage,level,mode==HologramMode.Speaking,muted,false,profile.ReducedMotion,seconds,1,.75f,profile.Appearance=="photon");
+            if(profile.Appearance=="quantum")presence.Draw(g,stage,seconds,level,mode,profile.ReducedMotion,dynamics);
+            else SilverwingProjection.Draw(g,stage,level,mode==HologramMode.Speaking,mode==HologramMode.Muted,false,profile.ReducedMotion,seconds,1,.75f,profile.Appearance=="photon",dynamics);
             if(info!=null)DrawInformation(g,infoBounds,info);
             if(!string.IsNullOrWhiteSpace(caption))
                 using(var font=new Font("Microsoft YaHei UI",Math.Max(14,Math.Min(23,Width/65f)),FontStyle.Regular))
