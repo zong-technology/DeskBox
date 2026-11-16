@@ -5,7 +5,16 @@ import Combine
     @StateObject private var store = OfflineStore()
     @StateObject private var sync = SyncClient()
     @StateObject private var briefing = DailyBriefing()
-    var body: some Scene { WindowGroup { RootView().environmentObject(store).environmentObject(sync).environmentObject(briefing).preferredColorScheme(.dark) } }
+    var body: some Scene { WindowGroup { entry.environmentObject(store).environmentObject(sync).environmentObject(briefing).preferredColorScheme(.dark) } }
+    @ViewBuilder private var entry: some View {
+        #if DEBUG
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--hologram-preview"), ProcessInfo.processInfo.arguments.count > index + 1 {
+            HologramDebugRoute(route: ProcessInfo.processInfo.arguments[index + 1])
+        } else { RootView() }
+        #else
+        RootView()
+        #endif
+    }
 }
 
 struct RootView: View {
@@ -97,7 +106,7 @@ struct HomeView: View {
                     }
                     HStack(spacing: 12) {
                         shortcut("现场事件", detail: "记录问题 · 离线保存", icon: "exclamationmark.bubble", tab: 3)
-                        shortcut("AI 助手", detail: "中继功能待完成", icon: "sparkles", tab: 4)
+                        shortcut("AI 助手", detail: "文字 · 全息 · 语音", icon: "sparkles", tab: 4)
                     }
                     HStack { Text("当前待办").font(.headline); Spacer(); Button("全部任务") { onNavigate(1) }.font(.caption) }
                     if openTasks.isEmpty { Text("当前没有未完成任务").foregroundStyle(.secondary) }
@@ -159,6 +168,7 @@ struct ConnectionSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("AI 与语音") { NavigationLink("全息语音 · 名称与角色") { HologramSettingsView() } }
                 Section("自动同步") {
                     Toggle("自动连接与同步", isOn: $sync.automatic)
                     Text("应用回到前台、网络恢复、编辑后自动同步；前台每15秒刷新。iOS长期后台或被结束后不能保证持续运行。").font(.caption).foregroundStyle(.secondary)

@@ -18,12 +18,18 @@ import UIKit
     private var silence: Task<Void, Never>?
     private var session = UUID()
     private var tapInstalled = false
+    private var starting: UUID?
     override init() { super.init(); speaker.delegate = self }
     func start() async {
-        guard !listening else { return }
+        guard !listening, starting == nil else { return }
+        let attempt = UUID(); starting = attempt
+        defer { if starting == attempt { starting = nil } }
         speaker.stopSpeaking(at: .immediate)
         let speech = await withCheckedContinuation { continuation in SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) } }
+        guard starting == attempt else { return }
         let microphone = await withCheckedContinuation { continuation in AVAudioSession.sharedInstance().requestRecordPermission { continuation.resume(returning: $0) } }
+        for _ in 0..<10 where UIApplication.shared.applicationState != .active { try? await Task.sleep(nanoseconds: 100_000_000); if starting != attempt { return } }
+        guard starting == attempt, UIApplication.shared.applicationState == .active else { return }
         guard speech && microphone else { status = "请在系统设置允许麦克风与语音识别"; return }
         guard let recognizer, recognizer.isAvailable else { status = "语音识别暂不可用，请检查网络或使用文字"; return }
         do {
@@ -50,7 +56,7 @@ import UIKit
         } catch { stopRecording(); status = "麦克风启动失败：" + error.localizedDescription }
     }
     private func finish() { let value = transcript.trimmingCharacters(in: .whitespacesAndNewlines); stopRecording(); status = value.isEmpty ? "没有识别到内容" : "识别完成"; if !value.isEmpty { onFinal?(value) } }
-    func stopRecording() { session = UUID(); silence?.cancel(); engine.stop(); if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }; request?.endAudio(); recognition?.cancel(); recognition = nil; request = nil; listening = false; try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    func stopRecording() { starting = nil; session = UUID(); silence?.cancel(); engine.stop(); if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }; request?.endAudio(); recognition?.cancel(); recognition = nil; request = nil; listening = false; try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     func speak(_ text: String) {
         stopRecording(); speaker.stopSpeaking(at: .immediate)
         let clean = text.replacingOccurrences(of: "(?s)```.*?```", with: "代码块请查看屏幕。", options: .regularExpression).replacingOccurrences(of: "[#*`]", with: "", options: .regularExpression)
