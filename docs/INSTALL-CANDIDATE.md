@@ -1,12 +1,12 @@
-# DeskBox 2.1.0-hologram.2 installation verification
+# DeskBox 2.1.0-hologram.3 installation verification
 
-Source: 6fdc0c7382b2203503193c6806ba0fb490a3d8cc
-Windows CI: https://github.com/zong-technology/DeskBox/actions/runs/43738141992
+Source: c02a4867f9adafd58b2ca74cb5203469ac65952b
+Windows CI: https://github.com/zong-technology/DeskBox/actions/runs/43858767928
 
 PASS: 47 setup, launch, upgrade, rollback and uninstall checks.
 PASS: archive/build/installed/running executable SHA-256 identity.
-Payload SHA-256: b27d574b9c170ca90c285bff348dbfb31df58d1be6a415f428b6c3b7969fa1c2
-PASS: 45 immersive hologram checks against the installed payload.
+Payload SHA-256: 1c173ff77ddaa866749b47ea065b5790f21aee09dfe7272b0788114f56df815f
+PASS: 71 immersive hologram checks against the installed payload.
 PASS: 12-page keyboard navigation at 1600x900, 1280x800 and 1024x768 (96 DPI / 100%).
 PASS: three workspace layouts captured at each window size.
 
