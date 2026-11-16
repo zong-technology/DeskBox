@@ -40,6 +40,10 @@ internal static class SilverwingAccept
             storage.Save(settings);var restored=new RealtimeVoiceSettingsStore().Load();
             Check(restored.ApiKey==settings.ApiKey && restored.Model==settings.Model,"Voice profile survives reopening");
             Check(!File.ReadAllText(Path.Combine(profileDir,"realtime-voice.json")).Contains(settings.ApiKey),"No plaintext secret is persisted");
+            Check(!restored.AllowInterruption,"Existing profiles default to stable speaker playback");
+            settings.AllowInterruption=true;storage.Save(settings);
+            Check(new RealtimeVoiceSettingsStore().Load().AllowInterruption,"Hands-free interruption preference survives reopening");
+            settings.AllowInterruption=false;storage.Save(settings);
             Check(restored.Ready,"Persisted profile can be used without reopening setup");
             Check(restored.AssistantName==settings.AssistantName && restored.Persona==settings.Persona,"Custom name and persona survive reopening");
             var setup=new JavaScriptSerializer().Serialize(QwenLiveVoiceProvider.Setup(QwenLiveVoiceProvider.DefaultModel,settings));
@@ -52,6 +56,7 @@ internal static class SilverwingAccept
             Check(typeof(HolographicCallView).BaseType==typeof(UserControl),"Hologram is an application surface, not a form or plugin");
             var recordStore=new Store();recordStore.Init();recordStore.Tasks.Add(new TaskItem {Id="voice-fixture",Title="隔离测试任务",Done=false});
             var history=new ChatService(recordStore,new ProviderStore());
+            CheckVoiceStability(settings);
             CheckVoiceRecords(history,settings);
             CheckVoiceTools(recordStore);
             CheckDynamicProjection(output);
@@ -162,6 +167,38 @@ internal static class SilverwingAccept
             }
             Console.WriteLine("PASS "+checks+" native checks (fake voice transport; no live service or microphone used)");return 0;
         }catch(Exception error){Console.Error.WriteLine(error);return 1;}
+    }
+
+    private static void CheckVoiceStability(RealtimeVoiceSettings settings)
+    {
+        var provider=new FakeProvider();FakeInput input=null;FakeOutput output=null;
+        using(var view=new HolographicCallView(settings,p=>provider,r=>input=new FakeInput(),r=>output=new FakeOutput())){
+            Freeze(view);view.Start();Pump(()=>input!=null);
+            provider.Emit(new VoicePacket {Audio={new byte[32]}});Pump(()=>view.Mode==HologramMode.Speaking);
+            input.Feeding=true;Pump(()=>provider.Sent.Count>0);
+            Check(provider.Sent.All(b=>b.All(x=>x==0)),"Speaker playback suppresses microphone echo instead of triggering a new speech turn");
+            Key(view,Keys.Space);Pump(()=>output.Flushed==1);
+            provider.Emit(new VoicePacket {Caption="旧回复",Audio={new byte[32]}});
+            Pump(()=>provider.Sent.Any(b=>b.Any(x=>x!=0)));
+            Check(output.Played==0 && !view.Caption.Contains("旧回复") && provider.Connected==1,"Manual interruption discards late output and resumes input without reconnecting");
+            output.Accept=false;
+            provider.Emit(new VoicePacket {ResponseStarted=true,Caption="完整长回复文字",Audio={new byte[32]},TurnComplete=true});
+            Pump(()=>view.Caption.Contains("完整文字"));
+            Check(view.Mode!=HologramMode.Unavailable && provider.Connected==1,"A full audio buffer keeps the connection and transcript alive");
+            output.Accept=true;provider.Emit(new VoicePacket {ResponseStarted=true,Caption="下一轮",Audio={new byte[32]}});Pump(()=>view.Mode==HologramMode.Speaking);
+            Key(view,Keys.Control|Keys.M);Pump(()=>view.Muted && input.Disposed);
+            Key(view,Keys.Space);Pump(()=>view.Caption.Contains("仍静音"));
+            Check(view.Muted && provider.Connected==1,"Interrupting playback preserves an explicitly muted microphone");
+            var stop=view.StopAsync();Pump(()=>stop.IsCompleted);
+        }
+        settings.AllowInterruption=true;provider=new FakeProvider();
+        using(var view=new HolographicCallView(settings,p=>provider,r=>new FakeInput {Feeding=true},r=>new FakeOutput())){
+            Freeze(view);view.Start();Pump(()=>provider.Sent.Count>0);
+            provider.Sent.Clear();provider.Emit(new VoicePacket {Audio={new byte[32]}});Pump(()=>view.Mode==HologramMode.Speaking && provider.Sent.Count>0);
+            Check(provider.Sent.Any(b=>b.Any(x=>x!=0)),"Opt-in hands-free mode continues transmitting voice during playback");
+            var stop=view.StopAsync();Pump(()=>stop.IsCompleted);
+        }
+        settings.AllowInterruption=false;
     }
 
     private static Bitmap ProjectionFrame(QuantumPresence presence,HologramDynamics dynamics,HologramMode mode,double seconds,Size size,bool reduced=false)
@@ -279,8 +316,8 @@ internal static class SilverwingAccept
         }
     }
 
-    private sealed class FakeInput : IVoiceInput { public bool Disposed;public int Read(short[] samples){return 0;}public void Dispose(){Disposed=true;} }
-    private sealed class FakeOutput : IVoiceOutput {public int Played,Flushed;public double Amplitude=.16;public bool Disposed;public bool Play(byte[] pcm){Played++;return true;}public void Flush(){Flushed++;Played=0;}public double? PlaybackLevel(){return Played>0 ? (double?)Amplitude:null;}public void Dispose(){Disposed=true;} }
+    private sealed class FakeInput : IVoiceInput { public bool Disposed,Feeding;public int Read(short[] samples){if(!Feeding)return 0;for(int i=0;i<160;i++)samples[i]=1000;return 160;}public void Dispose(){Disposed=true;} }
+    private sealed class FakeOutput : IVoiceOutput {public int Played,Flushed;public double Amplitude=.16;public bool Disposed,Accept=true;public bool Play(byte[] pcm){if(!Accept)return false;Played++;return true;}public void Flush(){Flushed++;Played=0;}public double? PlaybackLevel(){return Played>0 ? (double?)Amplitude:null;}public void Dispose(){Disposed=true;} }
     private sealed class FakeProvider : IRealtimeVoiceProvider
     {
         public int Connected,Ended;public bool Disposed,HoldConnect,FailConnect;private TaskCompletionSource<VoicePacket> waiting;
@@ -288,7 +325,8 @@ internal static class SilverwingAccept
         public readonly List<VoiceToolResult> ToolResults=new List<VoiceToolResult>();
         public int InputSampleRate{get{return 16000;}}public int OutputSampleRate{get{return 24000;}}
         public Task ConnectAsync(CancellationToken token){Connected++;if(FailConnect)throw new IOException("fixture failure");if(!HoldConnect)return Task.FromResult(0);var t=new TaskCompletionSource<bool>();token.Register(()=>t.TrySetCanceled());return t.Task;}
-        public Task SendAudioAsync(byte[] pcm,CancellationToken token){return Task.FromResult(0);}public Task EndInputAsync(CancellationToken token){Ended++;return Task.FromResult(0);}
+        public readonly List<byte[]> Sent=new List<byte[]>();
+        public Task SendAudioAsync(byte[] pcm,CancellationToken token){Sent.Add(pcm);return Task.FromResult(0);}public Task EndInputAsync(CancellationToken token){Ended++;return Task.FromResult(0);}
         public Task CompleteToolsAsync(IList<VoiceToolResult> results,CancellationToken token){ToolResults.AddRange(results);return Task.FromResult(0);}
         public Task<VoicePacket> ReceiveAsync(CancellationToken token){if(packets.Count>0)return Task.FromResult(packets.Dequeue());waiting=new TaskCompletionSource<VoicePacket>();var pending=waiting;token.Register(()=>pending.TrySetCanceled());return pending.Task;}
         public void Emit(VoicePacket packet){if(waiting==null || !waiting.TrySetResult(packet))packets.Enqueue(packet);}

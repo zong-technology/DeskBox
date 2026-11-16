@@ -100,8 +100,10 @@ import Combine
         if let expected, tasks.first(where: { $0.id == task.id }) != expected { return "任务已被更新或删除，请重新打开；当前编辑内容尚未提交。" }
         guard !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "任务标题不能为空" }
         var value = task; value.updatedAt = max(Int64(Date().timeIntervalSince1970 * 1000), (tasks.first(where: { $0.id == task.id })?.updatedAt ?? 0) + 1)
+        let previousTasks = tasks, previousPending = pending, previousConflicts = conflicts
         tasks.removeAll { $0.id == value.id }; tasks.append(value)
         queue("task", id: value.id, value: value)
+        if !storageError.isEmpty { tasks = previousTasks; pending = previousPending; conflicts = previousConflicts }
         return storageError.isEmpty ? nil : storageError
     }
     func updateIncident(_ incident: Incident, expectedUpdatedAt: Int64? = nil) -> String? {
@@ -109,8 +111,10 @@ import Combine
         if let error = incident.validationError { return error }
         if let expectedUpdatedAt, incidents.first(where: { $0.id == incident.id })?.updatedAt != expectedUpdatedAt { return "事件已被更新，请关闭编辑页后重新打开；当前内容尚未提交" }
         var value = incident; value.updatedAt = max(Int64(Date().timeIntervalSince1970 * 1000), value.updatedAt + 1)
+        let previousIncidents = incidents, previousPending = pending, previousConflicts = conflicts
         incidents.removeAll { $0.id == value.id }; incidents.append(value)
         queue("incident", id: value.id, value: value)
+        if !storageError.isEmpty { incidents = previousIncidents; pending = previousPending; conflicts = previousConflicts }
         return storageError.isEmpty ? nil : storageError
     }
     func deleteTask(_ id: String) {

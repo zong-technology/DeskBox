@@ -50,7 +50,7 @@ namespace DeskBox.UI
             profile=settings; providerFactory=providers; inputFactory=inputs; outputFactory=outputs;
             conversation=new VoiceConversation(history,settings);tools=new HologramTools(context);
             Dock=DockStyle.Fill; BackColor=Color.FromArgb(2,5,11); DoubleBuffered=true; TabStop=true;
-            AccessibleName="全息 AI 对话"; AccessibleDescription="Esc 返回软件；Ctrl+M 静音；连接中断时点击投影重试。";
+            AccessibleName="全息 AI 对话"; AccessibleDescription="Esc 返回软件；Ctrl+M 静音；点击投影或按空格打断播报；连接中断时点击投影重试。";
             SetStyle(ControlStyles.ResizeRedraw,true);
             timer.Tick += delegate {
                 double now=animationClock.Elapsed.TotalSeconds,elapsed=now-lastFrame;lastFrame=now;
@@ -191,7 +191,7 @@ namespace DeskBox.UI
                     } finally { active.Cancel(); if(receive!=null)ObserveFailure(receive); }
                 }
             } catch(OperationCanceledException) { if(!exiting){mode=HologramMode.Unavailable;caption="暂时没有连上，请稍后重试。";} }
-              catch(Exception) { if(!exiting){mode=HologramMode.Unavailable;caption="连接暂时中断，点击投影可重试。";} }
+              catch(Exception error) { DeskBox.Core.AppLog.Write("warn","ai","全息通话停止："+error.GetType().Name+"；code="+error.HResult); if(!exiting){mode=HologramMode.Unavailable;caption="连接暂时中断，点击投影可重试。";} }
             finally {
                 if(session==active)session=null;
                 active.Dispose();targetLevel=0;

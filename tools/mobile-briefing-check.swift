@@ -87,6 +87,12 @@ import Foundation
         editStore.deleteTask(snapshot.id)
         assert(editStore.updateTask(snapshot, expected: modified) != nil && editStore.tasks.isEmpty)
         assert(editStore.updateTask(MobileTask(title: "  ")) != nil)
-        print("Briefing, cloud, incidents, task editing and conflict rules: PASS 41")
+        let unwritable = directory.appendingPathComponent("missing/state.json")
+        let retryStore = OfflineStore(fileURL: unwritable)
+        let retryTask = MobileTask(id: "retry", title: "可重试的任务")
+        assert(retryStore.updateTask(retryTask) != nil && retryStore.tasks.isEmpty && retryStore.pending.isEmpty)
+        try! FileManager.default.createDirectory(at: unwritable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        assert(retryStore.updateTask(retryTask) == nil && retryStore.tasks.count == 1)
+        print("Briefing, cloud, incidents, task editing and conflict rules: PASS 43")
     }
 }
