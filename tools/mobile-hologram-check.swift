@@ -55,10 +55,10 @@ import Foundation
         let restored = HologramHistory(url: path)
         check(restored.sessions.first?.messages.first?.text.count == 340 && restored.sessions.first?.messages.last?.partial == true, "Complete text and interrupted reply state survive reopening")
         check(restored.sessions.first?.name == profile.name && restored.sessions.first?.persona == profile.persona, "Each call preserves the selected assistant identity")
-        check(!(try String(contentsOf: path)).contains(profile.key), "Conversation history never serializes the voice profile secret")
+        check(!(try String(contentsOf: path, encoding: .utf8)).contains(profile.key), "Conversation history never serializes the voice profile secret")
         let corrupt = directory.appendingPathComponent("corrupt.json"); try Data("broken original".utf8).write(to: corrupt)
         let blocked = HologramHistory(url: corrupt); blocked.upsert(recorder.session)
-        let corruptText = try String(contentsOf: corrupt)
+        let corruptText = try String(contentsOf: corrupt, encoding: .utf8)
         check(!blocked.error.isEmpty && corruptText == "broken original", "Unreadable historical data is preserved instead of overwritten")
         var motion = HologramMotion(); for _ in 0..<30 { motion.advance(1.0 / 30, mode: .listening, target: 0, reduced: false) }
         check(motion.energy == 0 && motion.pulseAges.allSatisfy { $0 > 1.25 }, "Quiet time does not fabricate speech pulses")

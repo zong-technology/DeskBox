@@ -72,7 +72,9 @@ struct BriefingForecast: Codable {
         return lines.joined(separator: "\n")
     }
 
+    var voiceSessionActive = false
     func speak(tasks: [MobileTask]) {
+        guard !voiceSessionActive else { return }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: .duckOthers)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -88,7 +90,7 @@ struct BriefingForecast: Codable {
         await refreshWeather()
         reschedule(tasks: tasks)
         let day = UserDefaults.standard.string(forKey: "lastSpokenBriefingDay") ?? ""
-        if UIApplication.shared.applicationState == .active && BriefingRules.shouldSpeak(preferences: preferences, now: Date(), spokenDay: day) {
+        if UIApplication.shared.applicationState == .active && !voiceSessionActive && BriefingRules.shouldSpeak(preferences: preferences, now: Date(), spokenDay: day) {
             UserDefaults.standard.set(BriefingRules.dateKey(Date()), forKey: "lastSpokenBriefingDay")
             speak(tasks: tasks)
         }

@@ -3,11 +3,14 @@ import SwiftUI
 struct MobileAIView: View {
     @EnvironmentObject var sync: SyncClient
     @EnvironmentObject var store: OfflineStore
+    @EnvironmentObject var briefing: DailyBriefing
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var ai = MobileAIService()
     @StateObject private var voice = VoiceConversation()
     @StateObject private var history = HologramHistory()
-    @State private var hologram = false, hologramSettings = false, hologramHistory = false
+    @State private var hologram = false
+    @State private var hologramSettings = false
+    @State private var hologramHistory = false
     @State private var callProfile = HologramProfile()
     @State private var draft = ""
     @State private var voiceMode = false
@@ -18,7 +21,7 @@ struct MobileAIView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack { Label("工程 AI&SI", systemImage: "sparkles").foregroundStyle(.purple); Spacer(); if ai.busy { ProgressView() } }
                     Button {
-                        voiceMode = false; voice.stop(); ai.suspend(); callProfile = HologramSettings.load(); hologram = true
+                        voiceMode = false; voice.stop(); briefing.stopSpeaking(); briefing.voiceSessionActive = true; ai.suspend(); callProfile = HologramSettings.load(); hologram = true
                     } label: { Label("全息 AI 通话", systemImage: "waveform.circle.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 10) }.buttonStyle(.borderedProminent).tint(.cyan)
                     Text(ai.stage).font(.caption).foregroundStyle(.cyan)
                     if !ai.provider.isEmpty { Text(ai.provider + " · " + ai.model).font(.caption2).foregroundStyle(.secondary) }
@@ -54,7 +57,7 @@ struct MobileAIView: View {
                 }.padding().background(Color(red: 0.05, green: 0.08, blue: 0.13))
             }.navigationTitle("AI&SI").navigationBarTitleDisplayMode(.inline)
             .toolbar { Menu { Button("全息语音设置") { hologramSettings = true }; Button("全息通话记录") { hologramHistory = true }; Button("新对话") { voice.stop(); ai.newConversation() }.disabled(ai.busy); Toggle("跟随输出", isOn: $follow); Button("恢复当前请求") { ai.resume(sync: sync) }; Button("停止朗读") { voice.stop() } } label: { Image(systemName: "ellipsis.circle") } }
-            .fullScreenCover(isPresented: $hologram, onDismiss: { ai.resume(sync: sync) }) { MobileHologramView(profile: callProfile, store: store, history: history, sync: sync) }
+            .fullScreenCover(isPresented: $hologram, onDismiss: { briefing.voiceSessionActive = false; ai.resume(sync: sync) }) { MobileHologramView(profile: callProfile, store: store, history: history, sync: sync) }
             .sheet(isPresented: $hologramSettings) { NavigationStack { HologramSettingsView().toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { hologramSettings = false } } } } }
             .sheet(isPresented: $hologramHistory) { NavigationStack { HologramHistoryView(history: history).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { hologramHistory = false } } } } }
             .task { ai.resume(sync: sync); voice.onFinal = { text in draft = text; if voiceMode { send() } } }

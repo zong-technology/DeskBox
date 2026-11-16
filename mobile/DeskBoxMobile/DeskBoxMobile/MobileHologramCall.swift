@@ -58,7 +58,8 @@ import QuartzCore
             guard let self else { return }
             guard await HologramAudio.permission() else { if generation == id { stop(message: "麦克风未获授权。", mode: .failed) }; return }
             for _ in 0..<10 where UIApplication.shared.applicationState != .active { try? await Task.sleep(nanoseconds: 100_000_000); if generation != id { return } }
-            guard generation == id, active, UIApplication.shared.applicationState == .active else { return }
+            guard generation == id, active else { return }
+            guard UIApplication.shared.applicationState == .active else { stop(message: "通话已暂停，轻点投影继续。", mode: .paused); return }
             do {
                 let config = URLSessionConfiguration.ephemeral; config.httpShouldSetCookies = false
                 let session = URLSession(configuration: config); transport = session
@@ -93,9 +94,9 @@ import QuartzCore
         }
         try audio.start { [weak self] data, rms in
             Task { @MainActor in
-                guard let self, generation == id, active, !muted else { return }
-                micRMS = rms; lastMic = CACurrentMediaTime()
-                if case .dropped = pair.continuation.yield(data) { stop(message: "网络未能及时发送声音，轻点投影可重试。", mode: .failed) }
+                guard let self, self.generation == id, self.active, !self.muted else { return }
+                self.micRMS = rms; self.lastMic = CACurrentMediaTime()
+                if case .dropped = pair.continuation.yield(data) { self.stop(message: "网络未能及时发送声音，轻点投影可重试。", mode: .failed) }
             }
         }
     }

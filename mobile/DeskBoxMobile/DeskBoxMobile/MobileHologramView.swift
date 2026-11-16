@@ -13,6 +13,11 @@ struct HologramCanvas: View {
     }
     var body: some View {
         Canvas(rendersAsynchronously: true) { context, size in
+            var canvas = context
+            render(&canvas, size: size)
+        }.accessibilityHidden(true)
+    }
+    private func render(_ context: inout GraphicsContext, size: CGSize) {
             let flow = reduced ? 0 : motion.flow, energy = reduced ? 0 : motion.energy
             let scale = min(Double(size.width) * 0.28, Double(size.height) * 0.25), cx = Double(size.width) * 0.5, cy = Double(size.height) * 0.42
             let yaw = flow * 0.22, pitch = 0.23, sy = sin(yaw), co = cos(yaw), sx = sin(pitch), cp = cos(pitch)
@@ -30,9 +35,11 @@ struct HologramCanvas: View {
                 let expansion = 1 + energy * 0.10 + (reduced ? 0 : motion.impulse) * 0.055
                 let warp = band * (0.01 + energy * 0.055)
                 let (p, z) = project(point.x * expansion + warp, point.y * expansion, point.z * expansion)
-                let layer = z < -0.15 ? 0 : z < 0.3 ? 1 : 2
-                let tint = point.core ? (point.phase > 0.55 ? 4 : 2) : (point.phase > 0.7 ? 1 : 0)
-                let radius = CGFloat((0.45 + Double(layer) * 0.18) * (1 + energy * 0.3))
+                let layer: Int = z < -0.15 ? 0 : z < 0.3 ? 1 : 2
+                let tint: Int = point.core ? (point.phase > 0.55 ? 4 : 2) : (point.phase > 0.7 ? 1 : 0)
+                let baseRadius: Double = 0.45 + Double(layer) * 0.18
+                let magnification: Double = 1.0 + energy * 0.3
+                let radius: CGFloat = CGFloat(baseRadius * magnification)
                 buckets[tint * 3 + layer].addEllipse(in: CGRect(x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2))
             }
             context.drawLayer { glow in
@@ -74,7 +81,6 @@ struct HologramCanvas: View {
                     context.stroke(floorRing(0.97 + age * 0.48), with: .color(Self.palette[motion.speaking > 0.5 ? 2 : 0].opacity(opacity)), lineWidth: 1)
                 }
             }
-        }.accessibilityHidden(true)
     }
 }
 
