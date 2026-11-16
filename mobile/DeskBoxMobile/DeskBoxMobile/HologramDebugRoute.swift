@@ -31,6 +31,7 @@ struct HologramDebugRoute: View {
             }
         }.environment(\.dynamicTypeSize, route.hasSuffix("-large") ? .accessibility2 : .large)
         .task {
+            store.pending = []
             store.projects = [MobileProject(id: "qa-project", name: "冻干机自动化控制系统与计算机化验证项目", number: "DB-2026-016", customer: "制药设备项目客户", equipment: "冻干机 / CIP清洗设备", owner: "项目工程师", deadline: "2026-12-30", progress: 68)]
             store.tasks = [MobileTask(id: "qa-task-1", projectId: "qa-project", title: "审核URS与联锁因果关系矩阵，确认报警配置与验证边界", priority: "high", due: "2026-11-18", owner: "项目工程师", notes: "包含长标题与工程术语的同步缓存样例。"), MobileTask(id: "qa-task-2", projectId: "qa-project", title: "核对设备清单与测试证据", due: "2026-11-20"), MobileTask(id: "qa-task-3", title: "已完成的校准记录", status: "done")]
             store.incidents = [Incident(id: "qa-incident", projectId: "qa-project", equipment: "PT-101", severity: "S2", description: "压力读数与现场校验记录存在偏差，需要复核联锁和历史趋势。", owner: "现场工程师")]
