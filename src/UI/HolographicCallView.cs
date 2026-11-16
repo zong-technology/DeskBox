@@ -116,7 +116,7 @@ namespace DeskBox.UI
                                         interruptRequested=false;speaker.Flush();dynamics.Interrupt();level=targetLevel=0;
                                         conversation.Accept(new VoicePacket {Interrupted=true});
                                         suppressAssistant=true;outputLimited=false;lastOutputAt=animationClock.Elapsed.TotalSeconds-.15;
-                                        captionFinished=true;assistantCaption=userCaption="";thinking=false;
+                                        captionFinished=true;assistantCaption=userCaption="";thinking=false;tools.Clear();
                                         caption=muted ? "播报已停止，麦克风仍静音。" : "我在听。";
                                     }
                                     // Drain a bounded burst before yielding so render work cannot build a packet backlog.
@@ -124,7 +124,7 @@ namespace DeskBox.UI
                                         var packet=await receive;
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
                                         if(packet.Interrupted || packet.InputStarted || packet.ResponseStarted || !string.IsNullOrEmpty(packet.UserCaption)){suppressAssistant=false;outputLimited=false;}
-                                        if(suppressAssistant){packet.Audio.Clear();packet.Caption=null;}
+                                        if(suppressAssistant){packet.Audio.Clear();packet.Caption=null;packet.ToolCalls.Clear();}
                                         conversation.Accept(packet);
                                         if(packet.ToolsCancelled)tools.Clear();
                                         if(packet.Interrupted){lastOutputAt=-10;speaker.Flush();dynamics.Interrupt();targetLevel=level=0;assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}

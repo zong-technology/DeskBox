@@ -150,11 +150,11 @@ import QuartzCore
             packet.audio = []; packet.caption = ""; historyDirty = true
         }
         if !packet.user.isEmpty {
-            if profile.service == .gemini { discardOutput = false }
+            if profile.service == .gemini { discardOutput = false; outputCapacityReached = false }
             userCaption = packet.userDelta ? userCaption + packet.user : packet.user
             caption = "你：" + String(userCaption.suffix(150))
         }
-        if discardOutput { packet.audio = []; packet.caption = "" }
+        if discardOutput { packet.audio = []; packet.caption = ""; packet.functions = [] }
         recorder.accept(packet)
         if !packet.user.isEmpty || !packet.caption.isEmpty || packet.turnComplete { historyDirty = true }
         if packet.inputEnded { waiting = true }
@@ -206,7 +206,7 @@ import QuartzCore
         guard ready, mode == .speaking || waiting else { return }
         diagnostics.note("response.user_interrupt"); inputGate.interrupt(now: CACurrentMediaTime()); outputCapacityReached = false
         audio.flush(); motion.interrupt(); discardOutput = true; waiting = false; caption = muted ? "播报已停止，麦克风仍静音。" : "我在听。"
-        recorder.close(); historyDirty = true
+        recorder.close(); historyDirty = true; pending.removeAll(); information = nil; tools.clear()
         if profile.service == .qwen && responseActive { let id = generation; Task { try? await send(["type": "response.cancel"], id: id) } }
     }
     func suspend(reason: String = "background") { diagnostics.note("call.pause", ["reason": reason]); stop(message: "通话已暂停，轻点投影继续。", mode: .paused); timer?.invalidate(); timer = nil }
