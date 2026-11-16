@@ -9,6 +9,10 @@ import Foundation
         var invalid = profile; invalid.endpoint += "?key=must-not-embed"; check(!invalid.ready, "Endpoint authentication cannot be embedded in a saved URL")
         invalid = profile; invalid.endpoint = "http://fixture.invalid"; check(!invalid.ready, "Non-TLS endpoints are rejected")
         invalid = profile; invalid.name = String(repeating: "字", count: 25); check(!invalid.ready, "Assistant identity is bounded")
+        var oldJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(profile)) as! [String: Any]
+        oldJSON.removeValue(forKey: "allowInterruption")
+        let migrated = try JSONDecoder().decode(HologramProfile.self, from: JSONSerialization.data(withJSONObject: oldJSON))
+        check(migrated.key == profile.key && migrated.name == profile.name && !migrated.allowInterruption, "Upgrade keeps the existing voice key and role while enabling stable playback")
         let setup = try HologramWire.json(HologramWire.setup(profile))
         check(setup.contains(profile.name) && setup.contains(profile.persona) && setup.contains("inputAudioTranscription"), "Gemini setup contains role and both transcripts")
         check(!setup.contains(profile.key), "Session instructions never contain the API key")

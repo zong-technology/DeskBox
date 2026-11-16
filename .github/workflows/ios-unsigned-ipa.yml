@@ -22,6 +22,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/mobile-qa"
           swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift tools/mobile-hologram-check.swift -o "$RUNNER_TEMP/hologram-check"
           "$RUNNER_TEMP/hologram-check" | tee "$RUNNER_TEMP/mobile-qa/hologram-check.log"
+      - name: Reproduce long replies and delayed packets with native offline audio
+        run: |
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramPlayback.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramInputGate.swift tools/mobile-audio-check.swift -o "$RUNNER_TEMP/audio-check"
+          "$RUNNER_TEMP/audio-check" | tee "$RUNNER_TEMP/mobile-qa/audio-check.log"
       - name: Build unsigned arm64 iPhoneOS IPA
         run: |
           mkdir -p "$RUNNER_TEMP/mobile-release"
