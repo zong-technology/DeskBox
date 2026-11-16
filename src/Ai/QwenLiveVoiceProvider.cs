@@ -20,6 +20,7 @@ namespace DeskBox.Ai
         private readonly string _model;
         private readonly RealtimeVoiceSettings _profile;
         private bool _discardAudio;
+        private readonly List<VoiceToolCall> _pendingTools=new List<VoiceToolCall>();
 
         public QwenLiveVoiceProvider(string endpoint, string model, string key, RealtimeVoiceSettings profile = null)
         {
@@ -84,7 +85,7 @@ namespace DeskBox.Ai
             var type = Read(evt, "type") as string;
             if (type == "error") throw new InvalidDataException("百炼拒绝了语音请求，请检查模型权限和会话配置。");
             var packet = new VoicePacket { Ready = type == "session.updated", TurnComplete = type == "response.done" };
-            if (type == "response.created") _discardAudio = false;
+            if (type == "response.created") {_discardAudio = false;_pendingTools.Clear();}
             var response = Read(evt, "response") as IDictionary<string, object>;
             if (type == "response.done" && object.Equals(Read(response, "status"), "failed"))
                 throw new InvalidDataException("百炼语音回复失败，请检查配额和模型权限。");
@@ -93,6 +94,7 @@ namespace DeskBox.Ai
             {
                 packet.Interrupted = true;
                 _discardAudio = true;
+                _pendingTools.Clear();
             }
             packet.InputEnded = type == "input_audio_buffer.speech_stopped";
             packet.InputStarted=type=="input_audio_buffer.speech_started";
@@ -104,8 +106,11 @@ namespace DeskBox.Ai
                 IDictionary<string,object> arguments=null;
                 try {arguments=new JavaScriptSerializer().DeserializeObject(Convert.ToString(Read(evt,"arguments"))) as IDictionary<string,object>;}
                 catch(ArgumentException) { }
-                packet.ToolCalls.Add(new VoiceToolCall {Id=Read(evt,"call_id") as string,Name=Read(evt,"name") as string,Arguments=arguments});
+                if(_pendingTools.Count>=8)throw new InvalidDataException("一次回复的工具请求过多。");
+                _pendingTools.Add(new VoiceToolCall {Id=Read(evt,"call_id") as string,Name=Read(evt,"name") as string,Arguments=arguments});
             }
+            // Wait for the current response to finish before returning outputs and requesting one continuation.
+            if(packet.TurnComplete && !_discardAudio){packet.ToolCalls.AddRange(_pendingTools);_pendingTools.Clear();}
             if (type == "response.audio_transcript.delta" && !_discardAudio)
                 packet.Caption = Read(evt, "delta") as string;
             if (type == "response.audio.delta" && !_discardAudio)
