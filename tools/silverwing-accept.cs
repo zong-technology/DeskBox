@@ -290,6 +290,8 @@ internal static class SilverwingAccept
         Check(saved.Messages.Any(m=>m.Content==longText) && saved.Messages.Any(m=>m.Content=="已经查到相关信息。"),"Saved history keeps full transcripts beyond the subtitle limit and joins deltas once");
         Check(saved.AssistantName==settings.AssistantName && saved.Persona==settings.Persona && saved.Channel=="hologram" && saved.VoiceModel==settings.Model,"History retains the role and live-model identity used in that call");
         Check(!File.ReadAllText(Path.Combine(AppPaths.DataDir,"chats.json")).Contains(settings.ApiKey),"Voice history never stores the provider key");
+        log.Accept(new VoicePacket {Caption="未读完的千问回复"});log.Accept(new VoicePacket {ResponseFailed=true,TurnComplete=true});
+        Check(log.Session.Messages.Last().Interrupted && !log.Session.Messages.Last().Streaming,"A failed Qwen turn preserves its unfinished transcript without an endless streaming state");
     }
 
     private static void CheckVoiceTools(Store store)
@@ -312,6 +314,7 @@ internal static class SilverwingAccept
         using(var qwen=new QwenLiveVoiceProvider("wss://fixture.invalid/live","fixture","not-a-key")){
             Check(qwen.ParsePacket("{\"type\":\"response.done\",\"response\":{\"status\":\"failed\"}}").ResponseFailed,"Qwen response failure is a recoverable turn result");
             Check(!qwen.ParsePacket("{\"type\":\"error\",\"error\":{\"code\":\"response_cancel_not_active\"}}").Interrupted,"A harmless Qwen cancel race does not end the session");
+            qwen.ParsePacket("{\"type\":\"response.created\"}");
             var packet=qwen.ParsePacket("{\"type\":\"response.function_call_arguments.done\",\"call_id\":\"q1\",\"name\":\"hologram_clear\",\"arguments\":\"{}\"}");
             Check(packet.ToolCalls.Count==0,"Qwen waits for the active response before continuing tool calls");
             packet=qwen.ParsePacket("{\"type\":\"response.done\",\"response\":{\"status\":\"completed\"}}");
