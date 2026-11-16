@@ -7,7 +7,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/deskbox-simulator.XXXXXX")"
 xcodebuild -project "$ROOT/mobile/DeskBoxMobile/DeskBoxMobile.xcodeproj" \
   -scheme DeskBoxMobile -configuration Debug -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$WORK/derived" \
-  CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG build > "$OUT/simulator-build.log" 2>&1 || { tail -100 "$OUT/simulator-build.log"; exit 1; }
+  CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG build-for-testing > "$OUT/simulator-build.log" 2>&1 || { tail -100 "$OUT/simulator-build.log"; exit 1; }
 APP="$WORK/derived/Build/Products/Debug-iphonesimulator/DeskBoxMobile.app"
 xcrun simctl list runtimes --json > "$WORK/runtimes.json"
 xcrun simctl list devicetypes --json > "$WORK/types.json"
@@ -36,7 +36,10 @@ for label in main small; do
   xcrun simctl bootstatus "$device" -b
   xcrun simctl status_bar "$device" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
   xcrun simctl install "$device" "$APP"
-  for route in home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large; do
+  xcodebuild -project "$ROOT/mobile/DeskBoxMobile/DeskBoxMobile.xcodeproj" -scheme DeskBoxMobile -configuration Debug \
+    -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$WORK/derived" \
+    -parallel-testing-enabled NO -resultBundlePath "$OUT/$label-flows.xcresult" CODE_SIGNING_ALLOWED=NO test-without-building > "$OUT/$label-flows.log" 2>&1 || { tail -100 "$OUT/$label-flows.log"; exit 1; }
+  for route in home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics; do
     if [[ "$route" == *-keyboard ]]; then
       xcrun simctl launch --terminate-running-process "$device" com.deskbox.mobile --hologram-preview "$route" --qa-keyboard
     else

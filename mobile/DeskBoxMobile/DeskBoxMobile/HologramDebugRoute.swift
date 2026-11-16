@@ -11,15 +11,18 @@ struct HologramDebugRoute: View {
     var body: some View {
         Group {
             switch route.replacingOccurrences(of: "-keyboard", with: "").replacingOccurrences(of: "-large", with: "") {
+            case "workspace": RootView()
+            case "project-detail": NavigationStack { if let project = store.projects.first { ProjectDetailView(project: project) } }
+            case "diagnostics": NavigationStack { HologramDiagnosticsView() }
             case "home": HomeView(onNavigate: { _ in })
             case "tasks": TasksView()
-            case "task-editor": TaskEditor(task: MobileTask(title: "复核冻干机自动化控制系统联锁与验证文档", notes: "核对设备清单、工艺配方与测试证据，保留所有待上传修改。"))
+            case "task-editor": TaskEditor(task: MobileTask(title: "复核冻干机自动化控制系统联锁与验证文档", notes: "核对设备清单、工艺配方与测试证据，保留所有待上传修改。"), isNew: true)
             case "projects": ProjectsView()
             case "incidents": IncidentView()
             case "incident-editor": IncidentEditor(incident: Incident(equipment: "PT-101 冻干机压力变送器", description: "现场压力读数偏差，复核联锁及趋势记录。"), isNew: true)
             case "ai": MobileAIView()
             case "connection": ConnectionSettingsView()
-            case "briefing": NavigationStack { DailyBriefingSettingsView() }
+            case "briefing": DailyBriefingSettingsView()
             case "conflicts": SyncConflictView()
             case "settings": NavigationStack { HologramSettingsView() }
             case "history": NavigationStack { HologramHistoryView(history: history) }

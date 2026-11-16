@@ -77,6 +77,16 @@ import Foundation
         assert(taskStore.tasks.isEmpty && taskStore.pending.count == 1 && taskStore.pending[0].deleted)
         let tombstone = taskStore.pending[0]; taskStore.acknowledge(tombstone)
         assert(taskStore.pending.isEmpty && taskStore.conflicts.isEmpty)
-        print("Briefing, cloud, incidents and conflict rules: PASS 37")
+        let editStore = OfflineStore(fileURL: directory.appendingPathComponent("edits.json"))
+        assert(editStore.updateTask(MobileTask(id: "edit", title: "原始任务")) == nil)
+        let snapshot = editStore.tasks[0]
+        var modified = snapshot; modified.title = "电脑同步的新标题"
+        let editRecord = SyncRecord(entityType: "task", id: modified.id, version: 4, baseVersion: 3, updatedAt: 100, deviceId: "windows", json: String(data: try! JSONEncoder().encode(modified), encoding: .utf8)!)
+        editStore.acknowledge(editStore.pending[0]); editStore.apply([editRecord])
+        assert(editStore.updateTask(snapshot, expected: snapshot) != nil && editStore.tasks[0].title == modified.title)
+        editStore.deleteTask(snapshot.id)
+        assert(editStore.updateTask(snapshot, expected: modified) != nil && editStore.tasks.isEmpty)
+        assert(editStore.updateTask(MobileTask(title: "  ")) != nil)
+        print("Briefing, cloud, incidents, task editing and conflict rules: PASS 41")
     }
 }

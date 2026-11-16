@@ -25,6 +25,8 @@ struct CloudAIResult: Decodable {
     @Published private(set) var model = ""
     @Published private(set) var error = ""
     @Published private(set) var completedReply: String?
+    var hasPendingRequest: Bool { jobId != nil }
+    var canStartNewConversation: Bool { !busy && jobId == nil }
     private var operation: Task<Void, Never>?
     private let historyURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("mobile-ai-history.json")
     private var savedAt = Date.distantPast

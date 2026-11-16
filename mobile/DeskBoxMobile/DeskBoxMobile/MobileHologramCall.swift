@@ -141,7 +141,7 @@ import QuartzCore
             guard generation == id, UIApplication.shared.applicationState == .active else { return }
             timeout?.cancel(); try beginAudio(id: id); ready = true; mode = .listening; caption = "我在听。"
         }
-        if packet.responseStarted { responseActive = true; discardOutput = false; pending.removeAll() }
+        if packet.responseStarted { outputCapacityReached = false; responseActive = true; discardOutput = false; pending.removeAll() }
         if packet.interrupted {
             diagnostics.note("response.interrupted", ["inputStarted": String(packet.inputStarted), "queuedMs": String(Int(audio.queuedSeconds * 1000))])
             inputGate.interrupt(now: CACurrentMediaTime()); outputCapacityReached = false
@@ -205,7 +205,7 @@ import QuartzCore
         if mode == .failed || mode == .paused || mode == .idle { start(); return }
         guard ready, mode == .speaking || waiting else { return }
         diagnostics.note("response.user_interrupt"); inputGate.interrupt(now: CACurrentMediaTime()); outputCapacityReached = false
-        audio.flush(); motion.interrupt(); discardOutput = true; waiting = false; caption = "我在听。"
+        audio.flush(); motion.interrupt(); discardOutput = true; waiting = false; caption = muted ? "播报已停止，麦克风仍静音。" : "我在听。"
         recorder.close(); historyDirty = true
         if profile.service == .qwen && responseActive { let id = generation; Task { try? await send(["type": "response.cancel"], id: id) } }
     }

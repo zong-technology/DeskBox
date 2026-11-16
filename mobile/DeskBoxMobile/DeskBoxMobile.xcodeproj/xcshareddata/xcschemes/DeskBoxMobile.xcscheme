@@ -7,7 +7,7 @@
       </BuildActionEntry>
     </BuildActionEntries>
   </BuildAction>
-  <TestAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES"/>
+  <TestAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="BB0000010000000000000004" BuildableName="DeskBoxMobileUITests.xctest" BlueprintName="DeskBoxMobileUITests" ReferencedContainer="container:DeskBoxMobile.xcodeproj"/></TestableReference></Testables></TestAction>
   <LaunchAction buildConfiguration="Debug" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" allowLocationSimulation="YES">
     <BuildableProductRunnable runnableDebuggingMode="0">
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="AA0000010000000000000004" BuildableName="DeskBoxMobile.app" BlueprintName="DeskBoxMobile" ReferencedContainer="container:DeskBoxMobile.xcodeproj"/>

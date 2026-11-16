@@ -8,9 +8,20 @@ struct HologramDiagnosticEvent: Codable {
 @MainActor final class HologramDiagnostics {
     static var url: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-diagnostics.json") }
     private(set) var events: [HologramDiagnosticEvent] = []
-    private static let fields: Set<String> = ["code", "provider", "reason", "queuedMs", "lost", "seconds", "inputStarted", "muted"]
+    private static let kinds: Set<String> = ["call.start", "call.failure", "call.pause", "call.stop", "input.jitter", "input.failure", "input.mute", "response.interrupted", "response.user_interrupt", "output.limit"]
+    private static func safe(_ key: String, _ value: String) -> Bool {
+        switch key {
+        case "code": return value.range(of: "^-?[0-9]{1,8}$", options: .regularExpression) != nil
+        case "queuedMs", "lost", "seconds": return value.range(of: "^[0-9]{1,9}$", options: .regularExpression) != nil
+        case "provider": return ["gemini", "qwen"].contains(value)
+        case "reason": return ["connect", "receive", "decode", "handle", "background", "audio_interruption", "route_disconnected", "idle", "failed", "paused"].contains(value)
+        case "inputStarted", "muted": return ["true", "false"].contains(value)
+        default: return false
+        }
+    }
     func note(_ kind: String, _ values: [String: String] = [:]) {
-        let safe = values.filter { Self.fields.contains($0.key) && $0.value.count <= 64 && $0.value.range(of: "^[A-Za-z0-9_.:-]*$", options: .regularExpression) != nil }
+        guard Self.kinds.contains(kind) else { return }
+        let safe = values.filter { Self.safe($0.key, $0.value) }
         events.append(HologramDiagnosticEvent(date: Date(), kind: kind, details: safe)); events = Array(events.suffix(200))
     }
     func save() {

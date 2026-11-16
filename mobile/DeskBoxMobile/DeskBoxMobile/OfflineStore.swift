@@ -95,11 +95,14 @@ import Combine
         save()
         return storageError.isEmpty ? nil : storageError
     }
-    func updateTask(_ task: MobileTask) {
-        guard !loadFailed else { return }
-        var value = task; value.updatedAt = Int64(Date().timeIntervalSince1970 * 1000)
+    @discardableResult func updateTask(_ task: MobileTask, expected: MobileTask? = nil) -> String? {
+        guard !loadFailed else { return storageError }
+        if let expected, tasks.first(where: { $0.id == task.id }) != expected { return "任务已被更新或删除，请重新打开；当前编辑内容尚未提交。" }
+        guard !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "任务标题不能为空" }
+        var value = task; value.updatedAt = max(Int64(Date().timeIntervalSince1970 * 1000), (tasks.first(where: { $0.id == task.id })?.updatedAt ?? 0) + 1)
         tasks.removeAll { $0.id == value.id }; tasks.append(value)
         queue("task", id: value.id, value: value)
+        return storageError.isEmpty ? nil : storageError
     }
     func updateIncident(_ incident: Incident, expectedUpdatedAt: Int64? = nil) -> String? {
         guard !loadFailed else { return storageError }

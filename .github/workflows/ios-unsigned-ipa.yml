@@ -42,7 +42,7 @@ jobs:
       - name: Check live protocol, history, cached tools and speech motion
         run: |
           mkdir -p "$RUNNER_TEMP/mobile-qa"
-          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift tools/mobile-hologram-check.swift -o "$RUNNER_TEMP/hologram-check"
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramDiagnostics.swift tools/mobile-hologram-check.swift -o "$RUNNER_TEMP/hologram-check"
           "$RUNNER_TEMP/hologram-check" | tee "$RUNNER_TEMP/mobile-qa/hologram-check.log"
       - name: Build unsigned arm64 iPhoneOS IPA
         run: |
@@ -56,13 +56,13 @@ jobs:
           bash tools/ios-hologram-smoke.sh "$RUNNER_TEMP/mobile-qa"
           python3 - "$RUNNER_TEMP/mobile-qa" <<'PY'
           import sys,json,pathlib
-          p=pathlib.Path(sys.argv[1]);routes='home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large'.split()
+          p=pathlib.Path(sys.argv[1]);routes='home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics'.split()
           for label in ['main','small']:
             for route in routes:
               m=json.loads((p/(label+'-'+route+'.json')).read_text())
               assert m['route']==route and m['active']
               assert (p/(label+'-'+route+'.png')).stat().st_size>1000
-          print('PASS complete native UI matrix: 32 routes')
+          print('PASS complete native UI matrix: 44 routes')
           PY
       - uses: actions/upload-artifact@v4
         if: always()

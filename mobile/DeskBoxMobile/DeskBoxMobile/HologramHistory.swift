@@ -14,6 +14,7 @@ struct HologramSession: Codable, Identifiable {
     var name: String, persona: String, model: String
     var date = Date()
     var messages: [HologramMessage] = []
+    var kind: String? = nil
 }
 @MainActor final class HologramHistory: ObservableObject {
     @Published private(set) var sessions: [HologramSession] = []

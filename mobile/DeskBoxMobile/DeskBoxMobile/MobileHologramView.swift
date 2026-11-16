@@ -110,18 +110,24 @@ struct MobileHologramView: View {
                     }.frame(maxHeight: min(170, geometry.size.height * 0.28))
                         .background(.cyan.opacity(0.04)).overlay(Rectangle().stroke(.cyan.opacity(0.25), lineWidth: 0.5)).padding(.horizontal, 22)
                 }
-                Text(call.caption).font(.body).foregroundStyle(.white.opacity(0.93)).multilineTextAlignment(.center).lineLimit(4)
-                    .frame(maxWidth: .infinity, minHeight: 76, alignment: .top).padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 12)
+                VStack(spacing: 8) {
+                    Text(call.caption).font(.body).foregroundStyle(.white.opacity(0.93)).multilineTextAlignment(.center).lineLimit(4).frame(maxWidth: .infinity, minHeight: 76, alignment: .top)
+                    if !call.notice.isEmpty { Text(call.notice).font(.caption).foregroundStyle(.orange).multilineTextAlignment(.center) }
+                    Button { call.tapProjection() } label: {
+                        Label(call.mode == .failed || call.mode == .paused || call.mode == .idle ? "重新连接" : "打断后提问", systemImage: call.mode == .failed || call.mode == .paused || call.mode == .idle ? "arrow.clockwise" : "waveform")
+                            .font(.caption.weight(.semibold)).frame(minWidth: 150, minHeight: 44)
+                    }.buttonStyle(.plain).foregroundStyle(.cyan).opacity(call.mode == .speaking || call.mode == .thinking || call.mode == .failed || call.mode == .paused ? 1 : 0).disabled(call.mode != .speaking && call.mode != .thinking && call.mode != .failed && call.mode != .paused)
+                }.padding(.horizontal, 22).padding(.bottom, 8)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(red: 0.008, green: 0.02, blue: 0.043).ignoresSafeArea()).preferredColorScheme(.dark)
         .task { call.start() }
         .onChange(of: phase) { _, value in if value == .background { call.suspend() } else if value == .active { call.animate() } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notice in
-            if (notice.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue { call.suspend() }
+            if (notice.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue { call.suspend(reason: "audio_interruption") }
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notice in
-            if (notice.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { call.suspend() }
+            if (notice.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { call.suspend(reason: "route_disconnected") }
         }
         .onDisappear { call.close() }
     }

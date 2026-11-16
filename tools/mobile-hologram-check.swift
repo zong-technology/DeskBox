@@ -66,6 +66,13 @@ import Foundation
         let blocked = HologramHistory(url: corrupt); blocked.upsert(recorder.session)
         let corruptText = try String(contentsOf: corrupt, encoding: .utf8)
         check(!blocked.error.isEmpty && corruptText == "broken original", "Unreadable historical data is preserved instead of overwritten")
+        let diagnostics = HologramDiagnostics()
+        diagnostics.note("call.failure", ["code": profile.key, "reason": profile.key, "url": profile.key])
+        diagnostics.note(profile.key, ["code": "1"])
+        diagnostics.note("input.jitter", ["lost": "32"])
+        check(diagnostics.events.count == 2 && diagnostics.events[0].details.isEmpty && diagnostics.events[1].details["lost"] == "32", "Diagnostics accept only fixed event names and typed numeric values, never arbitrary secrets")
+        var textSession = recorder.session; textSession.kind = "text"; history.upsert(textSession)
+        check(HologramHistory(url: path).sessions.first?.kind == "text", "Archived text conversations survive relaunch beside voice history")
         var motion = HologramMotion(); for _ in 0..<30 { motion.advance(1.0 / 30, mode: .listening, target: 0, reduced: false) }
         check(motion.energy == 0 && motion.pulseAges.allSatisfy { $0 > 1.25 }, "Quiet time does not fabricate speech pulses")
         for _ in 0..<20 { motion.advance(1.0 / 30, mode: .speaking, target: 0.85, reduced: false) }
