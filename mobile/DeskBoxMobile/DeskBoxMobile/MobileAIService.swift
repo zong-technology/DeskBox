@@ -34,7 +34,13 @@ struct CloudAIResult: Decodable {
     private var savedAt = Date.distantPast
     private var jobId: String? { get { UserDefaults.standard.string(forKey: "mobileAIJob") } set { UserDefaults.standard.set(newValue, forKey: "mobileAIJob") } }
     private var assistantId: String? { get { UserDefaults.standard.string(forKey: "mobileAIAssistant") } set { UserDefaults.standard.set(newValue, forKey: "mobileAIAssistant") } }
-    init() {
+    init(preview: Bool = false) {
+        #if DEBUG
+        if preview {
+            messages = [MobileAIMessage(role: "user", content: "帮我整理冻干机项目的待办，按优先级列出。"), MobileAIMessage(role: "assistant", content: "根据手机最近同步的项目记录，建议先处理以下事项：\n\n1. 复核 URS 与联锁因果关系矩阵，确认报警配置和验证边界。\n2. 核对设备清单与测试证据。\n3. 确认现场压力偏差事件的处理进度。\n\n这是隔离验收的模拟对话，不代表真实项目数据。")]
+            stage = "模拟预览 · 无网络请求"; return
+        }
+        #endif
         guard FileManager.default.fileExists(atPath: historyURL.path) else { return }
         do { messages = try JSONDecoder().decode([MobileAIMessage].self, from: Data(contentsOf: historyURL)) }
         catch { loadFailed = true; self.error = "文字记录读取失败，原文件已保留，暂停覆盖。" }

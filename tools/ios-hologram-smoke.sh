@@ -39,7 +39,7 @@ for label in main small; do
   xcodebuild -project "$ROOT/mobile/DeskBoxMobile/DeskBoxMobile.xcodeproj" -scheme DeskBoxMobile -configuration Debug \
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$WORK/derived" \
     -parallel-testing-enabled NO -resultBundlePath "$OUT/$label-flows.xcresult" CODE_SIGNING_ALLOWED=NO test-without-building > "$OUT/$label-flows.log" 2>&1 || { tail -100 "$OUT/$label-flows.log"; exit 1; }
-  for route in home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics; do
+  for route in home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics ai-empty; do
     if [[ "$route" == *-keyboard ]]; then
       xcrun simctl launch --terminate-running-process "$device" com.deskbox.mobile --hologram-preview "$route" --qa-keyboard
     else

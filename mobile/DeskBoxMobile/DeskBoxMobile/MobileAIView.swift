@@ -5,7 +5,8 @@ struct MobileAIView: View {
     @EnvironmentObject var store: OfflineStore
     @EnvironmentObject var briefing: DailyBriefing
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var ai = MobileAIService()
+    @StateObject private var ai: MobileAIService
+    init(preview: Bool = false) { _ai = StateObject(wrappedValue: MobileAIService(preview: preview)) }
     @StateObject private var voice = VoiceConversation()
     @StateObject private var history = HologramHistory()
     @State private var hologram = false
