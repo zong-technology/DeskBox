@@ -6,7 +6,7 @@ final class HologramAudio {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
-    private var tap = false, attached = false
+    private var tap = false, attached = false, ownsSession = false
     private var written: Int64 = 0
     private struct Segment { let start: Int64; let frames: Int; let levels: [Double] }
     private var segments: [Segment] = []
@@ -18,7 +18,7 @@ final class HologramAudio {
         self.capture = capture
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
-        try session.setActive(true)
+        try session.setActive(true); ownsSession = true
         if !attached { engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: output); attached = true }
         try engine.inputNode.setVoiceProcessingEnabled(true)
         try installTap(); engine.prepare(); try engine.start(); player.play()
@@ -85,6 +85,6 @@ final class HologramAudio {
     func stop() {
         engine.stop(); if tap { engine.inputNode.removeTap(onBus: 0); tap = false }
         player.stop(); segments.removeAll(); written = 0; capture = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if ownsSession { ownsSession = false; try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
 }

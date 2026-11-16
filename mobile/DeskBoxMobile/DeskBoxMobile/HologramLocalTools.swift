@@ -10,7 +10,9 @@ import Foundation
         let args = call.arguments
         if call.name == "hologram_clear" { information = nil; return ["ok": true, "message": "已收起"] }
         if call.name == "hologram_show" {
-            guard let title = args["title"] as? String, !title.isEmpty, title.count <= 48, let content = args["content"] as? String, !content.isEmpty, content.count <= 480, content.components(separatedBy: "\n").count <= 8 else { return ["ok": false, "error": "请概括为48字内标题、480字内正文，最多8行。"] }
+            let title = (args["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let content = (args["content"] as? String ?? "").replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty, title.count <= 48, !content.isEmpty, content.count <= 480, content.components(separatedBy: "\n").count <= 8 else { return ["ok": false, "error": "请概括为48字内标题、480字内正文，最多8行。"] }
             let seconds = min(120, max(5, args["seconds"] as? Int ?? 30))
             information = HologramInformation(title: title, content: content, expires: Date().addingTimeInterval(Double(seconds)))
             return ["ok": true, "seconds": seconds, "message": "已展示临时投影"]

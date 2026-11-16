@@ -65,7 +65,7 @@ struct MobileAIView: View {
             .onChange(of: voiceMode) { _, value in voice.continuous = value; if value && !ai.busy { Task { await voice.start() } } else if !value { voice.stop() } }
             .onChange(of: ai.completedReply) { _, value in if value != nil && voiceMode && ai.error.isEmpty, let reply = ai.messages.last, reply.role == "assistant", !reply.content.isEmpty { voice.continuous = true; voice.speak(reply.content) } }
             .onChange(of: scenePhase) { _, value in if value == .active && !hologram { ai.resume(sync: sync) } else if value == .background { ai.suspend(); voiceMode = false; voice.stop() } }
-            .onDisappear { ai.suspend(); voice.stop(); voice.onFinal = nil }
+            .onDisappear { ai.suspend(); if !hologram { voice.stop() }; voice.onFinal = nil }
         }
     }
     private func send() { let text = draft; guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; voice.stopRecording(); ai.send(text, sync: sync); if ai.busy { draft = "" } }

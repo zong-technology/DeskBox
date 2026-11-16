@@ -73,18 +73,21 @@ struct BriefingForecast: Codable {
     }
 
     var voiceSessionActive = false
+    private var ownsAudioSession = false
+    private var spokenID: ObjectIdentifier?
     func speak(tasks: [MobileTask]) {
         guard !voiceSessionActive else { return }
+        stopSpeaking()
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: .duckOthers)
-            try AVAudioSession.sharedInstance().setActive(true)
-            speaker.stopSpeaking(at: .immediate)
+            try AVAudioSession.sharedInstance().setActive(true); ownsAudioSession = true
             let utterance = AVSpeechUtterance(string: summary(tasks: tasks))
             utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
-            speaker.speak(utterance)
+            spokenID = ObjectIdentifier(utterance); speaker.speak(utterance)
         } catch { weatherStatus = "语音播放失败：" + error.localizedDescription }
     }
-    func stopSpeaking() { speaker.stopSpeaking(at: .immediate); try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    func stopSpeaking() { spokenID = nil; speaker.stopSpeaking(at: .immediate); releaseAudio() }
+    private func releaseAudio() { if ownsAudioSession { ownsAudioSession = false; try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) } }
 
     func tick(tasks: [MobileTask]) async {
         await refreshWeather()
@@ -161,7 +164,7 @@ struct BriefingForecast: Codable {
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) { completionHandler([.banner, .sound]) }
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { Task { @MainActor in guard self.spokenID == ObjectIdentifier(utterance) else { return }; self.spokenID = nil; self.releaseAudio() } }
 }
 
 struct DailyBriefingCard: View {

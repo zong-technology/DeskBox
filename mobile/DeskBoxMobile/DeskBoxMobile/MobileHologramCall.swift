@@ -32,10 +32,13 @@ import QuartzCore
     }
     func animate() {
         guard timer == nil else { return }; lastFrame = CACurrentMediaTime()
-        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
+        let interval = profile.reducedMotion || UIAccessibility.isReduceMotionEnabled ? 0.15 : 1.0 / 30
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     private func tick() {
+        let desired = profile.reducedMotion || UIAccessibility.isReduceMotionEnabled ? 0.15 : 1.0 / 30
+        if let timer, abs(timer.timeInterval - desired) > 0.01 { timer.invalidate(); self.timer = nil; animate(); return }
         let now = CACurrentMediaTime(), dt = now - lastFrame; lastFrame = now
         var target = 0.0
         if preview { mode = .speaking; target = 0.3 + 0.55 * pow(sin(now * 5), 2); caption = "模拟预览：已为你整理今天的任务。" }

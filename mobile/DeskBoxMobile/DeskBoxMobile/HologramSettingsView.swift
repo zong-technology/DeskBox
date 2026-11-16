@@ -48,9 +48,9 @@ struct HologramSettingsView: View {
 struct HologramHistoryView: View {
     @ObservedObject var history: HologramHistory
     var body: some View {
-        Group {
-            if !history.error.isEmpty { ContentUnavailableView("记录暂不可用", systemImage: "exclamationmark.triangle", description: Text(history.error)) }
-            else if history.sessions.isEmpty { ContentUnavailableView("还没有全息通话记录", systemImage: "waveform", description: Text("通话转写自动保存在本机，不录制原始音频。")) }
+        VStack(spacing: 0) {
+            if !history.error.isEmpty { Text(history.error).font(.caption).foregroundStyle(.orange).padding().frame(maxWidth: .infinity, alignment: .leading) }
+            if history.sessions.isEmpty { ContentUnavailableView("还没有全息通话记录", systemImage: "waveform", description: Text("通话转写自动保存在本机，不录制原始音频。")) }
             else {
                 List {
                     ForEach(history.sessions) { session in
@@ -67,7 +67,7 @@ struct HologramHistoryView: View {
                                 }.padding()
                             }.navigationTitle(session.name).toolbar { ShareLink(item: session.messages.map { ($0.role == "user" ? "我" : session.name) + "：" + $0.text }.joined(separator: "\n\n")) { Image(systemName: "square.and.arrow.up") } }
                         } label: {
-                            VStack(alignment: .leading, spacing: 6) { Text(session.name).font(.headline); Text(session.date, style: .date).font(.caption).foregroundStyle(.secondary); Text(session.messages.first(where: { $0.role == "user" })?.text ?? "全息语音对话").font(.caption).lineLimit(2).foregroundStyle(.secondary) }
+                            VStack(alignment: .leading, spacing: 6) { Text(session.name).font(.headline); HStack { Text(session.date, style: .date); Text(session.date, style: .time) }.font(.caption).foregroundStyle(.secondary); Text(session.messages.first(where: { $0.role == "user" })?.text ?? "全息语音对话").font(.caption).lineLimit(2).foregroundStyle(.secondary) }
                         }
                     }.onDelete { indices in history.delete(Set(indices.map { history.sessions[$0].id })) }
                 }
