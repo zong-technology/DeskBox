@@ -11,6 +11,9 @@ jobs:
   unsigned-ipa:
     runs-on: macos-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: Check existing briefing, offline sync and endpoint rules
@@ -34,7 +37,18 @@ jobs:
           cd "$RUNNER_TEMP/mobile-release"
           shasum -a 256 DeskBoxMobile-0.7.0-unsigned.ipa > SHA256SUMS.txt
       - name: Launch isolated native simulator routes at two iPhone sizes
-        run: bash tools/ios-hologram-smoke.sh "$RUNNER_TEMP/mobile-qa"
+        run: |
+          bash tools/ios-hologram-smoke.sh "$RUNNER_TEMP/mobile-qa"
+          python3 - "$RUNNER_TEMP/mobile-qa" <<'PY'
+          import sys,json,pathlib
+          p=pathlib.Path(sys.argv[1]);routes='home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large'.split()
+          for label in ['main','small']:
+            for route in routes:
+              m=json.loads((p/(label+'-'+route+'.json')).read_text())
+              assert m['route']==route and m['active']
+              assert (p/(label+'-'+route+'.png')).stat().st_size>1000
+          print('PASS complete native UI matrix: 32 routes')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:

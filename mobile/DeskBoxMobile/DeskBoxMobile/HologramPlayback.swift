@@ -14,7 +14,7 @@ final class HologramPlayback {
         self.engine = engine; engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: format)
     }
     private var position: Int64 {
-        guard let time = player.lastRenderTime, let current = player.playerTime(forNodeTime: time) else { return 0 }
+        guard player.isPlaying, let time = player.lastRenderTime, time.isSampleTimeValid || time.isHostTimeValid, let current = player.playerTime(forNodeTime: time) else { return 0 }
         return max(0, current.sampleTime)
     }
     var queuedSeconds: Double { Double(max(0, end - position)) / 24000 }
