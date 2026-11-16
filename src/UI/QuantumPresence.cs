@@ -48,7 +48,7 @@ namespace DeskBox.UI
             float information=reduced ? 0 : response.Information;
             float yaw=time*.055f+flow*.13f,pitch=.23f+(reduced ? 0 : (float)Math.Sin(flow*.24f)*.07f);
             sy=(float)Math.Sin(yaw);cosY=(float)Math.Cos(yaw);sinX=(float)Math.Sin(pitch);cosX=(float)Math.Cos(pitch);
-            scale=Math.Min(width*.24f,height*.27f);cx=width*.5f;cy=height*.44f;
+            scale=Math.Min(width*.24f,height*.25f);cx=width*.5f;cy=height*.42f;
             muted=mode==HologramMode.Muted;
             float active=mode==HologramMode.Idle || mode==HologramMode.Unavailable ? .70f : muted ? .64f : 1;
             float formation=reduced ? 1 : Math.Min(1,(float)seconds/1.35f);
@@ -102,7 +102,7 @@ namespace DeskBox.UI
             // Voice onsets emit expanding wavefronts; silence never creates artificial voice pulses.
             if(!reduced)for(int wave=0;wave<response.PulseAge.Length;wave++){
                 float age=response.PulseAge[wave];if(age>1.25f)continue;
-                float radius=1.1f+age*.72f,light=(1-age/1.25f)*response.PulseStrength[wave]*.47f;
+                float radius=.97f+age*.48f,light=(1-age/1.25f)*response.PulseStrength[wave]*.47f;
                 for(int i=0;i<720;i+=2)Point(CircleX[i]*radius,-1.42f,CircleZ[i]*radius,light*formation,speaking>.5f ? 143 : 12,false);
             }
             if(motion>.015f)for(int ray=0;ray<96;ray++){

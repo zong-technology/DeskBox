@@ -194,6 +194,12 @@ internal static class SilverwingAccept
         active.Interrupt();Check(active.Energy==0 && active.Speaking==0 && active.PulseAge.All(a=>a>1.25f),"Interrupting clears old energy and travelling wavefronts");
         var reduced=new HologramDynamics();for(int i=0;i<30;i++)reduced.Advance(1.0/30,HologramMode.Listening,.6f,true);
         Check(reduced.Flow==0 && reduced.PulseAge.All(a=>a>1.25f),"Reduced motion disables travelling waves and rotation");
+        using(var a=new Bitmap(1280,800))using(var b=new Bitmap(1280,800)){
+            using(var g=Graphics.FromImage(a)){g.Clear(Color.FromArgb(2,5,11));SilverwingProjection.Draw(g,new Rectangle(0,0,1280,800),0,false,false,false,false,4,1,.75f,true,quiet);}
+            using(var g=Graphics.FromImage(b)){g.Clear(Color.FromArgb(2,5,11));SilverwingProjection.Draw(g,new Rectangle(0,0,1280,800),.85,true,false,false,false,4,1,.75f,true,active);}
+            b.Save(Path.Combine(output,"motion-full-body-photon.png"),ImageFormat.Png);
+            Check(PhotonProjection.PointCount>10000 && Changed(a,b)>200,"The full-body particle character also responds to speech without replacing its reference silhouette");
+        }
         var folder=Path.Combine(output,"motion-frames");Directory.CreateDirectory(folder);
         var demo=new HologramDynamics();
         using(var renderer=new QuantumPresence())for(int frame=0;frame<90;frame++){
@@ -248,6 +254,7 @@ internal static class SilverwingAccept
         Check(tools.Information==null && new JavaScriptSerializer().Serialize(invalid.Response).Contains("\"ok\":false"),"Oversized display requests return a tool error without changing the projection");
         var parsed=GeminiLiveVoiceProvider.ParsePacket("{\"toolCall\":{\"functionCalls\":[{\"id\":\"g1\",\"name\":\"hologram_show\",\"args\":{\"title\":\"摘要\",\"content\":\"信息\"}}]}}");
         Check(parsed.ToolCalls.Count==1 && parsed.ToolCalls[0].Arguments["content"].ToString()=="信息","Gemini function-call packets reach the bounded display tool");
+        Check(GeminiLiveVoiceProvider.ParsePacket("{\"serverContent\":{\"inputTranscription\":{\"text\":\"说完了\",\"finished\":true}}}").InputEnded,"Gemini finished transcription can enter the thinking state before speech output");
         var response=GeminiLiveVoiceProvider.ToolResponseJson(new[]{shown});
         Check(response.Contains("functionResponses") && response.Contains("\"id\":\"show\"") && response.Contains("\"ok\":true"),"Gemini receives correlated tool execution feedback");
         using(var qwen=new QwenLiveVoiceProvider("wss://fixture.invalid/live","fixture","not-a-key")){

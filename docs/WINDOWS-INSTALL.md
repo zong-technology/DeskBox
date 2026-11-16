@@ -4,7 +4,7 @@
 
 ## 安装或升级
 
-1. 从 GitHub Release 下载 `DeskBox-2.1.0-hologram.3-Setup.exe`。已有 DeskBox 时，先从系统托盘右键退出，结束当前通话。
+1. 从 GitHub Release 下载 `DeskBox-2.1.0-hologram.4-Setup.exe`。已有 DeskBox 时，先从系统托盘右键退出，结束当前通话。
 2. 双击安装包。新电脑默认安装到当前用户的 `%LOCALAPPDATA%\Programs\DeskBox`，不要求管理员权限。已有 `D:\DeskBox\DeskBox.exe` 时默认选择该目录；已使用本安装器安装过时沿用原路径。升级时请核对目录指向正在使用的版本。
 3. 安装器替换程序前保留 `DeskBox.previous.exe`。用户数据目录不会打入安装包，也不会在升级或卸载中删除。自定义安装目录需要当前用户有写入权限。
 4. 从开始菜单启动 DeskBox，首次在「功能与设置 → 全息语音」保存实时服务与模型。打开 AI&SI / AI 助手 → 全息 AI 通话后直接进入投影与字幕；外观在常规设置中调整，Esc 返回。

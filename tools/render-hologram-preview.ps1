@@ -24,6 +24,25 @@ try { $encoder.Save($stream) } finally { $stream.Dispose() }
 $bytes=[IO.File]::ReadAllBytes($path)
 $offset=13
 if ($bytes[10] -band 128) { $offset+=3*[int][Math]::Pow(2,1+($bytes[10] -band 7)) }
+# WIC can discard per-frame delay metadata. Set every graphic-control delay in the encoded stream.
+$cursor=$offset
+$controls=0
+while ($cursor -lt $bytes.Length -and $bytes[$cursor] -ne 59) {
+    $marker=$bytes[$cursor]
+    if ($marker -eq 33) {
+        $label=$bytes[$cursor+1];$cursor+=2
+        if ($label -eq 249) { $bytes[$cursor+2]=7;$bytes[$cursor+3]=0;$controls++ }
+    } elseif ($marker -eq 44) {
+        $packed=$bytes[$cursor+9];$cursor+=10
+        if ($packed -band 128) { $cursor+=3*[int][Math]::Pow(2,1+($packed -band 7)) }
+        $cursor++ # LZW minimum code size
+    } else { throw 'Unexpected block in the encoded GIF.' }
+    do {
+        $size=$bytes[$cursor];$cursor++
+        $cursor+=$size
+    } while ($size -ne 0 -and $cursor -lt $bytes.Length)
+}
+if ($controls -ne 90) { throw 'Every native preview frame must have a graphic-control delay.' }
 $loop=[byte[]](33,255,11,78,69,84,83,67,65,80,69,50,46,48,3,1,0,0,0)
 $output=New-Object IO.MemoryStream
 try {

@@ -135,8 +135,9 @@ namespace DeskBox.UI
                                             foreach(var call in packet.ToolCalls){
                                                 active.Token.ThrowIfCancellationRequested();
                                                 if(string.IsNullOrEmpty(call.Id) || string.IsNullOrEmpty(call.Name))continue;
+                                                var previousInformation=tools.Information;
                                                 var result=tools.Execute(call);results.Add(result);
-                                                if(call.Name=="hologram_show" && tools.Information!=null)dynamics.Information=1;
+                                                if(call.Name=="hologram_show" && !ReferenceEquals(previousInformation,tools.Information))dynamics.Information=1;
                                                 conversation.Tool(call.Name,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result.Response));
                                             }
                                             if(results.Count>0)await provider.CompleteToolsAsync(results,active.Token);
@@ -229,7 +230,7 @@ namespace DeskBox.UI
         private void DrawInformation(Graphics g,RectangleF box,HologramInformation info)
         {
             using(var fill=new SolidBrush(Color.FromArgb(200,5,20,32)))g.FillRectangle(fill,box);
-            using(var line=new Pen(Color.FromArgb(100,80,207,243),1)){
+            using(var line=new Pen(Color.FromArgb((int)(100+dynamics.Information*100),80,207,243),1)){
                 g.DrawLine(line,box.Left,box.Top,box.Right,box.Top);g.DrawLine(line,box.Left,box.Bottom,box.Right,box.Bottom);
                 g.DrawLine(line,box.Left,box.Top,box.Left,box.Top+24);g.DrawLine(line,box.Right,box.Bottom-24,box.Right,box.Bottom);
             }

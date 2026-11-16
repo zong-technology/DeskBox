@@ -23,3 +23,13 @@ Windows 构建使用 `build.ps1`。隔离检查由 `tools/silverwing-accept.cs` 
 实时会话向模型提供 `deskbox_context`、`deskbox_tasks`、`deskbox_projects`、`deskbox_incidents` 只读查询，复用当前软件数据与注册工具；以及 `hologram_show`、`hologram_clear`。正文是纯文字，最多 480 字 / 8 行，最长显示 120 秒；超长参数返回工具错误。计时独立于动画，在减少动态时仍会过期。临时信息绘制在投影内，不创建新窗体或控件。语音会话不提供写文件、修改任务、运行工作流等操作。
 
 可直接说：「把未完成任务投影出来」「展示项目进度」「将刚才的建议列成三点，展示一分钟」「收起投影信息」。模型需支持 Function Calling。Gemini 使用 `toolCall` / `toolResponse`；千问按官方实时接口使用 `tools[].function`、`response.function_call_arguments.done` 和 `function_call_output`，再触发 `response.create`，并显式启用输入转写。协议参考：https://www.alibabacloud.com/help/en/model-studio/client-events 。真实账户的模型能力与端到端通话尚待本机验证。
+
+## 分层多色与语音动态（测试版 4）
+
+量子光核现在同时包含青蓝外壳、紫色光丝、暖色内核以及独立配色的倾斜轨道。近处光点更亮，后层更暗，光晕不再统一染成一种颜色；底部光环和波纹限制在投影区域内。全身粒子角色保留参考轮廓、稳定脸部与完整身形，增加空间分色和音量形变；没有把原画宣称为重建的三维模型。
+
+`HologramDynamics` 对实际音量做快速上升、缓慢回落的平滑，并由声音起伏触发短波纹。AI 使用 `VoiceSpeaker.PlaybackLevel()` 返回的当前播放 PCM 窗口 RMS；倾听使用麦克风采样，短时保持避免采集块之间的空隙造成闪烁。低于噪声阈值的信号不产生语音波纹，静音 PCM 会自然回落；字幕不会伪造发声动作。打断时与扬声器队列一起清除旧的视觉波纹。
+
+倾听、思考、发声、静音采用不同运动速度与过渡，模型工具成功展示信息时产生短暂光响应。动画由单调时钟的实际帧间隔推进，帧间隔上限 100 ms 防止卡顿后大幅跳变；减少动态时关闭旋转、光波与位移。声能同时驱动核心形变、光丝、轨道高光和底部光束。
+
+原生检查输出静态对照图、全身粒子截图及 90 帧模拟通话序列。`tools/render-hologram-preview.ps1` 仅用 Windows 自带 WPF 编码器合成为 GIF，作为可下载的原生动态预览；软件运行不使用 GIF，也不新增播放插件。实际设备帧率及付费服务的端到端通话尚未测量。
