@@ -192,6 +192,8 @@ internal static class SilverwingAccept
             provider.Emit(new VoicePacket {ResponseStarted=true,Caption="完整长回复文字",Audio={new byte[32]},TurnComplete=true});
             Pump(()=>view.Caption.Contains("完整文字"));
             Check(view.Mode!=HologramMode.Unavailable && provider.Connected==1,"A full audio buffer keeps the connection and transcript alive");
+            provider.Emit(new VoicePacket {ResponseFailed=true,TurnComplete=true});Pump(()=>view.Caption.Contains("本轮回复未完成"));
+            Check(view.Mode!=HologramMode.Unavailable && provider.Connected==1,"Qwen per-turn failure keeps the same voice connection available for another question");
             output.Accept=true;provider.Emit(new VoicePacket {ResponseStarted=true,Caption="下一轮",Audio={new byte[32]}});Pump(()=>view.Mode==HologramMode.Speaking);
             Key(view,Keys.Control|Keys.M);Pump(()=>view.Muted && input.Disposed);
             Key(view,Keys.Space);Pump(()=>view.Caption.Contains("仍静音"));
@@ -308,6 +310,8 @@ internal static class SilverwingAccept
         var response=GeminiLiveVoiceProvider.ToolResponseJson(new[]{shown});
         Check(response.Contains("functionResponses") && response.Contains("\"id\":\"show\"") && response.Contains("\"ok\":true"),"Gemini receives correlated tool execution feedback");
         using(var qwen=new QwenLiveVoiceProvider("wss://fixture.invalid/live","fixture","not-a-key")){
+            Check(qwen.ParsePacket("{\"type\":\"response.done\",\"response\":{\"status\":\"failed\"}}").ResponseFailed,"Qwen response failure is a recoverable turn result");
+            Check(!qwen.ParsePacket("{\"type\":\"error\",\"error\":{\"code\":\"response_cancel_not_active\"}}").Interrupted,"A harmless Qwen cancel race does not end the session");
             var packet=qwen.ParsePacket("{\"type\":\"response.function_call_arguments.done\",\"call_id\":\"q1\",\"name\":\"hologram_clear\",\"arguments\":\"{}\"}");
             Check(packet.ToolCalls.Count==0,"Qwen waits for the active response before continuing tool calls");
             packet=qwen.ParsePacket("{\"type\":\"response.done\",\"response\":{\"status\":\"completed\"}}");

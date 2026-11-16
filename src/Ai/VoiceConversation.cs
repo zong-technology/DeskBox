@@ -19,7 +19,7 @@ namespace DeskBox.Ai
         internal void Accept(VoicePacket packet)
         {
             if(history==null)return;
-            if(packet.Interrupted){Finish(assistant,true);assistant=null;Finish(user,false);user=null;userId="";}
+            if(packet.Interrupted || packet.ResponseFailed){Finish(assistant,true);assistant=null;Finish(user,false);user=null;userId="";}
             if(packet.InputStarted){
                 Finish(user,false);user=NewMessage("user");userId=packet.UserTurnId ?? "";
                 if(userId.Length>0)inputs[userId]=user;

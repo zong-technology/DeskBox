@@ -27,7 +27,7 @@ namespace DeskBox.Ai
         public bool Ready, Interrupted, TurnComplete, ReconnectRequested;
         public string Caption;
         public readonly List<byte[]> Audio = new List<byte[]>();
-        public bool InputEnded, InputStarted, ResponseStarted;
+        public bool InputEnded, InputStarted, ResponseStarted, ResponseFailed;
         public string UserCaption;
         public bool UserCaptionDelta;
         public string UserTurnId;

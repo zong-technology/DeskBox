@@ -49,7 +49,7 @@ struct HologramRecorder {
     private var started: [String: Date] = [:]
     init(profile: HologramProfile) { session = HologramSession(name: profile.name, persona: profile.persona, model: profile.model) }
     mutating func accept(_ packet: HologramPacket) {
-        if packet.interrupted { markAssistantPartial(); userID = nil }
+        if packet.interrupted || packet.responseFailed { markAssistantPartial(); userID = nil }
         if packet.inputStarted { userID = packet.userID ?? UUID().uuidString; started[userID!] = Date() }
         if !packet.user.isEmpty {
             let id = packet.userID ?? userID ?? UUID().uuidString; userID = id

@@ -42,7 +42,7 @@ struct HologramFunction {
     var id: String; var name: String; var arguments: [String: Any]
 }
 struct HologramPacket {
-    var ready = false, interrupted = false, turnComplete = false, inputStarted = false, inputEnded = false, responseStarted = false, toolsCancelled = false
+    var ready = false, interrupted = false, turnComplete = false, inputStarted = false, inputEnded = false, responseStarted = false, responseFailed = false, toolsCancelled = false
     var user = "", caption = "", userID: String?
     var userDelta = false
     var audio: [Data] = []
@@ -82,7 +82,11 @@ enum HologramWire {
     }
     static func endInput(_ service: HologramService) -> [String: Any] { service == .gemini ? ["realtimeInput": ["audioStreamEnd": true]] : ["type": "input_audio_buffer.clear"] }
     static func decode(_ data: Data, service: HologramService) throws -> HologramPacket {
-        guard data.count <= 2_097_152, let root = try JSONSerialization.jsonObject(with: data) as? [String: Any], root["error"] == nil, root["type"] as? String != "error" else { throw HologramError.message("实时服务拒绝了请求，请返回设置核对模型权限与配额。") }
+        guard data.count <= 2_097_152, let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw HologramError.message("实时服务返回了无法识别的数据。") }
+        if root["error"] != nil || root["type"] as? String == "error" {
+            if service == .qwen, (root["error"] as? [String: Any])?["code"] as? String == "response_cancel_not_active" { return HologramPacket() }
+            throw HologramError.message("实时服务拒绝了请求，请返回设置核对模型权限与配额。")
+        }
         var packet = HologramPacket()
         if service == .gemini {
             if root["goAway"] != nil { throw HologramError.message("语音服务需要重新连接，轻点投影可重试。") }
@@ -107,7 +111,7 @@ enum HologramWire {
             let type = root["type"] as? String ?? ""
             packet.ready = type == "session.updated"; packet.responseStarted = type == "response.created"; packet.turnComplete = type == "response.done"
             let status = (root["response"] as? [String: Any])?["status"] as? String
-            if packet.turnComplete && status == "failed" { throw HologramError.message("实时模型回复失败，请检查服务配额。") }
+            packet.responseFailed = packet.turnComplete && (status == "failed" || status == "incomplete")
             packet.inputStarted = type == "input_audio_buffer.speech_started"; packet.inputEnded = type == "input_audio_buffer.speech_stopped"
             packet.interrupted = packet.inputStarted || (packet.turnComplete && status == "cancelled")
             packet.userID = root["item_id"] as? String

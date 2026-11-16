@@ -141,6 +141,11 @@ import QuartzCore
             guard generation == id, UIApplication.shared.applicationState == .active else { return }
             timeout?.cancel(); try beginAudio(id: id); ready = true; mode = .listening; caption = "我在听。"
         }
+        if packet.responseFailed {
+            diagnostics.note("response.failure"); notice = "千问本轮回复未完成，可直接重新提问；若反复出现，请检查服务配额。"
+            audio.flush(); inputGate.interrupt(now: CACurrentMediaTime()); motion.interrupt(); historyDirty = true
+            discardOutput = true; pending.removeAll(); information = nil; tools.clear(); caption = muted ? "麦克风仍静音。" : "我在听。"
+        }
         if packet.responseStarted { outputCapacityReached = false; responseActive = true; discardOutput = false; pending.removeAll() }
         if packet.interrupted {
             diagnostics.note("response.interrupted", ["inputStarted": String(packet.inputStarted), "queuedMs": String(Int(audio.queuedSeconds * 1000))])

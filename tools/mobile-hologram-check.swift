@@ -34,6 +34,9 @@ import Foundation
         check(tool.functions.first?.id == "g1", "Function calls keep their response correlation ID")
         let q = try packet("{\"type\":\"conversation.item.input_audio_transcription.completed\",\"item_id\":\"u1\",\"transcript\":\"你好\"}", .qwen)
         check(q.userID == "u1" && !q.userDelta, "Qwen completed transcription has a stable user turn ID")
+        let failedTurn = try packet("{\"type\":\"response.done\",\"response\":{\"status\":\"failed\"}}", .qwen)
+        check(failedTurn.turnComplete && failedTurn.responseFailed, "Qwen failed turns are reported without treating the WebSocket as disconnected")
+        check(try packet("{\"type\":\"error\",\"error\":{\"code\":\"response_cancel_not_active\"}}", .qwen).audio.isEmpty, "A finished-response cancellation race cannot terminate a Qwen call")
         do { _ = try packet("{\"error\":{\"message\":\"fixture-secret-never-send\"}}"); preconditionFailure() }
         catch { check(!error.localizedDescription.contains(profile.key), "Upstream errors do not reveal authentication details") }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("deskbox-holo-test-" + UUID().uuidString)
@@ -71,6 +74,12 @@ import Foundation
         diagnostics.note(profile.key, ["code": "1"])
         diagnostics.note("input.jitter", ["lost": "32"])
         check(diagnostics.events.count == 2 && diagnostics.events[0].details.isEmpty && diagnostics.events[1].details["lost"] == "32", "Diagnostics accept only fixed event names and typed numeric values, never arbitrary secrets")
+        var failedRecorder = HologramRecorder(profile: profile)
+        var startedReply = HologramPacket(); startedReply.caption = "尚未读完的任务"
+        failedRecorder.accept(startedReply); failedRecorder.accept(failedTurn)
+        check(failedRecorder.session.messages.last?.partial == true, "A failed Qwen turn preserves its partial transcript rather than marking it complete")
+        do { _ = try packet("{\"type\":\"error\",\"error\":{\"code\":\"invalid_api_key\"}}", .qwen); preconditionFailure() }
+        catch { check(true, "Qwen authentication failures still require explicit configuration recovery") }
         var textSession = recorder.session; textSession.kind = "text"; history.upsert(textSession)
         check(HologramHistory(url: path).sessions.first?.kind == "text", "Archived text conversations survive relaunch beside voice history")
         var motion = HologramMotion(); for _ in 0..<30 { motion.advance(1.0 / 30, mode: .listening, target: 0, reduced: false) }

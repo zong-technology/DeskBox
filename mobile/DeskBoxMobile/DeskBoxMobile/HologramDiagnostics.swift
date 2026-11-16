@@ -8,7 +8,7 @@ struct HologramDiagnosticEvent: Codable {
 @MainActor final class HologramDiagnostics {
     static var url: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-diagnostics.json") }
     private(set) var events: [HologramDiagnosticEvent] = []
-    private static let kinds: Set<String> = ["call.start", "call.failure", "call.pause", "call.stop", "input.jitter", "input.failure", "input.mute", "response.interrupted", "response.user_interrupt", "output.limit"]
+    private static let kinds: Set<String> = ["call.start", "call.failure", "call.pause", "call.stop", "input.jitter", "input.failure", "input.mute", "response.failure", "response.interrupted", "response.user_interrupt", "output.limit"]
     private static func safe(_ key: String, _ value: String) -> Bool {
         switch key {
         case "code": return value.range(of: "^-?[0-9]{1,8}$", options: .regularExpression) != nil

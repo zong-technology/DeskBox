@@ -125,6 +125,12 @@ namespace DeskBox.UI
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
                                         if(packet.Interrupted || packet.InputStarted || packet.ResponseStarted || !string.IsNullOrEmpty(packet.UserCaption)){suppressAssistant=false;outputLimited=false;}
                                         if(suppressAssistant){packet.Audio.Clear();packet.Caption=null;packet.ToolCalls.Clear();}
+                                        if(packet.ResponseFailed){
+                                            speaker.Flush();dynamics.Interrupt();level=targetLevel=0;lastOutputAt=animationClock.Elapsed.TotalSeconds;
+                                            suppressAssistant=true;thinking=false;tools.Clear();
+                                            caption="千问本轮回复未完成，可直接重新提问；若反复出现，请检查配额。";
+                                            DeskBox.Core.AppLog.Write("warn","ai","千问单轮回复失败，保留实时连接并允许重新提问。");
+                                        }
                                         conversation.Accept(packet);
                                         if(packet.ToolsCancelled)tools.Clear();
                                         if(packet.Interrupted){lastOutputAt=-10;speaker.Flush();dynamics.Interrupt();targetLevel=level=0;assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}
