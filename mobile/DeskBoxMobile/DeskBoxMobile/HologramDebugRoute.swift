@@ -25,6 +25,7 @@ struct HologramDebugRoute: View {
                 "width": window.bounds.width, "height": window.bounds.height, "scale": window.screen.scale,
                 "simulatedVoice": true]
             let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-qa-" + route + ".json")
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if let data = try? JSONSerialization.data(withJSONObject: marker) { try? data.write(to: url, options: .atomic) }
         }
     }

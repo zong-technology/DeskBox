@@ -7,7 +7,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/deskbox-simulator.XXXXXX")"
 xcodebuild -project "$ROOT/mobile/DeskBoxMobile/DeskBoxMobile.xcodeproj" \
   -scheme DeskBoxMobile -configuration Debug -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$WORK/derived" \
-  CODE_SIGNING_ALLOWED=NO build > "$OUT/simulator-build.log" 2>&1 || { tail -100 "$OUT/simulator-build.log"; exit 1; }
+  CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG build > "$OUT/simulator-build.log" 2>&1 || { tail -100 "$OUT/simulator-build.log"; exit 1; }
 APP="$WORK/derived/Build/Products/Debug-iphonesimulator/DeskBoxMobile.app"
 xcrun simctl list runtimes --json > "$WORK/runtimes.json"
 xcrun simctl list devicetypes --json > "$WORK/types.json"
@@ -41,6 +41,12 @@ for label in main small; do
     container="$(xcrun simctl get_app_container "$device" com.deskbox.mobile data)"
     marker="$container/Documents/hologram-qa-$route.json"
     for attempt in {1..40}; do if [ -f "$marker" ]; then break; fi; sleep 0.5; done
+    if [ ! -f "$marker" ]; then
+      xcrun simctl io "$device" screenshot "$OUT/$label-$route-failed.png" || true
+      xcrun simctl spawn "$device" log show --last 2m --style compact --predicate 'process == "DeskBoxMobile"' > "$OUT/$label-$route-process.log" 2>&1 || true
+      echo "Native route did not confirm readiness: $label / $route" >&2
+      exit 1
+    fi
     cp "$marker" "$OUT/$label-$route.json"
     xcrun simctl io "$device" screenshot "$OUT/$label-$route.png"
     python3 - "$OUT/$label-$route.json" "$OUT/$label-$route.png" "$route" <<'PY'
