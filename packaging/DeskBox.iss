@@ -4,13 +4,16 @@
 #ifndef PayloadSHA256
   #error Build the installer using tools/package-windows.ps1
 #endif
+#ifndef FileVersion
+  #error Build the installer using tools/package-windows.ps1
+#endif
 #define RepoRoot SourcePath + ".."
 
 [Setup]
 AppId={{C6D8C809-F8BD-4D24-AB93-7F3AC1902101}
 AppName=DeskBox
 AppVersion={#ReleaseVersion}
-VersionInfoVersion=2.1.0.6
+VersionInfoVersion={#FileVersion}
 AppVerName=DeskBox {#ReleaseVersion}
 AppPublisher=zong-technology
 AppPublisherURL=https://github.com/zong-technology/DeskBox

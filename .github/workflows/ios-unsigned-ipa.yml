@@ -1,15 +1,24 @@
 name: DeskBox unsigned iPhone IPA
 on:
   workflow_dispatch:
-  push:
-    branches: [release/ios-hologram-0.8.0]
-  pull_request:
-    paths: ['mobile/DeskBoxMobile/**', 'tools/mobile-hologram-check.swift', 'tools/mobile-audio-check.swift', 'tools/mobile-briefing-check.swift', 'tools/ios-hologram-smoke.sh', 'tools/build-ios-unsigned-ipa.sh', '.github/workflows/ios-unsigned-ipa.yml']
+    inputs:
+      runner:
+        description: 'self-hosted 使用已登记的专用构建机；github-hosted 消耗 GitHub 云端额度'
+        type: choice
+        options: [self-hosted, github-hosted]
+        default: self-hosted
+      publish:
+        description: '全部检查通过后发布测试安装包（需要仓库写权限）'
+        type: boolean
+        default: false
+concurrency:
+  group: local-release-macOS-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   audio-regression:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
     timeout-minutes: 10
     defaults:
       run:
@@ -25,16 +34,28 @@ jobs:
         if: always()
         with:
           name: DeskBoxMobile-Audio-Regression
+          retention-days: 7
           path: ${{ runner.temp }}/audio-check.log
           if-no-files-found: warn
   unsigned-ipa:
-    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
     timeout-minutes: 30
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+      - name: Read the source version
+        id: version
+        run: |
+          python3 - <<'PYVERSION'
+          import os,re,pathlib
+          text=pathlib.Path('mobile/DeskBoxMobile/DeskBoxMobile.xcodeproj/project.pbxproj').read_text()
+          versions=set(re.findall(r'MARKETING_VERSION = ([0-9.]+);',text));assert len(versions)==1
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('version='+versions.pop()+'\n')
+          PYVERSION
       - name: Check existing briefing, offline sync and endpoint rules
         run: |
           swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/BriefingRules.swift mobile/DeskBoxMobile/DeskBoxMobile/SyncEndpoint.swift mobile/DeskBoxMobile/DeskBoxMobile/CloudAccount.swift tools/mobile-briefing-check.swift -o "$RUNNER_TEMP/briefing-check"
@@ -46,11 +67,12 @@ jobs:
           "$RUNNER_TEMP/hologram-check" | tee "$RUNNER_TEMP/mobile-qa/hologram-check.log"
       - name: Build unsigned arm64 iPhoneOS IPA
         run: |
+          VERSION='${{ steps.version.outputs.version }}'
           mkdir -p "$RUNNER_TEMP/mobile-release"
-          bash tools/build-ios-unsigned-ipa.sh "$RUNNER_TEMP/mobile-release/DeskBoxMobile-0.8.0-unsigned.ipa"
-          cp docs/MOBILE-HOLOGRAM-0.8.0.md "$RUNNER_TEMP/mobile-release/RELEASE-NOTES.md"
+          bash tools/build-ios-unsigned-ipa.sh "$RUNNER_TEMP/mobile-release/DeskBoxMobile-${VERSION}-unsigned.ipa"
+          cp docs/MOBILE-HOLOGRAM-${VERSION}.md "$RUNNER_TEMP/mobile-release/RELEASE-NOTES.md"
           cd "$RUNNER_TEMP/mobile-release"
-          shasum -a 256 DeskBoxMobile-0.8.0-unsigned.ipa > SHA256SUMS.txt
+          shasum -a 256 DeskBoxMobile-${VERSION}-unsigned.ipa > SHA256SUMS.txt
       - name: Launch isolated native simulator routes at two iPhone sizes
         run: |
           bash tools/ios-hologram-smoke.sh "$RUNNER_TEMP/mobile-qa"
@@ -67,20 +89,20 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: DeskBoxMobile-0.8.0-Review
+          name: DeskBoxMobile-Review
           path: ${{ runner.temp }}/mobile-qa/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: DeskBoxMobile-unsigned-iphone-ipa
+          retention-days: 7
           path: ${{ runner.temp }}/mobile-release/
           if-no-files-found: error
-          retention-days: 30
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release/ios-hologram-0.8.0'
+    if: inputs.publish
     needs: [unsigned-ipa, audio-regression]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
     permissions:
       contents: write
     steps:
@@ -90,10 +112,11 @@ jobs:
           path: release
       - uses: actions/download-artifact@v4
         with:
-          name: DeskBoxMobile-0.8.0-Review
+          name: DeskBoxMobile-Review
           path: review
       - name: Publish the verified unsigned iPhone test package
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.unsigned-ipa.outputs.version }}
         run: |
-          gh release create v0.8.0-mobile-hologram release/DeskBoxMobile-0.8.0-unsigned.ipa release/SHA256SUMS.txt review/main-hologram.png review/small-hologram.png --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'DeskBox Mobile 0.8.0 - holographic voice preview' --notes-file release/RELEASE-NOTES.md
+          gh release create "v${VERSION}-mobile-hologram" "release/DeskBoxMobile-${VERSION}-unsigned.ipa" release/SHA256SUMS.txt review/main-hologram.png review/small-hologram.png --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "DeskBox Mobile ${VERSION} - holographic voice preview" --notes-file release/RELEASE-NOTES.md

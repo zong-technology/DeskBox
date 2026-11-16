@@ -3,10 +3,10 @@ $root = Split-Path -Parent $PSScriptRoot
 $report = Get-Content -LiteralPath (Join-Path $root 'dist\installer-qa\install-report.json') -Raw | ConvertFrom-Json
 if ($report.Result -ne 'PASS') { throw 'Installer verification did not pass.' }
 $lines = @(
-    '# DeskBox 2.1.0-hologram.6 installation verification',
+    ('# DeskBox ' + $report.Version + ' installation verification'),
     '',
-    ('Source: ' + $env:GITHUB_SHA),
-    ('Windows CI: https://github.com/' + $env:GITHUB_REPOSITORY + '/actions/runs/' + $env:GITHUB_RUN_ID),
+    ('Source: ' + $(if ($env:GITHUB_SHA) { $env:GITHUB_SHA } else { (& git -C $root rev-parse HEAD | Out-String).Trim() })),
+    $(if ($env:GITHUB_RUN_ID) { 'Windows CI: https://github.com/' + $env:GITHUB_REPOSITORY + '/actions/runs/' + $env:GITHUB_RUN_ID } else { 'Builder: local Windows test account / VM' }),
     '',
     ('PASS: ' + $report.Count + ' setup, launch, upgrade, rollback and uninstall checks.'),
     'PASS: archive/build/installed/running executable SHA-256 identity.',
