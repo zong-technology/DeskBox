@@ -8,6 +8,25 @@ on:
 permissions:
   contents: read
 jobs:
+  audio-regression:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render delayed long replies with native AVAudioEngine and test input jitter
+        run: |
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramPlayback.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramInputGate.swift tools/mobile-audio-check.swift -o "$RUNNER_TEMP/audio-check"
+          "$RUNNER_TEMP/audio-check" | tee "$RUNNER_TEMP/audio-check.log"
+          grep -E '^PASS [0-9]+ native audio checks' "$RUNNER_TEMP/audio-check.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBoxMobile-Audio-Regression
+          path: ${{ runner.temp }}/audio-check.log
+          if-no-files-found: warn
   unsigned-ipa:
     runs-on: macos-latest
     timeout-minutes: 30
@@ -25,10 +44,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/mobile-qa"
           swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift tools/mobile-hologram-check.swift -o "$RUNNER_TEMP/hologram-check"
           "$RUNNER_TEMP/hologram-check" | tee "$RUNNER_TEMP/mobile-qa/hologram-check.log"
-      - name: Reproduce long replies and delayed packets with native offline audio
-        run: |
-          swiftc mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramPlayback.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramInputGate.swift tools/mobile-audio-check.swift -o "$RUNNER_TEMP/audio-check"
-          "$RUNNER_TEMP/audio-check" | tee "$RUNNER_TEMP/mobile-qa/audio-check.log"
       - name: Build unsigned arm64 iPhoneOS IPA
         run: |
           mkdir -p "$RUNNER_TEMP/mobile-release"
@@ -64,7 +79,7 @@ jobs:
           retention-days: 30
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/release/ios-hologram-0.7.0'
-    needs: unsigned-ipa
+    needs: [unsigned-ipa, audio-regression]
     runs-on: ubuntu-latest
     permissions:
       contents: write
