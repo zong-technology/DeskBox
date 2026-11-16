@@ -3,7 +3,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $report = Get-Content -LiteralPath (Join-Path $root 'dist\installer-qa\install-report.json') -Raw | ConvertFrom-Json
 if ($report.Result -ne 'PASS') { throw 'Installer verification did not pass.' }
 $lines = @(
-    '# DeskBox 2.1.0-hologram.4 installation verification',
+    '# DeskBox 2.1.0-hologram.5 installation verification',
     '',
     ('Source: ' + $env:GITHUB_SHA),
     ('Windows CI: https://github.com/' + $env:GITHUB_REPOSITORY + '/actions/runs/' + $env:GITHUB_RUN_ID),

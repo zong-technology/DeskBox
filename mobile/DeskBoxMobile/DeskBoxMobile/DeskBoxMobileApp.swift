@@ -294,7 +294,7 @@ struct TaskEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("任务内容") { TextField("任务标题", text: $task.title, axis: .vertical).lineLimit(1...4)
+                Section("任务内容") { TextField("任务标题", text: $task.title, axis: .vertical).lineLimit(1...4).accessibilityIdentifier("task.title")
                     TextField("备注 / 验证要求", text: $task.notes, axis: .vertical).lineLimit(4...10) }
                 Section("安排") {
                     Picker("项目", selection: $task.projectId) {

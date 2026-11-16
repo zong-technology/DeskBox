@@ -165,6 +165,13 @@ internal static class SilverwingAccept
                 Check(page.Controls.Find("hologram-name",false).Length==1 && page.Controls.Find("hologram-persona",false).Length==1,"Name and persona are edited only in normal settings");
                 Check(page.Controls.Find("hologram-save",false).Length==1,"Voice setup lives in the normal settings center");page.Dispose();
             }
+            using(var list=new DarkList {Size=new Size(460,240),AutoFitColumns=true}){
+                list.SetColumns(new[]{"状态","标题","截止","项目"},new[]{56,520,100,0});
+                list.SetRows(new List<ListRow>{new ListRow{Cells=new[]{"待办","完整的工程任务标题与详细验证要求","2026-12-30","原项目"}}});list.SelectIndex(0);
+                var widths=(int[])typeof(DarkList).GetField("_colWidths",Hidden).GetValue(list);
+                Check(widths[3]==0 && widths.Sum()<=list.Width-24 && widths[1]>widths[0],"Narrow lists preserve title space and hidden columns consume no width");
+                Check(list.AccessibleDescription.Contains("完整的工程任务标题与详细验证要求") && list.AccessibleDescription.Contains("原项目"),"Keyboard selection exposes complete row content even when visual columns are compact");
+            }
             Console.WriteLine("PASS "+checks+" native checks (fake voice transport; no live service or microphone used)");return 0;
         }catch(Exception error){Console.Error.WriteLine(error);return 1;}
     }

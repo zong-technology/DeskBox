@@ -2,7 +2,7 @@ name: DeskBox unsigned iPhone IPA
 on:
   workflow_dispatch:
   push:
-    branches: [release/ios-hologram-0.7.0]
+    branches: [release/ios-hologram-0.8.0]
   pull_request:
     paths: ['mobile/DeskBoxMobile/**', 'tools/mobile-hologram-check.swift', 'tools/ios-hologram-smoke.sh', 'tools/build-ios-unsigned-ipa.sh', '.github/workflows/ios-unsigned-ipa.yml']
 permissions:
@@ -47,10 +47,10 @@ jobs:
       - name: Build unsigned arm64 iPhoneOS IPA
         run: |
           mkdir -p "$RUNNER_TEMP/mobile-release"
-          bash tools/build-ios-unsigned-ipa.sh "$RUNNER_TEMP/mobile-release/DeskBoxMobile-0.7.0-unsigned.ipa"
-          cp docs/MOBILE-HOLOGRAM-0.7.0.md "$RUNNER_TEMP/mobile-release/RELEASE-NOTES.md"
+          bash tools/build-ios-unsigned-ipa.sh "$RUNNER_TEMP/mobile-release/DeskBoxMobile-0.8.0-unsigned.ipa"
+          cp docs/MOBILE-HOLOGRAM-0.8.0.md "$RUNNER_TEMP/mobile-release/RELEASE-NOTES.md"
           cd "$RUNNER_TEMP/mobile-release"
-          shasum -a 256 DeskBoxMobile-0.7.0-unsigned.ipa > SHA256SUMS.txt
+          shasum -a 256 DeskBoxMobile-0.8.0-unsigned.ipa > SHA256SUMS.txt
       - name: Launch isolated native simulator routes at two iPhone sizes
         run: |
           bash tools/ios-hologram-smoke.sh "$RUNNER_TEMP/mobile-qa"
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: DeskBoxMobile-0.7.0-Review
+          name: DeskBoxMobile-0.8.0-Review
           path: ${{ runner.temp }}/mobile-qa/
           if-no-files-found: warn
           retention-days: 30
@@ -78,7 +78,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release/ios-hologram-0.7.0'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release/ios-hologram-0.8.0'
     needs: [unsigned-ipa, audio-regression]
     runs-on: ubuntu-latest
     permissions:
@@ -90,10 +90,10 @@ jobs:
           path: release
       - uses: actions/download-artifact@v4
         with:
-          name: DeskBoxMobile-0.7.0-Review
+          name: DeskBoxMobile-0.8.0-Review
           path: review
       - name: Publish the verified unsigned iPhone test package
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.7.0-mobile-hologram release/DeskBoxMobile-0.7.0-unsigned.ipa release/SHA256SUMS.txt review/main-hologram.png review/small-hologram.png --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'DeskBox Mobile 0.7.0 - holographic voice preview' --notes-file release/RELEASE-NOTES.md
+          gh release create v0.8.0-mobile-hologram release/DeskBoxMobile-0.8.0-unsigned.ipa release/SHA256SUMS.txt review/main-hologram.png review/small-hologram.png --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'DeskBox Mobile 0.8.0 - holographic voice preview' --notes-file release/RELEASE-NOTES.md
