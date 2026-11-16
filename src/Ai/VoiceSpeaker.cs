@@ -38,11 +38,15 @@ namespace DeskBox.Ai
             Check(waveOutOpen(out _device, uint.MaxValue, ref format, IntPtr.Zero, IntPtr.Zero, 0));
         }
 
-        public void Play(byte[] pcm)
+        public bool Play(byte[] pcm)
         {
+            if(pcm==null || pcm.Length==0)return true;
+            if(pcm.Length%2!=0)throw new ArgumentException("PCM16 音频块不完整。");
             Reap();
-            if (_blocks.Count != 0 && _written - _blocks.Peek().Start + pcm.Length / 2 > 15L * _rate)
-                throw new InvalidOperationException("扬声器缓冲超过 15 秒，请重新连接。");
+            var position=new Position {Type=2};
+            long played=_blocks.Count==0 ? _written : _blocks.Peek().Start;
+            if(waveOutGetPosition(_device,ref position,(uint)Marshal.SizeOf(typeof(Position)))==0 && position.Type==2)played=position.Value;
+            if(Math.Max(0,_written-played)+pcm.Length/2>180L*_rate)return false;
             var b = new Block { Pcm = pcm, Start = _written };
             try
             {
@@ -56,7 +60,7 @@ namespace DeskBox.Ai
             }
             catch { Free(b); throw; }
             _written += pcm.Length / 2;
-            _blocks.Enqueue(b);
+            _blocks.Enqueue(b);return true;
         }
 
         public double? PlaybackLevel()

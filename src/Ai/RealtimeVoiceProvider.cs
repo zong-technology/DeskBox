@@ -27,7 +27,7 @@ namespace DeskBox.Ai
         public bool Ready, Interrupted, TurnComplete, ReconnectRequested;
         public string Caption;
         public readonly List<byte[]> Audio = new List<byte[]>();
-        public bool InputEnded, InputStarted;
+        public bool InputEnded, InputStarted, ResponseStarted;
         public string UserCaption;
         public bool UserCaptionDelta;
         public string UserTurnId;
@@ -36,7 +36,7 @@ namespace DeskBox.Ai
     }
 
     internal interface IVoiceInput : IDisposable { int Read(short[] samples); }
-    internal interface IVoiceOutput : IDisposable { void Play(byte[] pcm); void Flush(); double? PlaybackLevel(); }
+    internal interface IVoiceOutput : IDisposable { bool Play(byte[] pcm); void Flush(); double? PlaybackLevel(); }
 
     internal sealed class GeminiLiveVoiceProvider : IRealtimeVoiceProvider
     {

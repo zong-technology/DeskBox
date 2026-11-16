@@ -290,7 +290,9 @@ namespace DeskBox.UI.Views
             var style=AddSelect(p,new[]{"量子光核 · 沉浸光场","银紫龙翼 · 原画全息","星辉光粒子 · 全身投影"},appearance,delegate(int value){});style.Name="hologram-appearance";
             var reduced=new CheckBox {Left=8,Top=_y,AutoSize=true,Text="减少动态效果",Checked=saved.ReducedMotion,ForeColor=Palette.Text,BackColor=Palette.Bg,Name="hologram-motion"};
             p.Controls.Add(reduced);_y+=36;
-            var status=new Label {Left=8,Top=_y+46,AutoSize=true,MaximumSize=new Size(650,0),ForeColor=Palette.TextDim,Text="Esc 返回软件；Ctrl+M 静音。只有进入全息通话后才会开启麦克风。",Name="hologram-setting-status"};
+            var interruption=new CheckBox {Left=8,Top=_y,AutoSize=true,Text="允许免按键打断（建议戴耳机时启用）",Checked=saved.AllowInterruption,ForeColor=Palette.Text,BackColor=Palette.Bg,Name="hologram-interruption"};
+            p.Controls.Add(interruption);_y+=36;
+            var status=new Label {Left=8,Top=_y+46,AutoSize=true,MaximumSize=new Size(650,0),ForeColor=Palette.TextDim,Text="Esc 返回；Ctrl+M 静音；轻点投影或空格打断。默认稳定播报，减少扬声器回声干扰。",Name="hologram-setting-status"};
             p.Controls.Add(status);
             var save=AddButton(p,"保存全息语音",8,_y,145,delegate {
                 try {
@@ -298,7 +300,7 @@ namespace DeskBox.UI.Views
                     var value=new RealtimeVoiceSettings {Provider=service,Endpoint=endpoint.Text.Trim(),Model=model.Text.Trim(),
                         AssistantName=name.Text.Trim(),Persona=persona.Text.Trim(),
                         ApiKey=string.IsNullOrWhiteSpace(key.Text) && service==saved.Provider ? saved.ApiKey : key.Text.Trim(),
-                        Appearance=style.SelectedIndex==1 ? "silverwing" : style.SelectedIndex==2 ? "photon" : "quantum",ReducedMotion=reduced.Checked};
+                        Appearance=style.SelectedIndex==1 ? "silverwing" : style.SelectedIndex==2 ? "photon" : "quantum",ReducedMotion=reduced.Checked,AllowInterruption=interruption.Checked};
                     storage.Save(value);saved=value;key.Text="";
                     status.Text=value.Ready ? "已加密保存。下次点击全息 AI 通话会直接进入并连接。" : "投影偏好已保存，语音尚未启用。";
                     Toast("全息语音已保存");

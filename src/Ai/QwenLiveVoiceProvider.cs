@@ -84,7 +84,7 @@ namespace DeskBox.Ai
             var evt = new JavaScriptSerializer().DeserializeObject(json) as IDictionary<string, object>;
             var type = Read(evt, "type") as string;
             if (type == "error") throw new InvalidDataException("百炼拒绝了语音请求，请检查模型权限和会话配置。");
-            var packet = new VoicePacket { Ready = type == "session.updated", TurnComplete = type == "response.done" };
+            var packet = new VoicePacket { Ready = type == "session.updated", TurnComplete = type == "response.done", ResponseStarted=type=="response.created" };
             if (type == "response.created") {_discardAudio = false;_pendingTools.Clear();}
             var response = Read(evt, "response") as IDictionary<string, object>;
             if (type == "response.done" && object.Equals(Read(response, "status"), "failed"))

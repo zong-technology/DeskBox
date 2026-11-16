@@ -280,7 +280,7 @@ internal static class SilverwingAccept
     }
 
     private sealed class FakeInput : IVoiceInput { public bool Disposed;public int Read(short[] samples){return 0;}public void Dispose(){Disposed=true;} }
-    private sealed class FakeOutput : IVoiceOutput {public int Played,Flushed;public double Amplitude=.16;public bool Disposed;public void Play(byte[] pcm){Played++;}public void Flush(){Flushed++;Played=0;}public double? PlaybackLevel(){return Played>0 ? (double?)Amplitude:null;}public void Dispose(){Disposed=true;} }
+    private sealed class FakeOutput : IVoiceOutput {public int Played,Flushed;public double Amplitude=.16;public bool Disposed;public bool Play(byte[] pcm){Played++;return true;}public void Flush(){Flushed++;Played=0;}public double? PlaybackLevel(){return Played>0 ? (double?)Amplitude:null;}public void Dispose(){Disposed=true;} }
     private sealed class FakeProvider : IRealtimeVoiceProvider
     {
         public int Connected,Ended;public bool Disposed,HoldConnect,FailConnect;private TaskCompletionSource<VoicePacket> waiting;

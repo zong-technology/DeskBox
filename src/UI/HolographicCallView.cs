@@ -27,7 +27,7 @@ namespace DeskBox.UI
         private readonly HologramTools tools;
         private CancellationTokenSource session;
         private Task completion = Task.FromResult(0);
-        private bool exiting, muted, thinking, captionFinished = true;
+        private bool exiting, muted, thinking, captionFinished = true, interruptRequested;
         private string caption = "", assistantCaption = "", userCaption = "";
         private double seconds, lastFrame;
         private float level, targetLevel;
@@ -104,20 +104,30 @@ namespace DeskBox.UI
                         using (var speaker=outputFactory(provider.OutputSampleRate)) {
                             IVoiceInput microphone=null;
                             var samples=new short[VoiceMicrophone.SamplesPerBlock];
-                            bool inputEnded=false;
+                            bool inputEnded=false,suppressAssistant=false,outputLimited=false;
+                            double lastOutputAt=-10;
                             double lastInput=0,lastInputAt=-1;
                             mode=HologramMode.Listening; caption="我在听。";
                             receive=provider.ReceiveAsync(active.Token);
                             try {
                                 while (true) {
                                     active.Token.ThrowIfCancellationRequested();
+                                    if(interruptRequested){
+                                        interruptRequested=false;speaker.Flush();dynamics.Interrupt();level=targetLevel=0;
+                                        conversation.Accept(new VoicePacket {Interrupted=true});
+                                        suppressAssistant=true;outputLimited=false;lastOutputAt=animationClock.Elapsed.TotalSeconds-.15;
+                                        captionFinished=true;assistantCaption=userCaption="";thinking=false;
+                                        caption=muted ? "播报已停止，麦克风仍静音。" : "我在听。";
+                                    }
                                     // Drain a bounded burst before yielding so render work cannot build a packet backlog.
                                     for(int received=0;received<16 && receive.IsCompleted;received++) {
                                         var packet=await receive;
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
+                                        if(packet.Interrupted || packet.InputStarted || packet.ResponseStarted || !string.IsNullOrEmpty(packet.UserCaption)){suppressAssistant=false;outputLimited=false;}
+                                        if(suppressAssistant){packet.Audio.Clear();packet.Caption=null;}
                                         conversation.Accept(packet);
                                         if(packet.ToolsCancelled)tools.Clear();
-                                        if(packet.Interrupted){speaker.Flush();dynamics.Interrupt();targetLevel=level=0;assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}
+                                        if(packet.Interrupted){lastOutputAt=-10;speaker.Flush();dynamics.Interrupt();targetLevel=level=0;assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}
                                         if(packet.InputEnded)thinking=true;
                                         if(!string.IsNullOrWhiteSpace(packet.UserCaption)){
                                             userCaption=Tail(packet.UserCaptionDelta ? userCaption+packet.UserCaption : packet.UserCaption);
@@ -144,10 +154,17 @@ namespace DeskBox.UI
                                             if(results.Count>0)await provider.CompleteToolsAsync(results,active.Token);
                                             thinking=true;
                                         }
-                                        foreach(var audio in packet.Audio)speaker.Play(audio);
+                                        if(!outputLimited)foreach(var audio in packet.Audio)if(!speaker.Play(audio)){
+                                            outputLimited=true;caption="回复较长，完整文字已保留在记录中。";
+                                            DeskBox.Core.AppLog.Write("warn","ai","长语音缓存达到上限，保留当前会话并继续接收文字。");break;
+                                        }
                                         receive=provider.ReceiveAsync(active.Token);
                                     }
-                                    double input=animationClock.Elapsed.TotalSeconds-lastInputAt<.075 ? lastInput : 0;
+                                    var playback=speaker.PlaybackLevel();
+                                    double now=animationClock.Elapsed.TotalSeconds;
+                                    if(playback.HasValue)lastOutputAt=now;
+                                    bool suppressEcho=!profile.AllowInterruption && (playback.HasValue || now-lastOutputAt<.25);
+                                    double input=suppressEcho ? 0 : now-lastInputAt<.075 ? lastInput : 0;
                                     if(muted) {
                                         if(microphone!=null){microphone.Dispose();microphone=null;}
                                         input=lastInput=0;lastInputAt=-1;
@@ -159,12 +176,12 @@ namespace DeskBox.UI
                                         for(int i=0;i<4;i++){
                                             int count=microphone.Read(samples);if(count==0)break;
                                             lastInput=VoiceMicrophone.Rms(samples,count);lastInputAt=animationClock.Elapsed.TotalSeconds;
-                                            input=Math.Max(input,lastInput);
-                                            var bytes=new byte[count*2];Buffer.BlockCopy(samples,0,bytes,0,bytes.Length);
+                                            input=suppressEcho ? 0 : Math.Max(input,lastInput);
+                                            var bytes=new byte[count*2];if(!suppressEcho)Buffer.BlockCopy(samples,0,bytes,0,bytes.Length);
                                             await provider.SendAudioAsync(bytes,active.Token);
                                         }
                                     }
-                                    var playback=speaker.PlaybackLevel();
+                                    playback=speaker.PlaybackLevel();
                                     mode=playback.HasValue ? HologramMode.Speaking : muted ? HologramMode.Muted : thinking ? HologramMode.Thinking : HologramMode.Listening;
                                     targetLevel=HologramDynamics.FromRms(playback ?? input);
                                     await Task.Delay(15,active.Token);
@@ -192,9 +209,10 @@ namespace DeskBox.UI
         }
         private static void ObserveFailure(Task task) { task.ContinueWith(t=>GC.KeepAlive(t.Exception),TaskContinuationOptions.OnlyOnFaulted); }
 
-        protected override void OnMouseClick(MouseEventArgs e) { base.OnMouseClick(e); if(mode==HologramMode.Unavailable)Start(); }
+        protected override void OnMouseClick(MouseEventArgs e) { base.OnMouseClick(e); if(mode==HologramMode.Unavailable)Start();else if(session!=null && (mode==HologramMode.Speaking || mode==HologramMode.Thinking))interruptRequested=true; }
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            if(keyData==Keys.Space && session!=null){interruptRequested=true;return true;}
             if(keyData==Keys.Escape){if(!exiting && ExitRequested!=null)ExitRequested(this,EventArgs.Empty);return true;}
             if(keyData==(Keys.Control|Keys.M)){
                 if(session!=null && mode!=HologramMode.Connecting){muted=!muted;caption=muted ? "麦克风已静音。" : "我在听。";}
