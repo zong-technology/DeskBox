@@ -4,7 +4,7 @@ on:
   push:
     branches: [release/ios-hologram-0.8.0]
   pull_request:
-    paths: ['mobile/DeskBoxMobile/**', 'tools/mobile-hologram-check.swift', 'tools/ios-hologram-smoke.sh', 'tools/build-ios-unsigned-ipa.sh', '.github/workflows/ios-unsigned-ipa.yml']
+    paths: ['mobile/DeskBoxMobile/**', 'tools/mobile-hologram-check.swift', 'tools/mobile-audio-check.swift', 'tools/mobile-briefing-check.swift', 'tools/ios-hologram-smoke.sh', 'tools/build-ios-unsigned-ipa.sh', '.github/workflows/ios-unsigned-ipa.yml']
 permissions:
   contents: read
 jobs:

@@ -34,6 +34,11 @@ import AVFoundation
         _ = try player.enqueue(pcm); player.flush()
         check(player.queuedSeconds == 0 && player.level() == nil, "Manual interruption clears queued audio and its meter together")
         check(try render(24000) < 480, "Flushed speech does not resume on the next render")
+        for _ in 0..<180 { precondition(try player.enqueue(pcm)) }
+        check(try !player.enqueue(pcm) && player.queuedSeconds <= 180, "The memory limit refuses only excess PCM without throwing or resetting queued speech")
+        check(try render(24000) > 23500, "Previously queued speech still plays after capacity is reached")
+        check(try player.enqueue(pcm), "New audio can enter as playback frees capacity")
+        player.flush()
         let gate = HologramInputGate(), id = UUID(), input = Data([1, 2, 3, 4])
         gate.activate(id, allowInterruption: false); gate.updatePlayback(true, now: 0)
         check(gate.frame(input, rms: 0.2, now: 1, token: id)!.data.allSatisfy { $0 == 0 }, "Default stable playback never sends the assistant speaker echo as user speech")
@@ -42,6 +47,9 @@ import AVFoundation
         check(gate.frame(input, rms: 0.2, now: 1.3, token: id)!.data == input, "Listening resumes after the echo tail")
         gate.activate(id, allowInterruption: true); gate.updatePlayback(true, now: 0)
         check(gate.frame(input, rms: 0.2, now: 1, token: id)!.data == input, "Optional hands-free interruption preserves duplex input")
+        let captured = gate.frame(input, rms: 0.2, now: 1, token: id)!
+        gate.setMuted(true)
+        check(gate.outgoing(captured, token: id, now: 1.1) == nil, "Muting also removes frames that were captured before mute")
         gate.stop(); check(gate.frame(input, rms: 0.2, now: 1, token: id) == nil, "Late audio callbacks cannot restart a stopped call")
         let pair = HologramInputGate.stream(); var dropped = 0
         for n in 0..<32 { if case .dropped = pair.continuation.yield(HologramCaptureFrame(data: Data([UInt8(n)]), capturedAt: Double(n) * 0.02)) { dropped += 1 } }
