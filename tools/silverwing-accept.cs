@@ -75,6 +75,11 @@ internal static class SilverwingAccept
                 speaker.Amplitude=.16;Pump(()=>(float)typeof(HolographicCallView).GetField("targetLevel",Hidden).GetValue(view)>.5f);
                 for(int i=0;i<8;i++)view.AdvanceFrame(.033);
                 Check(dynamics.Energy>.7f,"Output audio resumes the particle motion without using subtitle length as a voice signal");
+                fake.Emit(new VoicePacket {Caption="批量"});
+                for(int i=0;i<16;i++)fake.Emit(new VoicePacket {Caption="信息"});
+                fake.Emit(new VoicePacket {Caption="完成",TurnComplete=true});
+                Pump(()=>view.Caption=="批量"+string.Concat(Enumerable.Repeat("信息",16))+"完成");
+                Check(view.Conversation.Messages.Any(m=>m.Content==view.Caption),"Bursty live packets keep transcript order and reach the persistent conversation");
                 Key(view,Keys.Control|Keys.M);Pump(()=>view.Muted && lastInput.Disposed && fake.Ended>0);
                 Check(view.Muted && lastInput.Disposed,"Microphone is released on mute");
                 Key(view,Keys.Control|Keys.M);Pump(()=>inputs==2);Check(!view.Muted,"Unmute reopens input without reconnecting");
@@ -194,6 +199,7 @@ internal static class SilverwingAccept
         active.Interrupt();Check(active.Energy==0 && active.Speaking==0 && active.PulseAge.All(a=>a>1.25f),"Interrupting clears old energy and travelling wavefronts");
         var reduced=new HologramDynamics();for(int i=0;i<30;i++)reduced.Advance(1.0/30,HologramMode.Listening,.6f,true);
         Check(reduced.Flow==0 && reduced.PulseAge.All(a=>a>1.25f),"Reduced motion disables travelling waves and rotation");
+        for(int i=0;i<15;i++)active.Advance(1.0/30,HologramMode.Speaking,.85f,false);
         using(var a=new Bitmap(1280,800))using(var b=new Bitmap(1280,800)){
             using(var g=Graphics.FromImage(a)){g.Clear(Color.FromArgb(2,5,11));SilverwingProjection.Draw(g,new Rectangle(0,0,1280,800),0,false,false,false,false,4,1,.75f,true,quiet);}
             using(var g=Graphics.FromImage(b)){g.Clear(Color.FromArgb(2,5,11));SilverwingProjection.Draw(g,new Rectangle(0,0,1280,800),.85,true,false,false,false,4,1,.75f,true,active);}
@@ -278,13 +284,14 @@ internal static class SilverwingAccept
     private sealed class FakeProvider : IRealtimeVoiceProvider
     {
         public int Connected,Ended;public bool Disposed,HoldConnect,FailConnect;private TaskCompletionSource<VoicePacket> waiting;
+        private readonly Queue<VoicePacket> packets=new Queue<VoicePacket>();
         public readonly List<VoiceToolResult> ToolResults=new List<VoiceToolResult>();
         public int InputSampleRate{get{return 16000;}}public int OutputSampleRate{get{return 24000;}}
         public Task ConnectAsync(CancellationToken token){Connected++;if(FailConnect)throw new IOException("fixture failure");if(!HoldConnect)return Task.FromResult(0);var t=new TaskCompletionSource<bool>();token.Register(()=>t.TrySetCanceled());return t.Task;}
         public Task SendAudioAsync(byte[] pcm,CancellationToken token){return Task.FromResult(0);}public Task EndInputAsync(CancellationToken token){Ended++;return Task.FromResult(0);}
         public Task CompleteToolsAsync(IList<VoiceToolResult> results,CancellationToken token){ToolResults.AddRange(results);return Task.FromResult(0);}
-        public Task<VoicePacket> ReceiveAsync(CancellationToken token){waiting=new TaskCompletionSource<VoicePacket>();token.Register(()=>waiting.TrySetCanceled());return waiting.Task;}
-        public void Emit(VoicePacket packet){if(waiting==null || !waiting.TrySetResult(packet))throw new Exception("No pending receiver");}
+        public Task<VoicePacket> ReceiveAsync(CancellationToken token){if(packets.Count>0)return Task.FromResult(packets.Dequeue());waiting=new TaskCompletionSource<VoicePacket>();var pending=waiting;token.Register(()=>pending.TrySetCanceled());return pending.Task;}
+        public void Emit(VoicePacket packet){if(waiting==null || !waiting.TrySetResult(packet))packets.Enqueue(packet);}
         public void Dispose(){Disposed=true;}
     }
 }

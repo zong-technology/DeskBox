@@ -111,7 +111,8 @@ namespace DeskBox.UI
                             try {
                                 while (true) {
                                     active.Token.ThrowIfCancellationRequested();
-                                    if (receive.IsCompleted) {
+                                    // Drain a bounded burst before yielding so render work cannot build a packet backlog.
+                                    for(int received=0;received<16 && receive.IsCompleted;received++) {
                                         var packet=await receive;
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
                                         conversation.Accept(packet);
