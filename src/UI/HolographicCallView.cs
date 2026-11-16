@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Threading;
@@ -19,6 +20,8 @@ namespace DeskBox.UI
         private readonly Func<int,IVoiceOutput> outputFactory;
         private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval=33 };
         private readonly QuantumPresence presence = new QuantumPresence();
+        private readonly VoiceConversation conversation;
+        private readonly HologramTools tools;
         private CancellationTokenSource session;
         private Task completion = Task.FromResult(0);
         private bool exiting, muted, thinking, captionFinished = true;
@@ -30,16 +33,19 @@ namespace DeskBox.UI
         internal HologramMode Mode { get { return mode; } }
         internal string Caption { get { return caption; } }
         internal bool Muted { get { return muted; } }
+        internal ChatSession Conversation { get { return conversation.Session; } }
+        internal HologramInformation Information { get { tools.Expire(DateTime.UtcNow);return tools.Information; } }
 
-        public HolographicCallView(RealtimeVoiceSettings settings) : this(settings,
-            p => p.Provider == "qwen" ? (IRealtimeVoiceProvider)new QwenLiveVoiceProvider(p.Endpoint,p.Model,p.ApiKey) :
-                new GeminiLiveVoiceProvider(p.Endpoint,p.Model,p.ApiKey),
-            rate => new VoiceMicrophone(rate), rate => new VoiceSpeaker(rate)) { }
+        public HolographicCallView(RealtimeVoiceSettings settings, ChatService history = null, Func<ToolContext> context = null) : this(settings,
+            p => p.Provider == "qwen" ? (IRealtimeVoiceProvider)new QwenLiveVoiceProvider(p.Endpoint,p.Model,p.ApiKey,p) :
+                new GeminiLiveVoiceProvider(p.Endpoint,p.Model,p.ApiKey,p),
+            rate => new VoiceMicrophone(rate), rate => new VoiceSpeaker(rate),history,context) { }
 
         internal HolographicCallView(RealtimeVoiceSettings settings, Func<RealtimeVoiceSettings,IRealtimeVoiceProvider> providers,
-            Func<int,IVoiceInput> inputs, Func<int,IVoiceOutput> outputs)
+            Func<int,IVoiceInput> inputs, Func<int,IVoiceOutput> outputs, ChatService history = null, Func<ToolContext> context = null)
         {
             profile=settings; providerFactory=providers; inputFactory=inputs; outputFactory=outputs;
+            conversation=new VoiceConversation(history,settings);tools=new HologramTools(context);
             Dock=DockStyle.Fill; BackColor=Color.FromArgb(2,5,11); DoubleBuffered=true; TabStop=true;
             AccessibleName="全息 AI 对话"; AccessibleDescription="Esc 返回软件；Ctrl+M 静音；连接中断时点击投影重试。";
             SetStyle(ControlStyles.ResizeRedraw,true);
@@ -48,6 +54,7 @@ namespace DeskBox.UI
                 timer.Interval=profile.ReducedMotion ? 150 : 33;
                 if (!profile.ReducedMotion) seconds += .033;
                 level += (targetLevel-level)*.22f;
+                tools.Expire(DateTime.UtcNow);conversation.Flush(false);
                 Invalidate();
             };
             timer.Start();
@@ -65,9 +72,10 @@ namespace DeskBox.UI
             exiting=true;
             if (session != null) session.Cancel();
             await completion;
+            conversation.Close();tools.Clear();
         }
 
-        public void CancelForShutdown() { exiting=true; if(session!=null)session.Cancel(); }
+        public void CancelForShutdown() { exiting=true; if(session!=null)session.Cancel();conversation.Close();tools.Clear(); }
 
         private async Task RunAsync()
         {
@@ -95,6 +103,8 @@ namespace DeskBox.UI
                                     if (receive.IsCompleted) {
                                         var packet=await receive;
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
+                                        conversation.Accept(packet);
+                                        if(packet.ToolsCancelled)tools.Clear();
                                         if(packet.Interrupted){speaker.Flush();assistantCaption=userCaption="";captionFinished=true;thinking=false;caption="我在听。";}
                                         if(packet.InputEnded)thinking=true;
                                         if(!string.IsNullOrWhiteSpace(packet.UserCaption)){
@@ -107,6 +117,17 @@ namespace DeskBox.UI
                                             assistantCaption=Tail(assistantCaption);caption=assistantCaption;captionFinished=false;
                                         }
                                         if(packet.TurnComplete)captionFinished=true;
+                                        if(!packet.Interrupted && !packet.ToolsCancelled && packet.ToolCalls.Count>0){
+                                            if(packet.ToolCalls.Count>8)throw new System.IO.InvalidDataException();
+                                            var results=new List<VoiceToolResult>();
+                                            foreach(var call in packet.ToolCalls){
+                                                active.Token.ThrowIfCancellationRequested();
+                                                if(string.IsNullOrEmpty(call.Id) || string.IsNullOrEmpty(call.Name))continue;
+                                                var result=tools.Execute(call);results.Add(result);
+                                                conversation.Tool(call.Name,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result.Response));
+                                            }
+                                            if(results.Count>0)await provider.CompleteToolsAsync(results,active.Token);
+                                        }
                                         foreach(var audio in packet.Audio)speaker.Play(audio);
                                         receive=provider.ReceiveAsync(active.Token);
                                     }
@@ -140,6 +161,7 @@ namespace DeskBox.UI
             finally {
                 if(session==active)session=null;
                 active.Dispose();targetLevel=0;
+                conversation.Close();tools.Clear();
                 if(!IsDisposed)Invalidate();
             }
         }
@@ -169,13 +191,44 @@ namespace DeskBox.UI
             var g=e.Graphics;g.Clear(BackColor);g.SmoothingMode=SmoothingMode.AntiAlias;
             int subtitleHeight=Math.Max(115,Height/6);
             var stage=new Rectangle(0,0,Width,Math.Max(1,Height-subtitleHeight));
+            var info=Information;var infoBounds=RectangleF.Empty;
+            if(info!=null){
+                if(Width>=1180){
+                    infoBounds=new RectangleF(Width*.63f,stage.Height*.2f,Width*.32f,stage.Height*.62f);
+                    stage.Width=(int)(Width*.64f);
+                }else{
+                    infoBounds=new RectangleF(Width*.12f,stage.Height*.60f,Width*.76f,stage.Height*.37f);
+                    stage.Height=(int)(stage.Height*.59f);
+                }
+            }
             if(profile.Appearance=="quantum")presence.Draw(g,stage,seconds,level,mode,profile.ReducedMotion);
             else SilverwingProjection.Draw(g,stage,level,mode==HologramMode.Speaking,muted,false,profile.ReducedMotion,seconds,1,.75f,profile.Appearance=="photon");
+            if(info!=null)DrawInformation(g,infoBounds,info);
             if(!string.IsNullOrWhiteSpace(caption))
                 using(var font=new Font("Microsoft YaHei UI",Math.Max(14,Math.Min(23,Width/65f)),FontStyle.Regular))
                 using(var brush=new SolidBrush(Color.FromArgb(225,231,242,250)))
                 using(var format=new StringFormat {Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Near,Trimming=StringTrimming.EllipsisWord})
                     g.DrawString(caption,font,brush,new RectangleF(Width*.16f,Height-subtitleHeight+12,Width*.68f,subtitleHeight-24),format);
+        }
+
+        private void DrawInformation(Graphics g,RectangleF box,HologramInformation info)
+        {
+            using(var fill=new SolidBrush(Color.FromArgb(200,5,20,32)))g.FillRectangle(fill,box);
+            using(var line=new Pen(Color.FromArgb(100,80,207,243),1)){
+                g.DrawLine(line,box.Left,box.Top,box.Right,box.Top);g.DrawLine(line,box.Left,box.Bottom,box.Right,box.Bottom);
+                g.DrawLine(line,box.Left,box.Top,box.Left,box.Top+24);g.DrawLine(line,box.Right,box.Bottom-24,box.Right,box.Bottom);
+            }
+            float padding=Math.Max(14,Math.Min(24,box.Width*.05f));
+            using(var accent=new SolidBrush(Color.FromArgb(220,129,222,248)))
+            using(var title=new Font("Microsoft YaHei UI",Math.Max(13,Math.Min(19,Width/80f)),FontStyle.Bold))
+            using(var format=new StringFormat {Trimming=StringTrimming.EllipsisCharacter})
+                g.DrawString(info.Title,title,accent,new RectangleF(box.X+padding,box.Y+12,box.Width-padding*2,32),format);
+            var body=new RectangleF(box.X+padding,box.Y+49,box.Width-padding*2,Math.Max(20,box.Height-64));
+            float size=Math.Max(12,Math.Min(17,Width/90f));
+            while(size>11){using(var candidate=new Font("Microsoft YaHei UI",size))if(g.MeasureString(info.Content,candidate,(int)body.Width).Height<=body.Height)break;size-=.5f;}
+            using(var font=new Font("Microsoft YaHei UI",size))
+            using(var ink=new SolidBrush(Color.FromArgb(235,220,239,247)))
+            using(var format=new StringFormat {Trimming=StringTrimming.EllipsisWord})g.DrawString(info.Content,font,ink,body,format);
         }
 
         protected override void Dispose(bool disposing)

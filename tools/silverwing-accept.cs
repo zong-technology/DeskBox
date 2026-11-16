@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,18 +36,25 @@ internal static class SilverwingAccept
             string profileDir=Path.Combine(output,"synthetic-profile");Directory.CreateDirectory(profileDir);
             AppPaths.DataDir=Store.DataDir=profileDir;
             var storage=new RealtimeVoiceSettingsStore();
-            var settings=new RealtimeVoiceSettings {ApiKey="fixture-key-never-send",Appearance="quantum"};
+            var settings=new RealtimeVoiceSettings {ApiKey="fixture-key-never-send",Appearance="quantum",AssistantName="星璃",Persona="你是一位温柔、严谨的项目助手。"};
             storage.Save(settings);var restored=new RealtimeVoiceSettingsStore().Load();
             Check(restored.ApiKey==settings.ApiKey && restored.Model==settings.Model,"Voice profile survives reopening");
             Check(!File.ReadAllText(Path.Combine(profileDir,"realtime-voice.json")).Contains(settings.ApiKey),"No plaintext secret is persisted");
             Check(restored.Ready,"Persisted profile can be used without reopening setup");
-            var setup=new JavaScriptSerializer().Serialize(QwenLiveVoiceProvider.Setup(QwenLiveVoiceProvider.DefaultModel));
-            Check(!setup.Contains("tools") && !setup.Contains("deskbox_show_scene"),"Voice model has no scene tools");
+            Check(restored.AssistantName==settings.AssistantName && restored.Persona==settings.Persona,"Custom name and persona survive reopening");
+            var setup=new JavaScriptSerializer().Serialize(QwenLiveVoiceProvider.Setup(QwenLiveVoiceProvider.DefaultModel,settings));
+            var geminiSetup=GeminiLiveVoiceProvider.SetupJson(settings.Model,settings);
+            Check(setup.Contains(settings.AssistantName) && setup.Contains(settings.Persona) && geminiSetup.Contains(settings.AssistantName) && geminiSetup.Contains(settings.Persona),"Both live providers receive the selected role and name");
+            Check(setup.Contains("hologram_show") && geminiSetup.Contains("deskbox_tasks") && !setup.Contains("deskbox_show_scene"),"Live tools expose temporary information and application queries without old scenes");
             Check(typeof(HolographicCallView).BaseType==typeof(UserControl),"Hologram is an application surface, not a form or plugin");
+            var recordStore=new Store();recordStore.Init();recordStore.Tasks.Add(new TaskItem {Id="voice-fixture",Title="隔离测试任务",Done=false});
+            var history=new ChatService(recordStore,new ProviderStore());
+            CheckVoiceRecords(history,settings);
+            CheckVoiceTools(recordStore);
 
             var fake=new FakeProvider();int inputs=0;FakeInput lastInput=null;FakeOutput speaker=null;
             using(var host=new Form {ClientSize=new Size(1280,800)})
-            using(var view=new HolographicCallView(settings,p=>fake,r=>{inputs++;return lastInput=new FakeInput();},r=>speaker=new FakeOutput())){
+            using(var view=new HolographicCallView(settings,p=>fake,r=>{inputs++;return lastInput=new FakeInput();},r=>speaker=new FakeOutput(),history,()=>new ToolContext {Store=recordStore})){
                 Freeze(view);host.Controls.Add(view);host.Show();Application.DoEvents();
                 int forms=Application.OpenForms.Count;view.Start();Pump(()=>inputs==1);
                 Check(fake.Connected==1 && view.Mode==HologramMode.Listening,"Entering starts exactly one connection automatically");
@@ -63,6 +71,13 @@ internal static class SilverwingAccept
                 fake.Emit(new VoicePacket {UserCaption="我说",UserCaptionDelta=true});Pump(()=>view.Caption=="你：先听我说");
                 Check(speaker.Flushed==1,"Interruption flushes queued playback");
                 fake.Emit(new VoicePacket {Caption="我在听，请继续。",Audio={new byte[32]}});Pump(()=>view.Mode==HologramMode.Speaking);
+                fake.Emit(new VoicePacket {ToolCalls={new VoiceToolCall {Id="show-info",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","今日任务"},{"content","01  审核项目文档\n02  核对设备清单\n03  确认测试进度"},{"seconds",30}}}}});
+                Pump(()=>view.Information!=null && fake.ToolResults.Count==1);
+                foreach(var size in new[]{new Size(1600,900),new Size(1280,800),new Size(1024,768)}){
+                    view.Dock=DockStyle.None;using(var image=Shot(view,size))image.Save(Path.Combine(output,"information-"+size.Width+".png"),ImageFormat.Png);
+                }
+                Check(view.Controls.Count==0 && Application.OpenForms.Count==forms,"AI information is painted in the same immersive surface without controls or windows");
+                fake.Emit(new VoicePacket {ToolCalls={new VoiceToolCall {Id="clear-info",Name="hologram_clear"}}});Pump(()=>view.Information==null && fake.ToolResults.Count==2);
                 var tick=typeof(System.Windows.Forms.Timer).GetMethod("OnTick",Hidden);
                 var animation=(System.Windows.Forms.Timer)typeof(HolographicCallView).GetField("timer",Hidden).GetValue(view);
                 for(int i=0;i<5;i++)tick.Invoke(animation,new object[]{EventArgs.Empty});
@@ -82,6 +97,7 @@ internal static class SilverwingAccept
                 }
                 var stopping=view.StopAsync();Pump(()=>stopping.IsCompleted);stopping.GetAwaiter().GetResult();
                 Check(fake.Disposed && lastInput.Disposed && speaker.Disposed,"Exit releases transport and both audio devices");
+                Check(view.Conversation!=null && view.Conversation.Messages.Any(m=>m.Content=="先听我说") && view.Conversation.Messages.Any(m=>m.SpeakerName==settings.AssistantName),"Call surface saves matching user and named assistant messages");
                 host.Close();
             }
             var pending=new FakeProvider {HoldConnect=true};int unopened=0;
@@ -123,10 +139,59 @@ internal static class SilverwingAccept
                 var page=(Control)typeof(SettingsCenterView).GetMethod("PageVoice",Hidden).Invoke(settingsView,null);
                 var key=(DarkInput)page.Controls.Find("hologram-key",false)[0];
                 Check(key.Inner.UseSystemPasswordChar && key.Text=="","One-time settings keep the saved secret masked");
+                Check(page.Controls.Find("hologram-name",false).Length==1 && page.Controls.Find("hologram-persona",false).Length==1,"Name and persona are edited only in normal settings");
                 Check(page.Controls.Find("hologram-save",false).Length==1,"Voice setup lives in the normal settings center");page.Dispose();
             }
             Console.WriteLine("PASS "+checks+" native checks (fake voice transport; no live service or microphone used)");return 0;
         }catch(Exception error){Console.Error.WriteLine(error);return 1;}
+    }
+
+    private static void CheckVoiceRecords(ChatService history,RealtimeVoiceSettings settings)
+    {
+        var log=new VoiceConversation(history,settings);
+        log.Accept(new VoicePacket {InputStarted=true,UserTurnId="late-user"});Thread.Sleep(3);
+        log.Accept(new VoicePacket {Caption="已经查到"});
+        log.Accept(new VoicePacket {UserCaption="请查看任务",UserTurnId="late-user"});
+        log.Accept(new VoicePacket {Caption="相关信息。",TurnComplete=true});
+        log.Accept(new VoicePacket {UserCaption="请查看任务",UserTurnId="late-user"});
+        Check(log.Session.Messages[0].Role=="user" && log.Session.Messages.Count(m=>m.Role=="user")==1,"Late and repeated user transcription keeps its original turn and order");
+        string longText=new string('详',340);
+        log.Accept(new VoicePacket {Interrupted=true,InputStarted=true,UserTurnId="next-user"});
+        log.Accept(new VoicePacket {UserCaption=longText,UserCaptionDelta=true,UserTurnId="next-user"});
+        log.Accept(new VoicePacket {Caption="待完成的回复"});log.Flush(true);
+        var recovered=new ChatService(null,new ProviderStore()).Sessions.Single(s=>s.Id==log.Session.Id);
+        Check(recovered.Messages.All(m=>!m.Streaming) && recovered.Messages.Last().Interrupted,"Restart recovers an interrupted transcript without an endless streaming cursor");
+        log.Close();
+        var saved=new ChatService(null,new ProviderStore()).Sessions.Single(s=>s.Id==log.Session.Id);
+        Check(saved.Messages.Any(m=>m.Content==longText) && saved.Messages.Any(m=>m.Content=="已经查到相关信息。"),"Saved history keeps full transcripts beyond the subtitle limit and joins deltas once");
+        Check(saved.AssistantName==settings.AssistantName && saved.Persona==settings.Persona && saved.Channel=="hologram" && saved.VoiceModel==settings.Model,"History retains the role and live-model identity used in that call");
+        Check(!File.ReadAllText(Path.Combine(AppPaths.DataDir,"chats.json")).Contains(settings.ApiKey),"Voice history never stores the provider key");
+    }
+
+    private static void CheckVoiceTools(Store store)
+    {
+        var tools=new HologramTools(()=>new ToolContext {Store=store});
+        var read=tools.Execute(new VoiceToolCall {Id="tasks",Name="deskbox_tasks",Arguments=new Dictionary<string,object>{{"query","隔离测试任务"}}});
+        Check(new JavaScriptSerializer().Serialize(read.Response).Contains("隔离测试任务"),"Live AI reads real synthetic application tasks through the existing tool registry");
+        var denied=tools.Execute(new VoiceToolCall {Id="deny",Name="fs.write",Arguments=new Dictionary<string,object>{{"path","must-not-write"},{"content","x"}}});
+        Check(new JavaScriptSerializer().Serialize(denied.Response).Contains("\"ok\":false"),"Unregistered operations cannot execute through realtime tools");
+        var shown=tools.Execute(new VoiceToolCall {Id="show",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","测试投影"},{"content","来自 AI 的临时要点"},{"seconds",9999}}});
+        Check(tools.Information!=null && tools.Information.ExpiresUtc<=DateTime.UtcNow.AddSeconds(121),"Temporary information has a bounded lifetime");
+        tools.Expire(DateTime.UtcNow.AddSeconds(122));Check(tools.Information==null,"Information expires independently of animation and reduced motion");
+        var invalid=tools.Execute(new VoiceToolCall {Id="invalid",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","过长内容"},{"content",new string('字',481)}}});
+        Check(tools.Information==null && new JavaScriptSerializer().Serialize(invalid.Response).Contains("\"ok\":false"),"Oversized display requests return a tool error without changing the projection");
+        var parsed=GeminiLiveVoiceProvider.ParsePacket("{\"toolCall\":{\"functionCalls\":[{\"id\":\"g1\",\"name\":\"hologram_show\",\"args\":{\"title\":\"摘要\",\"content\":\"信息\"}}]}}");
+        Check(parsed.ToolCalls.Count==1 && parsed.ToolCalls[0].Arguments["content"].ToString()=="信息","Gemini function-call packets reach the bounded display tool");
+        var response=GeminiLiveVoiceProvider.ToolResponseJson(new[]{shown});
+        Check(response.Contains("functionResponses") && response.Contains("\"id\":\"show\"") && response.Contains("\"ok\":true"),"Gemini receives correlated tool execution feedback");
+        using(var qwen=new QwenLiveVoiceProvider("wss://fixture.invalid/live","fixture","not-a-key")){
+            var packet=qwen.ParsePacket("{\"type\":\"response.function_call_arguments.done\",\"call_id\":\"q1\",\"name\":\"hologram_clear\",\"arguments\":\"{}\"}");
+            Check(packet.ToolCalls.Count==1 && packet.ToolCalls[0].Id=="q1","Qwen completed function calls keep the call ID");
+            string output=new JavaScriptSerializer().Serialize(QwenLiveVoiceProvider.ToolOutput(shown));
+            Check(output.Contains("function_call_output") && output.Contains("\"call_id\":\"show\""),"Qwen receives correlated function output before continuing speech");
+            var input=qwen.ParsePacket("{\"type\":\"conversation.item.input_audio_transcription.completed\",\"item_id\":\"u1\",\"transcript\":\"用户转写\"}");
+            Check(input.UserTurnId=="u1" && !input.UserCaptionDelta,"Qwen complete transcriptions have stable turn identity");
+        }
     }
 
     private sealed class FakeInput : IVoiceInput { public bool Disposed;public int Read(short[] samples){return 0;}public void Dispose(){Disposed=true;} }
@@ -134,9 +199,11 @@ internal static class SilverwingAccept
     private sealed class FakeProvider : IRealtimeVoiceProvider
     {
         public int Connected,Ended;public bool Disposed,HoldConnect,FailConnect;private TaskCompletionSource<VoicePacket> waiting;
+        public readonly List<VoiceToolResult> ToolResults=new List<VoiceToolResult>();
         public int InputSampleRate{get{return 16000;}}public int OutputSampleRate{get{return 24000;}}
         public Task ConnectAsync(CancellationToken token){Connected++;if(FailConnect)throw new IOException("fixture failure");if(!HoldConnect)return Task.FromResult(0);var t=new TaskCompletionSource<bool>();token.Register(()=>t.TrySetCanceled());return t.Task;}
         public Task SendAudioAsync(byte[] pcm,CancellationToken token){return Task.FromResult(0);}public Task EndInputAsync(CancellationToken token){Ended++;return Task.FromResult(0);}
+        public Task CompleteToolsAsync(IList<VoiceToolResult> results,CancellationToken token){ToolResults.AddRange(results);return Task.FromResult(0);}
         public Task<VoicePacket> ReceiveAsync(CancellationToken token){waiting=new TaskCompletionSource<VoicePacket>();token.Register(()=>waiting.TrySetCanceled());return waiting.Task;}
         public void Emit(VoicePacket packet){if(waiting==null || !waiting.TrySetResult(packet))throw new Exception("No pending receiver");}
         public void Dispose(){Disposed=true;}

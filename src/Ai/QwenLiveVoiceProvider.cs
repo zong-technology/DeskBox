@@ -18,14 +18,16 @@ namespace DeskBox.Ai
         private readonly ClientWebSocket _socket = new ClientWebSocket();
         private readonly Uri _endpoint;
         private readonly string _model;
+        private readonly RealtimeVoiceSettings _profile;
         private bool _discardAudio;
 
-        public QwenLiveVoiceProvider(string endpoint, string model, string key)
+        public QwenLiveVoiceProvider(string endpoint, string model, string key, RealtimeVoiceSettings profile = null)
         {
             _endpoint = Endpoint(endpoint);
             if (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(key))
                 throw new ArgumentException("请填写百炼模型 ID 和 API Key。");
             _model = model.Trim();
+            _profile=profile ?? new RealtimeVoiceSettings();
             _socket.Options.SetRequestHeader("Authorization", "Bearer " + key.Trim());
         }
 
@@ -38,7 +40,7 @@ namespace DeskBox.Ai
             {
                 var target = new UriBuilder(_endpoint) { Query = "model=" + Uri.EscapeDataString(_model) };
                 await _socket.ConnectAsync(target.Uri, token).ConfigureAwait(false);
-                await SendAsync(Setup(_model), token).ConfigureAwait(false);
+                await SendAsync(Setup(_model,_profile), token).ConfigureAwait(false);
                 while (!(await ReceiveAsync(token).ConfigureAwait(false)).Ready) { }
             }
             catch (WebSocketException) { throw new IOException("无法连接百炼，请检查工作空间地址、API Key 和模型权限。"); }
@@ -52,6 +54,18 @@ namespace DeskBox.Ai
         public Task EndInputAsync(CancellationToken token)
         {
             return SendAsync(new { type = "input_audio_buffer.clear" }, token);
+        }
+
+        public async Task CompleteToolsAsync(IList<VoiceToolResult> results, CancellationToken token)
+        {
+            foreach(var result in results)await SendAsync(ToolOutput(result),token).ConfigureAwait(false);
+            await SendAsync(new {type="response.create"},token).ConfigureAwait(false);
+        }
+
+        internal static object ToolOutput(VoiceToolResult result)
+        {
+            return new {type="conversation.item.create",item=new {type="function_call_output",call_id=result.Id,
+                output=new JavaScriptSerializer().Serialize(result.Response)}};
         }
 
         private Task SendAsync(object payload, CancellationToken token)
@@ -81,7 +95,17 @@ namespace DeskBox.Ai
                 _discardAudio = true;
             }
             packet.InputEnded = type == "input_audio_buffer.speech_stopped";
-            if (type == "conversation.item.input_audio_transcription.completed") packet.UserCaption = Read(evt, "transcript") as string;
+            packet.InputStarted=type=="input_audio_buffer.speech_started";
+            if(packet.InputStarted)packet.UserTurnId=Read(evt,"item_id") as string;
+            if (type == "conversation.item.input_audio_transcription.completed") {
+                packet.UserCaption = Read(evt, "transcript") as string;packet.UserTurnId=Read(evt,"item_id") as string;
+            }
+            if(type=="response.function_call_arguments.done" && !_discardAudio){
+                IDictionary<string,object> arguments=null;
+                try {arguments=new JavaScriptSerializer().DeserializeObject(Convert.ToString(Read(evt,"arguments"))) as IDictionary<string,object>;}
+                catch(ArgumentException) { }
+                packet.ToolCalls.Add(new VoiceToolCall {Id=Read(evt,"call_id") as string,Name=Read(evt,"name") as string,Arguments=arguments});
+            }
             if (type == "response.audio_transcript.delta" && !_discardAudio)
                 packet.Caption = Read(evt, "delta") as string;
             if (type == "response.audio.delta" && !_discardAudio)
@@ -93,13 +117,16 @@ namespace DeskBox.Ai
             return packet;
         }
 
-        internal static object Setup(string model)
+        internal static object Setup(string model, RealtimeVoiceSettings profile = null)
         {
+            string instructions=(profile ?? new RealtimeVoiceSettings()).Instructions;
             if (model.StartsWith("qwen3.8-", StringComparison.OrdinalIgnoreCase))
             {
                 var session = new Dictionary<string, object> {
                     { "modalities", new[] { "text", "audio" } },
-                    { "instructions", "默认用简体中文与用户实时语音交流。回答自然简洁，不声称执行界面外的动作。" },
+                    { "instructions", instructions },
+                    { "tools", HologramTools.QwenDeclarations() },
+                    { "input_audio_transcription", new {model="qwen3-asr-flash-realtime"} },
                     { "turn_detection", new { type = "semantic_vad_ec" } },
                     { "audio", new {
                         input = new { format = new { type = "pcm", sample_rate = 16000 } },
@@ -109,7 +136,8 @@ namespace DeskBox.Ai
                 return new { type = "session.update", session };
             }
             return new { type = "session.update", session = new {
-                modalities = new[] { "text", "audio" }, instructions = "默认用简体中文交流。", voice = "Cherry",
+                modalities = new[] { "text", "audio" }, instructions = instructions, voice = "Cherry",
+                tools=HologramTools.QwenDeclarations(),input_audio_transcription=new {model="qwen3-asr-flash-realtime"},
                 turn_detection = new { type = "server_vad" },
                 input_audio_format = "pcm", output_audio_format = "pcm"
             } };

@@ -267,6 +267,12 @@ namespace DeskBox.UI.Views
             var storage=new RealtimeVoiceSettingsStore();
             var saved=storage.Load();
             Section(p,"全息语音","在这里保存一次。进入全息 AI 通话后自动连接，画面只显示投影和实时字幕。");
+            RowLabel(p,"助手名称","角色与名称会应用于下次通话，并随会话记录保存");
+            var name=AddInput(p,"给全息助手起一个名字",saved.AssistantName,delegate(string value){});name.Name="hologram-name";name.Inner.MaxLength=24;
+            RowLabel(p,"角色设定","可以描述身份、性格、专长与说话方式；最多 2000 字");
+            var persona=new TextBox {Left=8,Top=_y,Width=620,Height=100,Multiline=true,AcceptsReturn=true,ScrollBars=ScrollBars.Vertical,
+                Text=saved.Persona,MaxLength=2000,BackColor=Palette.PanelAlt,ForeColor=Palette.Text,Name="hologram-persona",AccessibleName="全息助手角色设定"};
+            p.Controls.Add(persona);_y+=112;
             RowLabel(p,"实时语音服务");
             var provider=new ComboBox {Left=8,Top=_y,Width=340,DropDownStyle=ComboBoxStyle.DropDownList,
                 BackColor=Palette.PanelAlt,ForeColor=Palette.Text,Name="hologram-service"};
@@ -290,6 +296,7 @@ namespace DeskBox.UI.Views
                 try {
                     string service=provider.SelectedIndex==1 ? "qwen" : "gemini";
                     var value=new RealtimeVoiceSettings {Provider=service,Endpoint=endpoint.Text.Trim(),Model=model.Text.Trim(),
+                        AssistantName=name.Text.Trim(),Persona=persona.Text.Trim(),
                         ApiKey=string.IsNullOrWhiteSpace(key.Text) && service==saved.Provider ? saved.ApiKey : key.Text.Trim(),
                         Appearance=style.SelectedIndex==1 ? "silverwing" : style.SelectedIndex==2 ? "photon" : "quantum",ReducedMotion=reduced.Checked};
                     storage.Save(value);saved=value;key.Text="";

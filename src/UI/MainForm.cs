@@ -2041,12 +2041,16 @@ namespace DeskBox.UI
         internal void ShowLiveVoice()
         {
             if (_liveVoice != null) return;
-            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load());
+            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,delegate {
+                return new DeskBox.Ai.ToolContext {Store=_store,Projects=_workspaces,Sync=_localSync,Cloud=_cloudSync,UiInvoke=_chat==null ? null : _chat.UiInvoke,
+                    FileAccessEnabled=()=>_store.Settings.AiFileAccess};
+            });
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
             voice.ExitRequested += async delegate {
                 await voice.StopAsync();
                 if (IsDisposed || _closing) return;
+                if(_chat!=null && !_chat.Busy && voice.Conversation!=null)_chat.SwitchSession(voice.Conversation.Id);
                 Controls.Remove(voice);
                 voice.Dispose();
             };

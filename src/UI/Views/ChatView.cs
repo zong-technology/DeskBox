@@ -507,7 +507,7 @@ namespace DeskBox.UI.Views
                 {
                     rows.Add(new ListRow
                     {
-                        Icon = "💬",
+                        Icon = s.Channel=="hologram" ? "◉" : "💬",
                         Cells = new[] { s.Title, UiKit.HumanTime(s.UpdatedAt) },
                         Tag = s.Id,
                         Accent = _chat.Current != null && _chat.Current.Id == s.Id ? Palette.Accent : (Color?)null
@@ -987,7 +987,7 @@ namespace DeskBox.UI.Views
 
                     using (var ft = new Font("Microsoft YaHei UI", 7.5F))
                     using (var brush = new SolidBrush(_p.TextFaint))
-                        g.DrawString(isUser ? "你" : "AI&SI", ft, brush,
+                        g.DrawString((isUser ? "你" : string.IsNullOrEmpty(m.SpeakerName) ? "AI&SI" : m.SpeakerName)+(m.Interrupted ? " · 已打断" : ""), ft, brush,
                             rect.X + 14, rect.Bottom - 18);
 
                     _bubbles.Add(new Bubble { Message = m, Rect = rect, CopyRect = copyRect });

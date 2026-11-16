@@ -13,3 +13,13 @@ AI&SI / AI 助手 → 全息 AI 通话，会将当前软件窗口直接切换为
 这是屏幕内的实时视觉呈现，无法把普通显示器变成物理空间全息设备；原画角色仍是 2.5D 素材，不声称已重建角色骨骼或口型。
 
 Windows 构建使用 `build.ps1`。隔离检查由 `tools/silverwing-accept.cs` 执行，语音使用模拟传输与音频设备，验证自动连接、取消、设备释放、加密配置、字幕、软件内进入/退出及减少动态。真实服务通话需要有效密钥后在本机验收。
+
+## 会话记录、角色与临时信息
+
+「功能与设置 → 全息语音」支持 1–24 字助手名称和最多 2000 字角色设定。设置会发送到 Gemini Live / Qwen Omni 的会话指令中，退出、重开和升级后保留。本次角色、名称与实时模型另存到对应历史会话，之后修改设置不改写旧记录。
+
+转写与回复保存到现有 `chats.json`，退出通话后自动选中本次会话。屏幕字幕只显示最近部分，历史保留完整转写。流式分段会合并，延迟到达的千问用户转写按语音条目 ID 对应，未完成的回复标记「已打断」。连接失败或无转写内容不会创建空会话；不录制原始音频。沿用 AI 历史的最近 50 个会话、每个最多 200 条消息限制。
+
+实时会话向模型提供 `deskbox_context`、`deskbox_tasks`、`deskbox_projects`、`deskbox_incidents` 只读查询，复用当前软件数据与注册工具；以及 `hologram_show`、`hologram_clear`。正文是纯文字，最多 480 字 / 8 行，最长显示 120 秒；超长参数返回工具错误。计时独立于动画，在减少动态时仍会过期。临时信息绘制在投影内，不创建新窗体或控件。语音会话不提供写文件、修改任务、运行工作流等操作。
+
+可直接说：「把未完成任务投影出来」「展示项目进度」「将刚才的建议列成三点，展示一分钟」「收起投影信息」。模型需支持 Function Calling。Gemini 使用 `toolCall` / `toolResponse`；千问按官方实时接口使用 `tools[].function`、`response.function_call_arguments.done` 和 `function_call_output`，再触发 `response.create`，并显式启用输入转写。协议参考：https://www.alibabacloud.com/help/en/model-studio/client-events 。真实账户的模型能力与端到端通话尚待本机验证。

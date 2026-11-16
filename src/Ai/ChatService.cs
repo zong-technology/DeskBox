@@ -20,6 +20,8 @@ namespace DeskBox.Ai
         public string ToolResult = "";
         public bool Pending;                  // 等待用户确认的工具调用
         public string PendingToolArgs = "";
+        public string SpeakerName = "";
+        public bool Interrupted;
     }
 
     public class ChatSession
@@ -33,6 +35,7 @@ namespace DeskBox.Ai
         public string DomainMode = "automation";   // automation|plc|dcs|validation|troubleshoot|general
         public double Temperature = 0.3;
         public int MaxTokens = 0;
+        public string Channel = "text", AssistantName = "", Persona = "", VoiceModel = "";
         public List<ChatMessage> Messages = new List<ChatMessage>();
 
         public void Touch()
@@ -82,6 +85,32 @@ namespace DeskBox.Ai
         }
 
         public void SetProviders(ProviderStore providers) { _providers = providers; }
+
+        internal ChatSession BeginVoiceSession(RealtimeVoiceSettings profile)
+        {
+            var now=DateTimeOffset.Now.ToUnixTimeMilliseconds();
+            var value=new ChatSession {Id="v_"+Guid.NewGuid().ToString("N"),CreatedAt=now,UpdatedAt=now,
+                Title="全息 · "+profile.AssistantName+" · "+DateTime.Now.ToString("MM-dd HH:mm"),
+                Channel="hologram",AssistantName=profile.AssistantName,Persona=profile.Persona,VoiceModel=profile.Model,DomainMode="general"};
+            var provider=_providers==null ? null : _providers.DefaultProvider;
+            if(provider!=null){value.ProviderId=provider.Id;value.Model=provider.Model;}
+            lock(_lock)_sessions.Insert(0,value);
+            return value;
+        }
+
+        internal void RecordVoiceMessage(ChatSession session, ChatMessage message)
+        {
+            lock(_lock){
+                int index=session.Messages.FindIndex(m=>m.Id==message.Id);
+                if(index<0){
+                    int next=session.Messages.FindIndex(m=>m.Ts>message.Ts);
+                    if(next<0)session.Messages.Add(message);else session.Messages.Insert(next,message);
+                }else session.Messages[index]=message;
+                session.Touch();
+            }
+        }
+
+        internal void SaveVoiceHistory() { Save(); Raise(); }
 
         // ---------- 会话管理 ----------
 
@@ -251,6 +280,7 @@ namespace DeskBox.Ai
             {
                 Id = "m_" + Guid.NewGuid().ToString("N").Substring(0, 8),
                 Role = "assistant", Content = "", Streaming = true,
+                SpeakerName = session.Channel=="hologram" ? session.AssistantName : "",
                 Ts = DateTimeOffset.Now.ToUnixTimeMilliseconds()
             };
             session.Messages.Add(assistant);
@@ -502,6 +532,7 @@ namespace DeskBox.Ai
                     + "你不能直接执行系统命令或任意代码；需要操作文件、任务或工作流时，只能通过下面注册的工具。\r\n"
                     + ToolRegistry.Instance.DescribeForPrompt();
             sys += "\r\n" + DocumentSkills.Instructions;
+            if(session!=null && session.Channel=="hologram")sys+="\r\n继续全息会话。助手名称："+session.AssistantName+"；角色设定："+session.Persona;
             sys += "\r\n你已连接DeskBox真实应用数据。查询任务先用task.list，项目用project.list，现场事件用incident.list，应用状态用app.context；不要未经调用就声称无法获取软件数据。修改前先读取当前ID和版本校验值，使用对应工具并报告真实执行结果。不要把文件权限开关与软件内部任务/项目读取混为一谈。";
             sys += "\r\n授权以本轮系统消息为准；历史对话中的旧授权状态不代表当前权限。可调用工具验证当前授权，不要未经工具就声称权限未更新。";
             if (AllowedFiles != null && AllowedFiles.Count > 0) sys += "\r\n用户本次明确选择可读取的文件（不授权其同目录其他文件）：\r\n" + string.Join("\r\n", AllowedFiles.ToArray());
@@ -601,6 +632,10 @@ namespace DeskBox.Ai
             {
                 var list = Json.Load<List<ChatSession>>(SessionsFile, null);
                 if (list == null) return;
+                foreach(var session in list.Where(s=>s!=null && s.Channel=="hologram"))
+                    foreach(var message in session.Messages.Where(m=>m.Streaming)){
+                        message.Streaming=false;message.Interrupted=message.Role=="assistant";
+                    }
                 lock (_lock)
                 {
                     _sessions.Clear();
