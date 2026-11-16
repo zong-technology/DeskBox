@@ -47,6 +47,8 @@ internal static class SilverwingAccept
             Check(setup.Contains(settings.AssistantName) && setup.Contains(settings.Persona) && geminiSetup.Contains(settings.AssistantName) && geminiSetup.Contains(settings.Persona),"Both live providers receive the selected role and name");
             Check(setup.Contains("hologram_show") && geminiSetup.Contains("deskbox_tasks") && !setup.Contains("deskbox_show_scene"),"Live tools expose temporary information and application queries without old scenes");
             Check(setup.Contains("\"type\":\"function\",\"function\":{") && setup.Contains("qwen3-asr-flash-realtime"),"Qwen session uses nested function definitions and explicitly enables user transcription");
+            var legacySetup=new JavaScriptSerializer().Serialize(QwenLiveVoiceProvider.Setup("qwen3-omni-flash-realtime",settings));
+            Check(!legacySetup.Contains("\"tools\":") && legacySetup.Contains(settings.AssistantName),"Older Qwen voice models keep persona and transcription without unsupported tool configuration");
             Check(typeof(HolographicCallView).BaseType==typeof(UserControl),"Hologram is an application surface, not a form or plugin");
             var recordStore=new Store();recordStore.Init();recordStore.Tasks.Add(new TaskItem {Id="voice-fixture",Title="隔离测试任务",Done=false});
             var history=new ChatService(recordStore,new ProviderStore());

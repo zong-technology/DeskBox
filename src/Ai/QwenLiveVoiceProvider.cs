@@ -140,12 +140,14 @@ namespace DeskBox.Ai
                 };
                 return new { type = "session.update", session };
             }
-            return new { type = "session.update", session = new {
-                modalities = new[] { "text", "audio" }, instructions = instructions, voice = "Cherry",
-                tools=HologramTools.QwenDeclarations(),input_audio_transcription=new {model="qwen3-asr-flash-realtime"},
-                turn_detection = new { type = "server_vad" },
-                input_audio_format = "pcm", output_audio_format = "pcm"
-            } };
+            bool supportsTools=model.StartsWith("qwen3.5-",StringComparison.OrdinalIgnoreCase);
+            var legacy=new Dictionary<string,object> {
+                {"modalities",new[]{"text","audio"}}, {"instructions",instructions+(supportsTools ? "" : "\n此模型不提供工具：不能查询软件数据或实际展示信息，请如实说明能力范围。")},
+                {"voice",supportsTools ? "Tina" : "Cherry"}, {"input_audio_transcription",new {model="qwen3-asr-flash-realtime"}},
+                {"turn_detection",new {type="server_vad"}}, {"input_audio_format","pcm"}, {"output_audio_format","pcm"}
+            };
+            if(supportsTools)legacy["tools"]=HologramTools.QwenDeclarations();
+            return new {type="session.update",session=legacy};
         }
 
         internal static Uri Endpoint(string value)
