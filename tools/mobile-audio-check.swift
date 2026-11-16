@@ -36,7 +36,7 @@ import AVFoundation
         check(try render(24000) < 480, "Flushed speech does not resume on the next render")
         for _ in 0..<180 { let accepted = try player.enqueue(pcm); precondition(accepted) }
         check(try !player.enqueue(pcm) && player.queuedSeconds <= 180, "The memory limit refuses only excess PCM without throwing or resetting queued speech")
-        check(try render(24000) > 23500, "Previously queued speech still plays after capacity is reached")
+        check(try render(48000) > 47500, "Previously queued speech still plays after capacity is reached")
         check(try player.enqueue(pcm), "New audio can enter as playback frees capacity")
         player.flush()
         let gate = HologramInputGate(), id = UUID(), input = Data([1, 2, 3, 4])
