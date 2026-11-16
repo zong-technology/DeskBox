@@ -13,6 +13,7 @@ struct MobileAIView: View {
     @State private var hologramHistory = false
     @State private var callProfile = HologramProfile()
     @State private var draft = ""
+    @FocusState private var composerFocused: Bool
     @State private var voiceMode = false
     @State private var follow = true
     var body: some View {
@@ -49,7 +50,7 @@ struct MobileAIView: View {
                     if voiceMode || voice.listening { Text(voice.status).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
                     HStack(alignment: .bottom) {
                         Button { if voice.listening { voice.stopRecording() } else { Task { await voice.start() } } } label: { Image(systemName: voice.listening ? "stop.circle.fill" : "mic.fill").font(.title2).foregroundStyle(voice.listening ? .red : .cyan) }.disabled(ai.busy)
-                        TextField("输入问题，或点击麦克风", text: $draft, axis: .vertical).lineLimit(2...6).padding(10).background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+                        TextField("输入问题，或点击麦克风", text: $draft, axis: .vertical).focused($composerFocused).lineLimit(2...6).padding(10).background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
                         if ai.busy { Button("取消") { voice.stop(); ai.cancel(sync: sync) } }
                         else { Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title) }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sync.cloudCredential == nil) }
                     }
@@ -60,7 +61,12 @@ struct MobileAIView: View {
             .fullScreenCover(isPresented: $hologram, onDismiss: { briefing.voiceSessionActive = false; ai.resume(sync: sync) }) { MobileHologramView(profile: callProfile, store: store, history: history, sync: sync) }
             .sheet(isPresented: $hologramSettings) { NavigationStack { HologramSettingsView().toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { hologramSettings = false } } } } }
             .sheet(isPresented: $hologramHistory) { NavigationStack { HologramHistoryView(history: history).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { hologramHistory = false } } } } }
-            .task { ai.resume(sync: sync); voice.onFinal = { text in draft = text; if voiceMode { send() } } }
+            .task {
+                ai.resume(sync: sync); voice.onFinal = { text in draft = text; if voiceMode { send() } }
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--qa-keyboard") { try? await Task.sleep(nanoseconds: 300_000_000); composerFocused = true }
+                #endif
+            }
             .onChange(of: voice.transcript) { _, text in if voice.listening { draft = text } }
             .onChange(of: voiceMode) { _, value in voice.continuous = value; if value && !ai.busy { Task { await voice.start() } } else if !value { voice.stop() } }
             .onChange(of: ai.completedReply) { _, value in if value != nil && voiceMode && ai.error.isEmpty, let reply = ai.messages.last, reply.role == "assistant", !reply.content.isEmpty { voice.continuous = true; voice.speak(reply.content) } }

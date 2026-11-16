@@ -10,10 +10,27 @@ struct HologramDebugRoute: View {
     var route: String
     var body: some View {
         Group {
-            if route == "settings" { NavigationStack { HologramSettingsView() } }
-            else if route == "history" { NavigationStack { HologramHistoryView(history: history) } }
-            else { MobileHologramView(profile: HologramProfile(), store: store, history: history, sync: sync, preview: true) }
-        }.task {
+            switch route.replacingOccurrences(of: "-keyboard", with: "").replacingOccurrences(of: "-large", with: "") {
+            case "home": HomeView(onNavigate: { _ in })
+            case "tasks": TasksView()
+            case "task-editor": TaskEditor(task: MobileTask(title: "复核冻干机自动化控制系统联锁与验证文档", notes: "核对设备清单、工艺配方与测试证据，保留所有待上传修改。"))
+            case "projects": ProjectsView()
+            case "incidents": IncidentView()
+            case "incident-editor": IncidentEditor(incident: Incident(equipment: "PT-101 冻干机压力变送器", description: "现场压力读数偏差，复核联锁及趋势记录。"), isNew: true)
+            case "ai": MobileAIView()
+            case "connection": ConnectionSettingsView()
+            case "briefing": NavigationStack { DailyBriefingSettingsView() }
+            case "conflicts": SyncConflictView()
+            case "settings": NavigationStack { HologramSettingsView() }
+            case "history": NavigationStack { HologramHistoryView(history: history) }
+            default: MobileHologramView(profile: HologramProfile(), store: store, history: history, sync: sync, preview: true)
+            }
+        }.environment(\.dynamicTypeSize, route.hasSuffix("-large") ? .accessibility2 : .large)
+        .task {
+            store.projects = [MobileProject(id: "qa-project", name: "冻干机自动化控制系统与计算机化验证项目", number: "DB-2026-016", customer: "制药设备项目客户", equipment: "冻干机 / CIP清洗设备", owner: "项目工程师", deadline: "2026-12-30", progress: 68)]
+            store.tasks = [MobileTask(id: "qa-task-1", projectId: "qa-project", title: "审核URS与联锁因果关系矩阵，确认报警配置与验证边界", priority: "high", due: "2026-11-18", owner: "项目工程师", notes: "包含长标题与工程术语的同步缓存样例。"), MobileTask(id: "qa-task-2", projectId: "qa-project", title: "核对设备清单与测试证据", due: "2026-11-20"), MobileTask(id: "qa-task-3", title: "已完成的校准记录", status: "done")]
+            store.incidents = [Incident(id: "qa-incident", projectId: "qa-project", equipment: "PT-101", severity: "S2", description: "压力读数与现场校验记录存在偏差，需要复核联锁和历史趋势。", owner: "现场工程师")]
+
             if route == "history" {
                 var session = HologramSession(name: "星澜", persona: "工程助手", model: "模拟预览 · 无网络调用")
                 session.messages = [HologramMessage(role: "user", text: "今天有哪些任务？"), HologramMessage(role: "assistant", text: "你有三项待办：审核项目文档、核对设备清单、确认测试进度。")]

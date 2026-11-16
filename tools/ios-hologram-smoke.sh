@@ -36,8 +36,10 @@ for label in main small; do
   xcrun simctl bootstatus "$device" -b
   xcrun simctl status_bar "$device" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
   xcrun simctl install "$device" "$APP"
-  for route in hologram history settings; do
-    xcrun simctl launch --terminate-running-process "$device" com.deskbox.mobile --hologram-preview "$route"
+  for route in home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large; do
+    extra=()
+    if [[ "$route" == *-keyboard ]]; then extra+=(--qa-keyboard); fi
+    xcrun simctl launch --terminate-running-process "$device" com.deskbox.mobile --hologram-preview "$route" "${extra[@]}"
     container="$(xcrun simctl get_app_container "$device" com.deskbox.mobile data)"
     marker="$container/Documents/hologram-qa-$route.json"
     for attempt in {1..40}; do if [ -f "$marker" ]; then break; fi; sleep 0.5; done
