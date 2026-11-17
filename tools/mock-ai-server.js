@@ -1,6 +1,6 @@
 ﻿// 本地 OpenAI 兼容 mock 服务：用于验证 DeskBox 的 AI 链路（流式/错误分类/超时）
 // 用法：node tools/mock-ai-server.js [port]
-const http = require('http');
+import http from 'node:http';
 
 const PORT = Number(process.argv[2] || 18080);
 
