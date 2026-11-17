@@ -63,8 +63,11 @@ internal static class SilverwingAccept
             CheckDynamicProjection(output);
 
             var fake=new FakeProvider();int inputs=0;FakeInput lastInput=null;FakeOutput speaker=null;
+            bool holdQuery=false;
+            using(var started=new ManualResetEvent(false))
+            using(var release=new ManualResetEvent(false))
             using(var host=new Form {ClientSize=new Size(1280,800)})
-            using(var view=new HolographicCallView(settings,p=>fake,r=>{inputs++;return lastInput=new FakeInput();},r=>speaker=new FakeOutput(),history,()=>new ToolContext {Store=recordStore})){
+            using(var view=new HolographicCallView(settings,p=>fake,r=>{inputs++;return lastInput=new FakeInput();},r=>speaker=new FakeOutput(),history,()=>new ToolContext {Store=recordStore,UiInvoke=action=>{if(holdQuery){started.Set();release.WaitOne();}return action();}})){
                 Freeze(view);host.Controls.Add(view);host.Show();Application.DoEvents();
                 int forms=Application.OpenForms.Count;view.Start();Pump(()=>inputs==1);
                 Check(fake.Connected==1 && view.Mode==HologramMode.Listening,"Entering starts exactly one connection automatically");
@@ -102,6 +105,16 @@ internal static class SilverwingAccept
                 }
                 Check(view.Controls.Count==0 && Application.OpenForms.Count==forms,"AI information is painted in the same immersive surface without controls or windows");
                 fake.Emit(new VoicePacket {ToolCalls={new VoiceToolCall {Id="clear-info",Name="hologram_clear"}}});Pump(()=>view.Information==null && fake.ToolResults.Count==2);
+                holdQuery=true;
+                try {
+                    fake.Emit(new VoicePacket {ToolCalls={new VoiceToolCall {Id="slow-query",Name="deskbox_tasks"}}});Pump(()=>started.WaitOne(0));
+                    fake.Emit(new VoicePacket {Interrupted=true,UserCaption="先停止这项操作"});Pump(()=>view.Caption.Contains("先停止"));
+                    fake.Emit(new VoicePacket {ToolCalls={new VoiceToolCall {Id="next-action",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","新指令"},{"content","等待旧操作收尾"}}}}});
+                    Pump(()=>fake.ToolResults.Any(r=>r.Id=="next-action"));
+                    Check(view.Mode!=HologramMode.Unavailable && fake.Connected==1,"A new instruction during a cancelling tool cannot disconnect the live call");
+                    var busy=fake.ToolResults.First(r=>r.Id=="next-action");
+                    Check(new JavaScriptSerializer().Serialize(busy.Response).Contains("\"ok\":false"),"Overlapping operations return honest busy feedback instead of executing twice");
+                } finally { holdQuery=false;release.Set(); }
                 var tick=typeof(System.Windows.Forms.Timer).GetMethod("OnTick",Hidden);
                 var animation=(System.Windows.Forms.Timer)typeof(HolographicCallView).GetField("timer",Hidden).GetValue(view);
                 for(int i=0;i<5;i++)tick.Invoke(animation,new object[]{EventArgs.Empty});

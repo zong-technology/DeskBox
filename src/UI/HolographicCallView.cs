@@ -160,15 +160,23 @@ namespace DeskBox.UI
                                         if(packet.TurnComplete){captionFinished=true;thinking=false;}
                                         if(!packet.Interrupted && !packet.ToolsCancelled && packet.ToolCalls.Count>0){
                                             if(packet.ToolCalls.Count>8)throw new System.IO.InvalidDataException();
-                                            if(toolOperation!=null)throw new System.IO.InvalidDataException("Previous tool call is still running");
-                                            var calls=packet.ToolCalls.ToArray();
-                                            toolCancellation=CancellationTokenSource.CreateLinkedTokenSource(active.Token);
-                                            var toolToken=toolCancellation.Token;
-                                            toolOperation=Task.Run(delegate {
-                                                var results=new List<VoiceToolResult>();
-                                                foreach(var call in calls){toolToken.ThrowIfCancellationRequested();if(!string.IsNullOrEmpty(call.Id)&&!string.IsNullOrEmpty(call.Name))results.Add(tools.Execute(call,toolToken));}
-                                                return results;
-                                            });
+                                            if(toolOperation!=null){
+                                                var busy=new List<VoiceToolResult>();
+                                                foreach(var call in packet.ToolCalls){
+                                                    var result=new VoiceToolResult{Id=call.Id,Name=call.Name,Response=new{ok=false,error="上一项操作还在收尾或等待确认。请先核实它的结果，等用户下一条指令；不要自动重试写入。"}};
+                                                    busy.Add(result);conversation.Tool(call.Name,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result.Response));
+                                                }
+                                                await provider.CompleteToolsAsync(busy,active.Token);
+                                            }else{
+                                                var calls=packet.ToolCalls.ToArray();
+                                                toolCancellation=CancellationTokenSource.CreateLinkedTokenSource(active.Token);
+                                                var toolToken=toolCancellation.Token;
+                                                toolOperation=Task.Run(delegate {
+                                                    var results=new List<VoiceToolResult>();
+                                                    foreach(var call in calls){toolToken.ThrowIfCancellationRequested();if(!string.IsNullOrEmpty(call.Id)&&!string.IsNullOrEmpty(call.Name))results.Add(tools.Execute(call,toolToken));}
+                                                    return results;
+                                                });
+                                            }
                                             thinking=true;
                                         }
                                         if(!outputLimited)foreach(var audio in packet.Audio)if(!speaker.Play(audio)){
