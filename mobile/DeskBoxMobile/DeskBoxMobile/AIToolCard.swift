@@ -16,6 +16,6 @@ struct AIToolCard: View {
                 Label(tool.title, systemImage: tool.succeeded ? "checkmark.circle" : "exclamationmark.circle").font(.caption.bold()).foregroundStyle(tool.succeeded ? Color.cyan : Color.orange)
                 Text(tool.summary).font(.callout).foregroundStyle(tool.succeeded ? Color.secondary : Color.orange).lineLimit(expanded ? nil : 2)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
-        }.tint(.cyan).accessibilityIdentifier("ai.tool.card." + tool.name).accessibilityHint(expanded ? "收起工具详情" : "展开工具详情")
+        }.tint(.cyan).accessibilityHint(expanded ? "收起工具详情" : "展开工具详情")
     }
 }
