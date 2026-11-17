@@ -92,10 +92,12 @@ struct MobileAIView: View {
     private func messageCard(_ message: MobileAIMessage) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Label(message.role == "user" ? "我" : "工程 AI", systemImage: message.role == "user" ? "person.crop.circle" : "sparkles").font(.caption.weight(.semibold)).foregroundStyle(message.role == "user" ? MobileStyle.accent : Color.purple); Spacer(); if message.role == "assistant" && message.content.isEmpty && ai.busy { ProgressView().controlSize(.small) } }
-            Text(message.content.isEmpty && ai.busy ? "正在等待电脑与模型回复…" : message.content).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+            let presentation = AIToolPresentation.conversation(message.content)
+            ForEach(presentation.tools) { tool in AIToolCard(tool: tool) }
+            Text(presentation.text.isEmpty && ai.busy ? "正在等待电脑与模型回复…" : presentation.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
             if !message.error.isEmpty { Text(message.error).font(.caption).foregroundStyle(.orange) }
             if message.role == "assistant" && !message.content.isEmpty {
-                HStack { Button { UIPasteboard.general.string = message.content } label: { Label("复制", systemImage: "doc.on.doc") }; Button { composerFocused = false; voice.speak(message.content) } label: { Label("朗读", systemImage: "speaker.wave.2") } }.font(.caption).buttonStyle(.bordered).controlSize(.regular)
+                HStack { Button { UIPasteboard.general.string = message.content } label: { Label("复制", systemImage: "doc.on.doc") }; Button { composerFocused = false; voice.speak(AIToolPresentation.conversation(message.content).text) } label: { Label("朗读", systemImage: "speaker.wave.2") } }.font(.caption).buttonStyle(.bordered).controlSize(.regular)
             }
         }.padding(15).background(message.role == "user" ? MobileStyle.elevated : MobileStyle.panel, in: RoundedRectangle(cornerRadius: 16))
     }
@@ -153,7 +155,7 @@ struct MobileAIView: View {
     }
     private func readCompletedReply(_ value: String?) {
         guard value != nil, voiceMode, !hologram, ai.error.isEmpty, let reply = ai.messages.last, reply.role == "assistant", !reply.content.isEmpty else { return }
-        voice.continuous = true; voice.speak(reply.content)
+        voice.continuous = true; voice.speak(AIToolPresentation.conversation(reply.content).text)
     }
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines); guard !text.isEmpty else { return }

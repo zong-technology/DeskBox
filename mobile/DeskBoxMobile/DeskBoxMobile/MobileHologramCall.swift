@@ -17,6 +17,8 @@ import QuartzCore
     private let diagnostics = HologramDiagnostics()
     private let audio = HologramAudio()
     private let tools: HologramLocalTools
+    private let computer: (([String: Any]) async -> [String: Any])?
+    private var toolTasks: [(UUID, Task<Void, Never>)] = []
     private let preview: Bool
     private var recorder: HologramRecorder
     private var connection: URLSessionWebSocketTask?, transport: URLSession?
@@ -29,8 +31,8 @@ import QuartzCore
     private var pending: [HologramFunction] = []
     private var userCaption = "", assistantCaption = "", captionFinished = true
     private var historyDirty = false
-    init(profile: HologramProfile, store: OfflineStore, history: HologramHistory, lastSync: @escaping () -> Date?, preview: Bool = false) {
-        self.profile = profile; self.history = history; self.preview = preview
+    init(profile: HologramProfile, store: OfflineStore, history: HologramHistory, lastSync: @escaping () -> Date?, computer: (([String: Any]) async -> [String: Any])? = nil, preview: Bool = false) {
+        self.profile = profile; self.history = history; self.preview = preview; self.computer = computer
         recorder = HologramRecorder(profile: profile); tools = HologramLocalTools(store: store, lastSync: lastSync)
     }
     func animate() {
@@ -142,13 +144,13 @@ import QuartzCore
             timeout?.cancel(); try beginAudio(id: id); ready = true; mode = .listening; caption = "我在听。"
         }
         if packet.responseFailed {
-            diagnostics.note("response.failure"); notice = "千问本轮回复未完成，可直接重新提问；若反复出现，请检查服务配额。"
+            cancelTools(); diagnostics.note("response.failure"); notice = "千问本轮回复未完成，可直接重新提问；若反复出现，请检查服务配额。"
             audio.flush(); inputGate.interrupt(now: CACurrentMediaTime()); motion.interrupt(); historyDirty = true
             discardOutput = true; pending.removeAll(); information = nil; tools.clear(); caption = muted ? "麦克风仍静音。" : "我在听。"
         }
         if packet.responseStarted { outputCapacityReached = false; responseActive = true; discardOutput = false; pending.removeAll() }
         if packet.interrupted {
-            diagnostics.note("response.interrupted", ["inputStarted": String(packet.inputStarted), "queuedMs": String(Int(audio.queuedSeconds * 1000))])
+            cancelTools(); diagnostics.note("response.interrupted", ["inputStarted": String(packet.inputStarted), "queuedMs": String(Int(audio.queuedSeconds * 1000))])
             inputGate.interrupt(now: CACurrentMediaTime()); outputCapacityReached = false
             audio.flush(); motion.interrupt(); discardOutput = true; waiting = false; pending.removeAll()
             userCaption = ""; assistantCaption = ""; captionFinished = true; caption = "我在听。"
@@ -168,13 +170,13 @@ import QuartzCore
             assistantCaption += packet.caption; caption = String(assistantCaption.suffix(150)); captionFinished = false; waiting = true
         }
         if packet.turnComplete { waiting = false; responseActive = false; captionFinished = true }
-        if packet.toolsCancelled { information = nil; tools.clear(); pending.removeAll() }
+        if packet.toolsCancelled { cancelTools(); information = nil; tools.clear(); pending.removeAll() }
         if !packet.interrupted && !packet.toolsCancelled {
             if profile.service == .qwen {
                 pending += packet.functions
                 guard pending.count <= 8 else { throw HologramError.message("工具请求过多。") }
-                if packet.turnComplete && !discardOutput { let calls = pending; pending.removeAll(); try await complete(calls, id: id) }
-            } else { try await complete(packet.functions, id: id) }
+                if packet.turnComplete && !discardOutput { let calls = pending; pending.removeAll(); queueTools(calls, id: id) }
+            } else { queueTools(packet.functions, id: id) }
         }
         for bytes in packet.audio where !outputCapacityReached {
             inputGate.updatePlayback(true, now: CACurrentMediaTime())
@@ -184,14 +186,38 @@ import QuartzCore
             }
         }
     }
+    private func cancelTools() { for (_, task) in toolTasks { task.cancel() }; toolTasks.removeAll() }
+    private func queueTools(_ calls: [HologramFunction], id: UUID) {
+        guard !calls.isEmpty else { return }
+        let previous = toolTasks.last?.1
+        let ticket = UUID()
+        let task = Task { [weak self] in
+            if let previous { await previous.value }
+            guard let self else { return }
+            defer { toolTasks.removeAll { $0.0 == ticket } }
+            guard !Task.isCancelled, generation == id, active else { return }
+            do { try await complete(calls, id: id) }
+            catch { if !Task.isCancelled, generation == id, active { stop(message: "工具结果发送失败，轻点投影可重试。", mode: .failed) } }
+        }
+        // Retain the chain until interruption/stop so all queued work can be cancelled together.
+        toolTasks.append((ticket, task))
+    }
     private func complete(_ calls: [HologramFunction], id: UUID) async throws {
-        guard !calls.isEmpty else { return }; var results: [[String: Any]] = []
+        guard !calls.isEmpty, !Task.isCancelled else { return }; waiting = true; var results: [[String: Any]] = []
         for call in calls {
+            try Task.checkCancellation()
             guard generation == id, active else { throw CancellationError() }
-            let result = tools.execute(call); let text = try HologramWire.json(result)
+            let result: [String: Any]
+            if call.name == "deskbox_execute" {
+                result = await computer?(call.arguments) ?? ["ok": false, "error": "电脑操作通道未连接。"]
+            } else { result = tools.execute(call) }
+            // Keep evidence of a completed operation even if speech was interrupted while awaiting it.
+            let text = try HologramWire.json(result)
             if call.name == "hologram_show" || call.name == "hologram_clear" { information = tools.information; if result["ok"] as? Bool == true { motion.impulse = 1 } }
             recorder.tool(call.name, result: text)
             historyDirty = true
+            try Task.checkCancellation()
+            guard generation == id, active else { throw CancellationError() }
             if profile.service == .gemini { results.append(["id": call.id, "name": call.name, "response": result]) }
             else { try await send(["type": "conversation.item.create", "item": ["type": "function_call_output", "call_id": call.id, "output": text]], id: id) }
         }
@@ -209,7 +235,7 @@ import QuartzCore
     func tapProjection() {
         if mode == .failed || mode == .paused || mode == .idle { start(); return }
         guard ready, mode == .speaking || waiting else { return }
-        diagnostics.note("response.user_interrupt"); inputGate.interrupt(now: CACurrentMediaTime()); outputCapacityReached = false
+        cancelTools(); diagnostics.note("response.user_interrupt"); inputGate.interrupt(now: CACurrentMediaTime()); outputCapacityReached = false
         audio.flush(); motion.interrupt(); discardOutput = true; waiting = false; caption = muted ? "播报已停止，麦克风仍静音。" : "我在听。"
         recorder.close(); historyDirty = true; pending.removeAll(); information = nil; tools.clear()
         if profile.service == .qwen && responseActive { let id = generation; Task { try? await send(["type": "response.cancel"], id: id) } }
@@ -217,7 +243,7 @@ import QuartzCore
     func suspend(reason: String = "background") { diagnostics.note("call.pause", ["reason": reason]); stop(message: "通话已暂停，轻点投影继续。", mode: .paused); timer?.invalidate(); timer = nil }
     func stop(message: String = "通话已结束。", mode: HologramMode = .idle) {
         diagnostics.note("call.stop", ["reason": mode.rawValue]); diagnostics.save()
-        inputGate.stop(); generation = UUID(); active = false; ready = false
+        cancelTools(); inputGate.stop(); generation = UUID(); active = false; ready = false
         receiver?.cancel(); sender?.cancel(); timeout?.cancel(); input?.finish(); input = nil
         connection?.cancel(with: .goingAway, reason: nil); transport?.invalidateAndCancel(); connection = nil; transport = nil
         audio.stop(); recorder.close(); history.upsert(recorder.session); motion.interrupt(); information = nil; tools.clear(); pending.removeAll()

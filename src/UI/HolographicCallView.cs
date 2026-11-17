@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -107,12 +108,22 @@ namespace DeskBox.UI
                             bool inputEnded=false,suppressAssistant=false,outputLimited=false;
                             double lastOutputAt=-10;
                             double lastInput=0,lastInputAt=-1;
+                            Task<List<VoiceToolResult>> toolOperation=null;CancellationTokenSource toolCancellation=null;
                             mode=HologramMode.Listening; caption="我在听。";
                             receive=provider.ReceiveAsync(active.Token);
                             try {
                                 while (true) {
                                     active.Token.ThrowIfCancellationRequested();
+                                    if(toolOperation!=null && toolOperation.IsCompleted){
+                                        try {
+                                            var results=await toolOperation;
+                                            foreach(var result in results)conversation.Tool(result.Name,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result.Response));
+                                            if(!toolCancellation.IsCancellationRequested && results.Count>0){await provider.CompleteToolsAsync(results,active.Token);thinking=true;dynamics.Information=tools.Information==null?0:1;}
+                                        } catch(OperationCanceledException) { }
+                                        finally { toolOperation=null;toolCancellation.Dispose();toolCancellation=null; }
+                                    }
                                     if(interruptRequested){
+                                        if(toolCancellation!=null)toolCancellation.Cancel();
                                         interruptRequested=false;speaker.Flush();dynamics.Interrupt();level=targetLevel=0;
                                         conversation.Accept(new VoicePacket {Interrupted=true});
                                         suppressAssistant=true;outputLimited=false;lastOutputAt=animationClock.Elapsed.TotalSeconds-.15;
@@ -125,6 +136,7 @@ namespace DeskBox.UI
                                         if(packet.ReconnectRequested)throw new System.IO.IOException();
                                         if(packet.Interrupted || packet.InputStarted || packet.ResponseStarted || !string.IsNullOrEmpty(packet.UserCaption)){suppressAssistant=false;outputLimited=false;}
                                         if(suppressAssistant){packet.Audio.Clear();packet.Caption=null;packet.ToolCalls.Clear();}
+                                        if((packet.ResponseFailed||packet.Interrupted||packet.ToolsCancelled)&&toolCancellation!=null)toolCancellation.Cancel();
                                         if(packet.ResponseFailed){
                                             speaker.Flush();dynamics.Interrupt();level=targetLevel=0;lastOutputAt=animationClock.Elapsed.TotalSeconds;
                                             suppressAssistant=true;thinking=false;tools.Clear();
@@ -148,16 +160,15 @@ namespace DeskBox.UI
                                         if(packet.TurnComplete){captionFinished=true;thinking=false;}
                                         if(!packet.Interrupted && !packet.ToolsCancelled && packet.ToolCalls.Count>0){
                                             if(packet.ToolCalls.Count>8)throw new System.IO.InvalidDataException();
-                                            var results=new List<VoiceToolResult>();
-                                            foreach(var call in packet.ToolCalls){
-                                                active.Token.ThrowIfCancellationRequested();
-                                                if(string.IsNullOrEmpty(call.Id) || string.IsNullOrEmpty(call.Name))continue;
-                                                var previousInformation=tools.Information;
-                                                var result=tools.Execute(call);results.Add(result);
-                                                if(call.Name=="hologram_show" && !ReferenceEquals(previousInformation,tools.Information))dynamics.Information=1;
-                                                conversation.Tool(call.Name,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result.Response));
-                                            }
-                                            if(results.Count>0)await provider.CompleteToolsAsync(results,active.Token);
+                                            if(toolOperation!=null)throw new System.IO.InvalidDataException("Previous tool call is still running");
+                                            var calls=packet.ToolCalls.ToArray();
+                                            toolCancellation=CancellationTokenSource.CreateLinkedTokenSource(active.Token);
+                                            var toolToken=toolCancellation.Token;
+                                            toolOperation=Task.Run(delegate {
+                                                var results=new List<VoiceToolResult>();
+                                                foreach(var call in calls){toolToken.ThrowIfCancellationRequested();if(!string.IsNullOrEmpty(call.Id)&&!string.IsNullOrEmpty(call.Name))results.Add(tools.Execute(call,toolToken));}
+                                                return results;
+                                            });
                                             thinking=true;
                                         }
                                         if(!outputLimited)foreach(var audio in packet.Audio)if(!speaker.Play(audio)){
@@ -192,7 +203,7 @@ namespace DeskBox.UI
                                     targetLevel=HologramDynamics.FromRms(playback ?? input);
                                     await Task.Delay(15,active.Token);
                                 }
-                            } finally { if(microphone!=null)microphone.Dispose(); }
+                            } finally { if(toolCancellation!=null)toolCancellation.Cancel();if(toolOperation!=null)ObserveFailure(toolOperation);if(microphone!=null)microphone.Dispose(); }
                         }
                     } finally { active.Cancel(); if(receive!=null)ObserveFailure(receive); }
                 }

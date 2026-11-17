@@ -90,7 +90,7 @@ struct MobileHologramView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var call: MobileHologramCall
     init(profile: HologramProfile, store: OfflineStore, history: HologramHistory, sync: SyncClient, preview: Bool = false) {
-        _call = StateObject(wrappedValue: MobileHologramCall(profile: profile, store: store, history: history, lastSync: { [weak sync] in sync?.lastSyncedAt }, preview: preview))
+        _call = StateObject(wrappedValue: MobileHologramCall(profile: profile, store: store, history: history, lastSync: { [weak sync] in sync?.lastSyncedAt }, computer: { arguments in await MobileComputerActions.execute(arguments, sync: sync) }, preview: preview))
     }
     var body: some View {
         GeometryReader { geometry in

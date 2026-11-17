@@ -29,7 +29,7 @@ struct HologramSettingsView: View {
             Section {
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.cyan) }
             }
-            Section("使用") { Text("轻点投影可打断播报；左上角可静音。切到后台或音频被系统打断时停止通话，返回后轻点投影继续。任务、项目与事件查询来自手机已同步缓存。").font(.caption) }
+            Section("使用") { Text("轻点投影可打断播报；左上角可静音。切到后台或音频被系统打断时停止通话，返回后轻点投影继续。项目与任务查询来自手机同步缓存；新建与修改任务、记录现场问题可直接保存并等待同步。电脑文件、文档和工作流操作需已连接的电脑在线，保留原有权限与确认。").font(.caption) }
         }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle("全息语音设置")
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("保存") { save() } } }
         .onChange(of: profile.service) { _, service in
@@ -59,17 +59,7 @@ struct HologramHistoryView: View {
                 List {
                     ForEach(history.sessions) { session in
                         NavigationLink {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 18) {
-                                    Text(session.model).font(.caption).foregroundStyle(.secondary)
-                                    ForEach(session.messages) { message in
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            Text((message.role == "user" ? "我" : message.role == "tool" ? "工具结果" : session.name) + (message.partial ? " · 已打断" : "")).font(.caption.bold()).foregroundStyle(.cyan)
-                                            Text(message.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                                        }.padding().background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
-                                    }
-                                }.padding()
-                            }.workspacePage().navigationTitle(session.name).toolbar { ShareLink(item: session.messages.map { ($0.role == "user" ? "我" : session.name) + "：" + $0.text }.joined(separator: "\n\n")) { Image(systemName: "square.and.arrow.up") } }
+                            HologramTranscriptView(session: session)
                         } label: {
                             VStack(alignment: .leading, spacing: 6) { Label(session.name, systemImage: session.kind == "text" ? "text.bubble" : "waveform").font(.headline); HStack { Text(session.date, style: .date); Text(session.date, style: .time) }.font(.caption).foregroundStyle(.secondary); Text(session.messages.first(where: { $0.role == "user" })?.text ?? "全息语音对话").font(.caption).lineLimit(2).foregroundStyle(.secondary) }
                         }
@@ -91,5 +81,28 @@ struct HologramDiagnosticsView: View {
             }.padding(16)
         }.workspacePage().navigationTitle("通话诊断")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { ShareLink(item: report) { Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44) }.accessibilityLabel("导出通话诊断") } }
+    }
+}
+
+struct HologramTranscriptView: View {
+    let session: HologramSession
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                Text(session.model).font(.caption).foregroundStyle(.secondary)
+                ForEach(session.messages) { message in
+                    VStack(alignment: .leading, spacing: 6) {
+                        if message.role == "tool" { AIToolCard(tool: .history(message.text)) }
+                        else {
+                            Text((message.role == "user" ? "我" : session.name) + (message.partial ? " · 已打断" : "")).font(.caption.bold()).foregroundStyle(.cyan)
+                            let presentation = AIToolPresentation.conversation(message.text)
+                            ForEach(presentation.tools) { tool in AIToolCard(tool: tool) }
+                            Text(presentation.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }.padding().background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
+                }
+            }.padding()
+        }.workspacePage().navigationTitle(session.name)
+        .toolbar { ShareLink(item: session.messages.map { ($0.role == "user" ? "我" : $0.role == "tool" ? "工具" : session.name) + "：" + $0.text }.joined(separator: "\n\n")) { Image(systemName: "square.and.arrow.up") } }
     }
 }

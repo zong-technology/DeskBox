@@ -20,6 +20,20 @@ final class MobileFlowTests: XCTestCase {
         app.buttons["退出全息通话"].tap()
         XCTAssertTrue(app.buttons["ai.hologram"].waitForExistence(timeout: 5))
     }
+    func testToolCardsCollapseAndExpand() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "tool-history"]; app.launch()
+        let card = app.buttons["ai.tool.card.deskbox_tasks"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["ai.tool.raw"].exists)
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.exists)
+        let collapsed = XCTAttachment(screenshot: app.screenshot()); collapsed.name = "Tool result collapsed"; collapsed.lifetime = .keepAlways; add(collapsed)
+        card.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["ai.tool.raw"].exists)
+        let expanded = XCTAttachment(screenshot: app.screenshot()); expanded.name = "Readable tool result expanded"; expanded.lifetime = .keepAlways; add(expanded)
+        card.tap()
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.exists)
+    }
     func testWorkspaceTabsAndTaskSave() {
         let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "workspace"]; app.launch()
         XCTAssertTrue(app.tabBars.buttons["任务"].waitForExistence(timeout: 10)); app.tabBars.buttons["任务"].tap()

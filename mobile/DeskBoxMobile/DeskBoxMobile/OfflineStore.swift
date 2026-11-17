@@ -99,6 +99,11 @@ import Combine
         guard !loadFailed else { return storageError }
         if let expected, tasks.first(where: { $0.id == task.id }) != expected { return "任务已被更新或删除，请重新打开；当前编辑内容尚未提交。" }
         guard !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "任务标题不能为空" }
+        guard ["open", "done"].contains(task.status), ["low", "normal", "high"].contains(task.priority) else { return "任务状态或优先级无效" }
+        if !task.due.isEmpty {
+            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"; formatter.isLenient = false
+            guard let date = formatter.date(from: task.due), formatter.string(from: date) == task.due else { return "截止日期需要有效的yyyy-MM-dd日期" }
+        }
         var value = task; value.updatedAt = max(Int64(Date().timeIntervalSince1970 * 1000), (tasks.first(where: { $0.id == task.id })?.updatedAt ?? 0) + 1)
         let previousTasks = tasks, previousPending = pending, previousConflicts = conflicts
         tasks.removeAll { $0.id == value.id }; tasks.append(value)

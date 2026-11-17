@@ -718,6 +718,7 @@ namespace DeskBox.UI.Views
         {
             private readonly List<ChatMessage> _messages = new List<ChatMessage>();
             private readonly List<Bubble> _bubbles = new List<Bubble>();
+            private readonly HashSet<string> _expandedTools = new HashSet<string>();
             private readonly Dictionary<string, Measurement> _measurements = new Dictionary<string, Measurement>();
             private class Measurement { public string Content, Error; public int Height; }
             private int _scroll;
@@ -825,6 +826,11 @@ namespace DeskBox.UI.Views
                 base.OnMouseUp(e);
                 foreach (var b in _bubbles)
                 {
+                    if (b.Message.Role == "tool" && b.Rect.Contains(e.Location))
+                    {
+                        if (!_expandedTools.Add(b.Message.Id)) _expandedTools.Remove(b.Message.Id);
+                        _measurements.Remove(b.Message.Id); Rebuild(); _scroll=Math.Min(_scroll,MaxScroll); Invalidate();return;
+                    }
                     if (b.CopyRect.Contains(e.Location) && !string.IsNullOrEmpty(b.Message.Content))
                     {
                         var h = CopyRequested;
@@ -912,12 +918,12 @@ namespace DeskBox.UI.Views
                 if (m.Role == "tool")
                 {
                     using (var font = new Font("Microsoft YaHei UI", 9F))
-                        return 36 + MarkdownLite.Wrap(g, m.Content ?? "", font, BubbleWidth(m) - 28).Count * 17;
+                        return 58 + (_expandedTools.Contains(m.Id) ? Math.Min(140,MarkdownLite.Wrap(g, m.Content ?? "", font, BubbleWidth(m) - 28).Count) * 17 : 0);
                 }
                 int maxW = BubbleWidth(m);
                 using (var f = new Font("Microsoft YaHei UI", 9.5F))
                 {
-                    var blocks = MarkdownLite.Parse(m.Content ?? "");
+                    var blocks = MarkdownLite.Parse(m.Role=="assistant" ? Regex.Replace(m.Content??"", @"```tool[\s\S]*?(?:```|$)", "工具调用中…",RegexOptions.IgnoreCase) : m.Content??"");
                     int h = 0;
                     foreach (var b in blocks) h += MarkdownLite.MeasureBlock(g, b, f, maxW - 24);
                     if (string.IsNullOrEmpty(m.Content) && string.IsNullOrEmpty(m.Error)) h = 22;
@@ -939,7 +945,7 @@ namespace DeskBox.UI.Views
                 using (var f = new Font("Microsoft YaHei UI", 9.5F))
                 using (var fs = new Font("Microsoft YaHei UI", 8F))
                 {
-                    var blocks = MarkdownLite.Parse(m.Content ?? "");
+                    var blocks = MarkdownLite.Parse(m.Role=="assistant" ? Regex.Replace(m.Content??"", @"```tool[\s\S]*?(?:```|$)", "工具调用中…",RegexOptions.IgnoreCase) : m.Content??"");
                     int h = Measure(g, m);
 
                     var bg = isUser ? Color.FromArgb(36, 52, 78) : Color.FromArgb(22, 29, 45);
@@ -1005,15 +1011,19 @@ namespace DeskBox.UI.Views
                 using (var ft = new Font("Microsoft YaHei UI", 8F, FontStyle.Bold))
                 {
                     var lines = MarkdownLite.Wrap(g, (m.Content ?? "").Replace("\r\n", "\n"), f, w - 28);
-                    int h = 26 + lines.Count * 17 + 10;
+                    int h = Measure(g,m);
                     var rect = new Rectangle(20, y, w, h);
                     Palette.FillRounded(g, Color.FromArgb(18, 26, 40), rect, 10);
                     Palette.DrawRounded(g, accent, rect, 10, 1f);
                     using (var bar = new SolidBrush(accent))
                         g.FillRectangle(bar, rect.X, rect.Y + 8, 3, rect.Height - 16);
-                    using (var brush = new SolidBrush(accent)) g.DrawString("工具 " + (m.ToolName ?? "tool") + (ok ? " · 成功" : " · 失败"), ft, brush, rect.X + 14, rect.Y + 7);
-                    int ty = rect.Y + 26;
-                    foreach (var line in lines)
+                    using (var brush = new SolidBrush(accent)) g.DrawString((_expandedTools.Contains(m.Id)?"▾ ":"▸ ") + (m.ToolName ?? "工具") + (ok ? " · 已完成" : " · 未完成"), ft, brush, rect.X + 14, rect.Y + 7);
+                    string summary=ok?"结果已收起 · 点击查看详情":"执行未完成 · 点击查看原因";
+                    using(var brush=new SolidBrush(_p.TextDim))g.DrawString(summary,f,brush,rect.X+14,rect.Y+29);
+                    _bubbles.Add(new Bubble{Message=m,Rect=rect});
+                    if(!_expandedTools.Contains(m.Id))return h;
+                    int ty = rect.Y + 54;
+                    foreach (var line in lines.Take(140))
                     {
                         using (var brush = new SolidBrush(_p.TextDim)) g.DrawString(line, f, brush, rect.X + 14, ty);
                         ty += 17;

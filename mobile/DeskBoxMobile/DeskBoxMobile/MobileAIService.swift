@@ -55,7 +55,7 @@ struct CloudAIResult: Decodable {
         error = ""; messages.append(MobileAIMessage(role: "user", content: value))
         var budget = 50000
         var history: [[String: String]] = []
-        for message in messages.suffix(12).reversed() where !message.content.isEmpty && message.error.isEmpty { let content = String(message.content.prefix(min(16000, budget))); if !content.isEmpty { history.insert(["Role": message.role, "Content": content], at: 0); budget -= content.count } }
+        for message in messages.suffix(12).reversed() where !message.content.isEmpty && message.error.isEmpty { let content = String(AIToolPresentation.conversation(message.content).text.prefix(min(16000, budget))); if !content.isEmpty { history.insert(["Role": message.role, "Content": content], at: 0); budget -= content.count } }
         let assistant = MobileAIMessage(role: "assistant", content: ""); messages.append(assistant); assistantId = assistant.id
         let id = UUID().uuidString.lowercased(); jobId = id; save(); busy = true; stage = "提交请求 · 等待电脑接入"
         let token = UUID(); operationId = token

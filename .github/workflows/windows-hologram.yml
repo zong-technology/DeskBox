@@ -42,6 +42,14 @@ jobs:
           & .\dist\silverwing-accept.exe .\dist\DeskBox.exe .\dist\hologram-qa
           if ($LASTEXITCODE -ne 0) { throw 'Native hologram checks failed' }
           Get-FileHash .\dist\DeskBox.exe -Algorithm SHA256 | Format-List | Out-File .\dist\SHA256.txt
+      - name: Verify real application operations through the phone job channel
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\ai-operation-accept.exe tools\ai-operation-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Operation acceptance compile failed' }
+          & .\dist\ai-operation-accept.exe | Tee-Object dist\hologram-qa\ai-operation-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Real operation acceptance failed' }
       - name: Assemble the native animated preview
         shell: powershell
         run: .\tools\render-hologram-preview.ps1

@@ -66,7 +66,7 @@ namespace DeskBox.Ai
             _tools.Add(new SaveFileTool());
             _tools.Add(new CreateTaskTool());
             _tools.Add(new RunWorkflowTool());
-            foreach(var name in new[]{"app.context","app.navigate","task.list","task.update","project.list","incident.list","incident.update","workflow.list"})_tools.Add(new ApplicationTool(name));
+            foreach(var name in new[]{"app.context","app.navigate","task.list","task.update","project.list","incident.list","incident.create","incident.update","workflow.list"})_tools.Add(new ApplicationTool(name));
             foreach(var name in new[]{"fs.list","fs.move","fs.copy","fs.rename","fs.trash","fs.undo"})_tools.Add(new FileManagementTool(name));
             _tools.Add(new Scale420Tool());
             _tools.Add(new S7AddressTool());
@@ -275,19 +275,25 @@ namespace DeskBox.Ai
         private class CreateTaskTool : IAiTool
         {
             public string Name { get { return "task.create"; } }
-            public string Description { get { return "创建一条任务；args: {title, due, priority}"; } }
+            public string Description { get { return "创建并保存真实项目任务；args: {title, due=yyyy-MM-dd, priority=low|normal|high, project_id, notes}；先project.list定位项目，返回真实ID与expected。"; } }
             public bool RequiresConfirm { get { return false; } }
 
             public ToolResult Invoke(ToolContext ctx, Dictionary<string, string> a)
             {
                 if (ctx.Store == null) return ToolResult.Fail("任务服务不可用");
+                if(ctx.Cancellation.IsCancellationRequested)return ToolResult.Fail("操作已取消");
                 string title, due, prio;
                 a.TryGetValue("title", out title); a.TryGetValue("due", out due); a.TryGetValue("priority", out prio);
                 if (string.IsNullOrWhiteSpace(title)) return ToolResult.Fail("缺少 title");
+                string project,notes;a.TryGetValue("project_id",out project);a.TryGetValue("notes",out notes);
+                if(!ApplicationTool.ValidProject(ctx,project))return ToolResult.Fail("项目ID无效，请先project.list确定项目");
+                DateTime date;
+                if(!string.IsNullOrEmpty(due)&&!DateTime.TryParseExact(due,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out date))return ToolResult.Fail("日期需要yyyy-MM-dd");
+                if(!string.IsNullOrEmpty(prio)&&!new[]{"low","normal","high"}.Contains(prio))return ToolResult.Fail("优先级无效");
                 var t = new TaskItem
                 {
                     Id = "t_" + Guid.NewGuid().ToString("N").Substring(0, 10),
-                    Title = title.Trim(),
+                    Title = title.Trim(), Project=project??"", Notes=notes??"",
                     Due = due ?? "",
                     Priority = string.IsNullOrEmpty(prio) ? "normal" : prio,
                     CreatedAt = DateTimeOffset.Now.ToUnixTimeMilliseconds()
@@ -296,7 +302,7 @@ namespace DeskBox.Ai
                 ctx.Store.SaveTasksOnly();
                 ctx.Store.Log("info", "task", "AI 创建任务：" + t.Title);
                 if(ctx.RefreshApp!=null)ctx.RefreshApp();
-                return ToolResult.Success("已创建任务：" + t.Title + (string.IsNullOrEmpty(t.Due) ? "" : "（截止 " + t.Due + "）"));
+                return ToolResult.Success(DeskBox.Core.Json.ToJson(new{saved=true,sync="已保存到电脑，等待手机同步",Task=t,Expected=ApplicationTool.TaskStamp(t)}));
             }
         }
 
@@ -318,6 +324,7 @@ namespace DeskBox.Ai
                 if (ctx.Confirm == null) return ToolResult.Fail("该操作需要用户确认，但当前没有确认通道，已拒绝执行");
                 if (!ctx.Confirm("即将执行工作流「" + wf.Name + "」\n\n预演结果：\n" + dry.Message))
                     return ToolResult.Fail("用户取消执行");
+                if(ctx.Cancellation.IsCancellationRequested)return ToolResult.Fail("操作已取消");
                 var run = useNodes ? ctx.Workflows.RunV2(wf.Id, false) : ctx.Workflows.Run(wf.Id, false);
                 return run.Ok ? ToolResult.Success(run.Message + "\n" + string.Join("\n", run.Steps.ToArray()))
                               : ToolResult.Fail(run.Message);

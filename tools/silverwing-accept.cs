@@ -299,6 +299,8 @@ internal static class SilverwingAccept
         var tools=new HologramTools(()=>new ToolContext {Store=store});
         var read=tools.Execute(new VoiceToolCall {Id="tasks",Name="deskbox_tasks",Arguments=new Dictionary<string,object>{{"query","隔离测试任务"}}});
         Check(new JavaScriptSerializer().Serialize(read.Response).Contains("隔离测试任务"),"Live AI reads real synthetic application tasks through the existing tool registry");
+        var operation=tools.Execute(new VoiceToolCall {Id="create",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","task.create"},{"arguments","{\"title\":\"全息创建任务\",\"notes\":\"真实保存\"}"}}});
+        Check(new JavaScriptSerializer().Serialize(operation.Response).Contains("\"ok\":true") && store.Tasks.Any(t=>t.Title=="全息创建任务"),"Hologram operations really create application tasks using the shared registry");
         var denied=tools.Execute(new VoiceToolCall {Id="deny",Name="fs.write",Arguments=new Dictionary<string,object>{{"path","must-not-write"},{"content","x"}}});
         Check(new JavaScriptSerializer().Serialize(denied.Response).Contains("\"ok\":false"),"Unregistered operations cannot execute through realtime tools");
         var shown=tools.Execute(new VoiceToolCall {Id="show",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","测试投影"},{"content","来自 AI 的临时要点"},{"seconds",9999}}});
