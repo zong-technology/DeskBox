@@ -216,6 +216,7 @@ import QuartzCore
             if call.name == "hologram_show" || call.name == "hologram_clear" { information = tools.information; if result["ok"] as? Bool == true { motion.impulse = 1 } }
             recorder.tool(call.name, result: text)
             historyDirty = true
+            if Task.isCancelled || !active || generation != id { history.upsert(recorder.session) }
             try Task.checkCancellation()
             guard generation == id, active else { throw CancellationError() }
             if profile.service == .gemini { results.append(["id": call.id, "name": call.name, "response": result]) }
