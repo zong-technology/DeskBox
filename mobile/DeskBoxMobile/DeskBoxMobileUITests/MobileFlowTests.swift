@@ -22,8 +22,9 @@ final class MobileFlowTests: XCTestCase {
     }
     func testToolCardsCollapseAndExpand() {
         let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "tool-history"]; app.launch()
-        let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "查询任务")).firstMatch
+        let card = app.buttons["ai.tool.toggle.deskbox_tasks"]
         XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue((card.value as? String)?.contains("已收起") == true)
         XCTAssertFalse(app.staticTexts["ai.tool.raw"].exists)
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.exists)
         let collapsed = XCTAttachment(screenshot: app.screenshot()); collapsed.name = "Tool result collapsed"; collapsed.lifetime = .keepAlways; add(collapsed)
@@ -31,12 +32,13 @@ final class MobileFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["ai.tool.raw"].exists)
         let expanded = XCTAttachment(screenshot: app.screenshot()); expanded.name = "Readable tool result expanded"; expanded.lifetime = .keepAlways; add(expanded)
-        app.buttons["原始结果"].tap()
+        app.buttons["ai.tool.raw-toggle.deskbox_tasks"].tap()
         XCTAssertTrue(app.staticTexts["ai.tool.raw"].waitForExistence(timeout: 5))
-        app.buttons["原始结果"].tap()
+        app.buttons["ai.tool.raw-toggle.deskbox_tasks"].tap()
         XCTAssertFalse(app.staticTexts["ai.tool.raw"].exists)
         card.tap()
-        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.exists)
+        XCTAssertTrue((card.value as? String)?.contains("已收起") == true)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.waitForNonExistence(timeout: 5))
     }
     func testWorkspaceTabsAndTaskSave() {
         let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "workspace"]; app.launch()
