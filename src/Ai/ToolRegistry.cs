@@ -299,7 +299,7 @@ namespace DeskBox.Ai
                     CreatedAt = DateTimeOffset.Now.ToUnixTimeMilliseconds()
                 };
                 ctx.Store.Tasks.Add(t);
-                ctx.Store.SaveTasksOnly();
+                try{ctx.Store.SaveTasksOnly();}catch{ctx.Store.Tasks.Remove(t);throw;}
                 ctx.Store.Log("info", "task", "AI 创建任务：" + t.Title);
                 if(ctx.RefreshApp!=null)ctx.RefreshApp();
                 return ToolResult.Success(DeskBox.Core.Json.ToJson(new{saved=true,sync="已保存到电脑，等待手机同步",Task=t,Expected=ApplicationTool.TaskStamp(t)}));

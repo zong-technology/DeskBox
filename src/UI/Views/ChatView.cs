@@ -810,7 +810,7 @@ namespace DeskBox.UI.Views
             {
                 base.OnMouseMove(e);
                 string id = null;
-                foreach (var b in _bubbles) if (b.CopyRect.Contains(e.Location)) { id = b.Message.Id; break; }
+                foreach (var b in _bubbles) if (b.CopyRect.Contains(e.Location) || (b.Message.Role=="tool" && b.Rect.Contains(e.Location))) { id = b.Message.Id; break; }
                 if (id != _hoverCopyId) { _hoverCopyId = id; Cursor = id != null ? Cursors.Hand : Cursors.Default; Invalidate(); }
             }
 
@@ -923,7 +923,7 @@ namespace DeskBox.UI.Views
                 int maxW = BubbleWidth(m);
                 using (var f = new Font("Microsoft YaHei UI", 9.5F))
                 {
-                    var blocks = MarkdownLite.Parse(m.Role=="assistant" ? Regex.Replace(m.Content??"", @"```tool[\s\S]*?(?:```|$)", "工具调用中…",RegexOptions.IgnoreCase) : m.Content??"");
+                    var blocks = MarkdownLite.Parse(m.Role=="assistant" ? Regex.Replace(m.Content??"", @"```tool[\s\S]*?(?:```|$)", "操作请求 · 结果见工具卡片",RegexOptions.IgnoreCase) : m.Content??"");
                     int h = 0;
                     foreach (var b in blocks) h += MarkdownLite.MeasureBlock(g, b, f, maxW - 24);
                     if (string.IsNullOrEmpty(m.Content) && string.IsNullOrEmpty(m.Error)) h = 22;
@@ -945,7 +945,7 @@ namespace DeskBox.UI.Views
                 using (var f = new Font("Microsoft YaHei UI", 9.5F))
                 using (var fs = new Font("Microsoft YaHei UI", 8F))
                 {
-                    var blocks = MarkdownLite.Parse(m.Role=="assistant" ? Regex.Replace(m.Content??"", @"```tool[\s\S]*?(?:```|$)", "工具调用中…",RegexOptions.IgnoreCase) : m.Content??"");
+                    var blocks = MarkdownLite.Parse(m.Role=="assistant" ? Regex.Replace(m.Content??"", @"```tool[\s\S]*?(?:```|$)", "操作请求 · 结果见工具卡片",RegexOptions.IgnoreCase) : m.Content??"");
                     int h = Measure(g, m);
 
                     var bg = isUser ? Color.FromArgb(36, 52, 78) : Color.FromArgb(22, 29, 45);

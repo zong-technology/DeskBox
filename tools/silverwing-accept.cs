@@ -59,6 +59,7 @@ internal static class SilverwingAccept
             CheckVoiceStability(settings);
             CheckVoiceRecords(history,settings);
             CheckVoiceTools(recordStore);
+            CheckToolCards(output);
             CheckDynamicProjection(output);
 
             var fake=new FakeProvider();int inputs=0;FakeInput lastInput=null;FakeOutput speaker=null;
@@ -294,6 +295,25 @@ internal static class SilverwingAccept
         Check(log.Session.Messages.Last().Interrupted && !log.Session.Messages.Last().Streaming,"A failed Qwen turn preserves its unfinished transcript without an endless streaming state");
     }
 
+    private static void CheckToolCards(string output)
+    {
+        using(var host=new Form{ClientSize=new Size(900,620)})
+        using(var board=new ChatView.MessageBoard(Palette.For("cyber","#22D3EE")){Dock=DockStyle.Fill,UseCardSurface=true}){
+            host.Controls.Add(board);host.Show();Application.DoEvents();
+            var message=new ChatMessage{Id="tool-card",Role="tool",ToolName="task.list",Content="✅ {\"Tasks\":["+string.Join(",",Enumerable.Repeat("{\"Title\":\"超滤SIP的FS需要供应商更新步骤\",\"Status\":\"open\"}",50).ToArray())+"]}"};
+            board.SetMessages(new List<ChatMessage>{message});board.Refresh();Application.DoEvents();
+            int collapsed=(int)typeof(ChatView.MessageBoard).GetField("_contentH",Hidden).GetValue(board);
+            Check(collapsed<140,"Long tool results are collapsed by default on the desktop");
+            using(var image=Shot(board,new Size(900,620)))image.Save(Path.Combine(output,"tools-collapsed.png"),ImageFormat.Png);
+            typeof(Control).GetMethod("OnMouseUp",Hidden).Invoke(board,new object[]{new MouseEventArgs(MouseButtons.Left,1,45,30,0)});board.Refresh();
+            int expanded=(int)typeof(ChatView.MessageBoard).GetField("_contentH",Hidden).GetValue(board);
+            Check(expanded>collapsed,"Clicking a tool card exposes the real result");
+            using(var image=Shot(board,new Size(900,620)))image.Save(Path.Combine(output,"tools-expanded.png"),ImageFormat.Png);
+            typeof(Control).GetMethod("OnMouseUp",Hidden).Invoke(board,new object[]{new MouseEventArgs(MouseButtons.Left,1,45,30,0)});board.Refresh();
+            Check((int)typeof(ChatView.MessageBoard).GetField("_contentH",Hidden).GetValue(board)==collapsed,"The tool result can be folded back without losing its content");
+        }
+    }
+
     private static void CheckVoiceTools(Store store)
     {
         var tools=new HologramTools(()=>new ToolContext {Store=store});
@@ -301,6 +321,10 @@ internal static class SilverwingAccept
         Check(new JavaScriptSerializer().Serialize(read.Response).Contains("隔离测试任务"),"Live AI reads real synthetic application tasks through the existing tool registry");
         var operation=tools.Execute(new VoiceToolCall {Id="create",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","task.create"},{"arguments","{\"title\":\"全息创建任务\",\"notes\":\"真实保存\"}"}}});
         Check(new JavaScriptSerializer().Serialize(operation.Response).Contains("\"ok\":true") && store.Tasks.Any(t=>t.Title=="全息创建任务"),"Hologram operations really create application tasks using the shared registry");
+        var large=new HologramTools(()=>new ToolContext {Store=store,AllowedRoots=new List<string>{new string('x',22000)}});
+        var capped=large.Execute(new VoiceToolCall {Id="bounded",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","app.context"},{"arguments","{}"}}});
+        var bounded=new JavaScriptSerializer().Serialize(capped.Response);
+        Check(bounded.Length<17000 && bounded.Contains("\"truncated\":true"),"Large operation results are bounded and explicitly marked before voice continuation");
         var denied=tools.Execute(new VoiceToolCall {Id="deny",Name="fs.write",Arguments=new Dictionary<string,object>{{"path","must-not-write"},{"content","x"}}});
         Check(new JavaScriptSerializer().Serialize(denied.Response).Contains("\"ok\":false"),"Unregistered operations cannot execute through realtime tools");
         var shown=tools.Execute(new VoiceToolCall {Id="show",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","测试投影"},{"content","来自 AI 的临时要点"},{"seconds",9999}}});

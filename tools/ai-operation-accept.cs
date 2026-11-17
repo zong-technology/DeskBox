@@ -34,6 +34,12 @@ public class AiOperationAccept
             var file=Path.Combine(root,"action.txt");result=execute("fs.write",new{path=file,content="已授权内容"});Check("关闭文件访问仍阻止远程写文件",result.Text.Contains("\"ok\":false")&&!File.Exists(file));
             fileAccess=true;result=execute("fs.write",new{path=file,content="已授权内容"});Check("确认后执行授权目录文件操作",result.Text.Contains("\"ok\":true")&&File.ReadAllText(file)=="已授权内容");
             result=execute("shell.run",new{command="must-not-run"});Check("不执行未注册系统命令",result.Text.Contains("\"ok\":false"));
+            var savedDataDir=Store.DataDir;var blocked=Path.Combine(root,"blocked-storage");File.WriteAllText(blocked,"fixture");
+            try {
+                Store.DataDir=blocked;
+                result=execute("task.create",new{title="保存失败不能留下任务",project_id=project});Check("创建保存失败回退内存",result.Text.Contains("\"ok\":false")&&store.Tasks.Count==1);
+                var old=store.Tasks[0];result=execute("task.update",new{id=old.Id,expected=ApplicationTool.TaskStamp(old),title="保存失败不能覆盖"});Check("修改保存失败保留原任务",result.Text.Contains("\"ok\":false")&&store.Tasks[0].Title==old.Title);
+            } finally { Store.DataDir=savedDataDir; }
             result=execute("app.context",new{});Check("全息可发现完整工具描述",result.Text.Contains("task.create")&&result.Text.Contains("doc.edit")&&result.Text.Contains("Description"));
             using(var cancel=new CancellationTokenSource()){cancel.Cancel();result=runner.Run("cancel",new List<AiMessage>{new AiMessage{Role="user",Content=MobileAiRunner.OperationPrefix+Json.ToJson(new{tool="task.create",arguments="{\"title\":\"取消任务\"}"})}},cancel.Token,p=>{}).GetAwaiter().GetResult();Check("取消操作不会落盘",result.Status=="cancelled"&&store.Tasks.Count==1);}
         }

@@ -48,7 +48,7 @@ namespace DeskBox.Ai
             }
             if(Name=="task.update")
             {
-                if(ctx.Confirm==null||!ctx.Confirm("修改软件任务："+Get(args,"id")))return ToolResult.Fail("任务修改未获确认");
+                if(ctx.Confirm==null||!ctx.Confirm("修改软件任务："+Get(args,"id")+"\n"+Changes(args)))return ToolResult.Fail("任务修改未获确认");
                 if(ctx.Cancellation.IsCancellationRequested)return ToolResult.Fail("操作已取消");
                 var index=ctx.Store.Tasks.FindIndex(t=>t.Id==Get(args,"id"));if(index<0)return ToolResult.Fail("未找到任务ID，请先task.list");
                 var original=ctx.Store.Tasks[index];if(!string.Equals(TaskStamp(original),Get(args,"expected"),StringComparison.OrdinalIgnoreCase))return ToolResult.Fail("任务已经变化或缺少expected，请重新task.list后再修改");
@@ -58,7 +58,7 @@ namespace DeskBox.Ai
                 if(args.ContainsKey("due"))task.Due=Get(args,"due");if(args.ContainsKey("priority"))task.Priority=Get(args,"priority");
                 DateTime due;if(string.IsNullOrWhiteSpace(task.Title)||!new[]{"low","normal","high"}.Contains(task.Priority)||(!string.IsNullOrEmpty(task.Due)&&!DateTime.TryParseExact(task.Due,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out due)))return ToolResult.Fail("标题、优先级或截止日期无效");
                 if(args.ContainsKey("done")){bool done;if(!bool.TryParse(Get(args,"done"),out done))return ToolResult.Fail("done必须是true或false");task.Done=done;task.DoneAt=done?(task.DoneAt>0?task.DoneAt:DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()):0;}
-                ctx.Store.Tasks[index]=task;ctx.Store.SaveTasksOnly();ctx.Store.Log("info","task","AI更新任务："+task.Title);Refresh(ctx);
+                ctx.Store.Tasks[index]=task;try{ctx.Store.SaveTasksOnly();}catch{ctx.Store.Tasks[index]=original;throw;}ctx.Store.Log("info","task","AI更新任务："+task.Title);Refresh(ctx);
                 return ToolResult.Success(Json.ToJson(new{Task=task,Expected=TaskStamp(task)}));
             }
             if(Name=="project.list")
@@ -84,7 +84,7 @@ namespace DeskBox.Ai
             if(Name=="incident.update")
             {
                 if(ctx.Sync==null)return ToolResult.Fail("现场事件服务未就绪");
-                if(ctx.Confirm==null||!ctx.Confirm("修改现场事件："+Get(args,"id")))return ToolResult.Fail("事件修改未获确认");
+                if(ctx.Confirm==null||!ctx.Confirm("修改现场事件："+Get(args,"id")+"\n"+Changes(args)))return ToolResult.Fail("事件修改未获确认");
                 if(ctx.Cancellation.IsCancellationRequested)return ToolResult.Fail("操作已取消");
                 var record=ctx.Sync.Sync.Records.FirstOrDefault(r=>r.EntityType=="incident"&&r.Id==Get(args,"id")&&!r.Deleted);long version;
                 if(record==null||!long.TryParse(Get(args,"expected_version"),out version))return ToolResult.Fail("请先incident.list获取事件ID及expected_version");
@@ -101,6 +101,7 @@ namespace DeskBox.Ai
             }
             return ToolResult.Success(Json.ToJson(new{Tasks=ctx.Store.Tasks.Count,OpenTasks=ctx.Store.Tasks.Count(t=>!t.Done),Projects=ctx.Projects==null?0:ctx.Projects.Items.Count,Incidents=ctx.Sync==null?0:ctx.Sync.Incidents.Count,CloudStatus=ctx.Cloud==null?"服务未就绪":ctx.Cloud.Status,FileAccess=ctx.FileAccessEnabled==null||ctx.FileAccessEnabled(),AllowedRoots=ctx.AllowedRoots,Tools=ToolRegistry.Instance.Tools.Select(t=>new{t.Name,t.Description,t.RequiresConfirm}).ToArray()}));
         }
+        private static string Changes(Dictionary<string,string> args){return string.Join("\n",args.Where(p=>p.Key!="expected"&&p.Key!="expected_version"&&p.Key!="id").Select(p=>p.Key+"："+p.Value).ToArray());}
         internal static bool ValidProject(ToolContext ctx,string id){return string.IsNullOrEmpty(id)||(ctx.Projects!=null&&ctx.Projects.Items.Any(p=>p.Id==id));}
         private static void Refresh(ToolContext ctx){if(ctx.RefreshApp!=null)ctx.RefreshApp();}
     }

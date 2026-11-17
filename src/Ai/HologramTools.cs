@@ -57,7 +57,9 @@ namespace DeskBox.Ai
             if(call.Name=="deskbox_execute"){
                 var operationContext=context==null?null:context();if(operationContext!=null)operationContext.Cancellation=cancellation;
                 var operationResult=MobileAiRunner.Execute(Text(args,"tool"),Text(args,"arguments"),operationContext);
-                return new {ok=operationResult.Ok,result=operationResult.Output,error=operationResult.Error};
+                string operationOutput=operationResult.Output??"";bool operationTruncated=operationOutput.Length>16000;
+                if(operationTruncated)operationOutput=Clip(operationOutput);
+                return new {ok=operationResult.Ok,result=operationOutput,error=operationResult.Error,truncated=operationTruncated};
             }
             string tool;
             switch(call.Name){
@@ -81,10 +83,11 @@ namespace DeskBox.Ai
             Func<ToolResult> read=()=>ToolRegistry.Instance.Invoke(tool,query,current);
             var result=read();
             string output=result.Ok ? result.Output : result.Error;
-            bool truncated=output.Length>16000;if(truncated)output=output.Substring(0,16000);
+            bool truncated=output.Length>16000;if(truncated)output=Clip(output);
             return new {ok=result.Ok,result=output,truncated=truncated};
         }
 
+        private static string Clip(string text){int length=16000;if(char.IsHighSurrogate(text[length-1]))length--;return text.Substring(0,length);}
         private static string Text(IDictionary<string,object> args,string name)
         {
             object value;return args.TryGetValue(name,out value) ? Convert.ToString(value,CultureInfo.InvariantCulture).Replace("\r\n","\n").Trim() : "";

@@ -20,7 +20,7 @@ namespace DeskBox.Ai
         public static readonly string[] ReadTools={"app.context","task.list","project.list","incident.list","workflow.list","fs.list","fs.search","fs.read","doc.read","doc.search","doc.ocr","doc.summarize"};
         public MobileAiRunner(ProviderStore providers,Func<ToolContext> context){_providers=providers;_context=context;}
         private static string ActivityText(List<object> activities){return activities.Count==0?"":"```deskbox-results\n"+Json.ToJson(activities.Skip(Math.Max(0,activities.Count-6)).ToArray())+"\n```\n";}
-        private static string ShortOutput(string value){value=value??"";return value.Length>6000?value.Substring(0,6000)+"\n[详细结果已截断，请缩小查询范围]":value;}
+        private static string ShortOutput(string value){value=value??"";if(value.Length<=6000)return value;int count=char.IsHighSurrogate(value[5999])?5999:6000;return value.Substring(0,count)+"\n[详细结果已截断，请缩小查询范围]";}
         internal static ToolResult Execute(string name,string json,ToolContext context)
         {
             if(ToolRegistry.Instance.Get(name)==null)return ToolResult.Fail("未注册的工具："+name);
