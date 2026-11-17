@@ -53,9 +53,11 @@ AI&SI 的「全息 AI 通话」现在直接在软件内进入沉浸投影，只�
 
 本地一键更新打包：Windows 双击 `build-update.cmd`；iPhone 在 Mac 运行 `bash tools/release-ios.sh`。日常更新不依赖 Actions 云端额度，见[本地构建与低成本更新](docs/LOCAL-RELEASE.md)。
 
-全息双风格 Windows 安装/升级测试版：下载 [GitHub Release 中的 Setup.exe](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.2)。适用于 Windows 10/11 x64，安装器检查 .NET Framework 4.8+；先从托盘退出旧版，升级时选择原安装目录。安装包保留用户数据、备份旧 EXE 并提供回退入口。详细说明见 [Windows 安装升级说明](docs/WINDOWS-INSTALL.md)。此包未签名，GitHub 私有仓库下载需要有仓库访问权限。
+最新全息 AI 操作测试版：下载 [Windows 7 安装包](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.7)，配套手机版本见 [0.9.0 发布说明](docs/MOBILE-HOLOGRAM-0.9.0.md)。工具结果默认折叠，支持项目任务与现场问题的实际保存，以及授权文件、文档和工作流操作。电脑操作需在线电脑与原有授权。
 
-**已经装好**：`D:\DeskBox\DeskBox.exe`，双击运行即可；运行后桌面由 DeskBox 接管（系统图标隐藏）。
+Windows 10/11 x64 需 .NET Framework 4.8+；先从托盘退出旧版，升级时选择原目录。安装包保留数据、备份旧 EXE 并提供回退入口。详见 [Windows 安装升级说明](docs/WINDOWS-INSTALL.md)。当前安装包未签名。
+
+仓库已公开，标准 GitHub Windows/macOS 云端构建已恢复，后续仍手动触发，见[构建流程](docs/LOCAL-RELEASE.md)。最新功能源码在 [feat/holographic-ai-call](https://github.com/zong-technology/DeskBox/tree/feat/holographic-ai-call)，尚未合入 main；下载源码时请选该分支。
 
 重新构建 / 换机器安装：
 

@@ -1,6 +1,8 @@
 # 给本地 Arthur：DeskBox 最新 IPA 打包与上传
 
-任务：使用下面固定的最新功能源码，在可用的 Mac/Xcode 上生成 iPhone 0.8.0 IPA，完成检查后上传到私有 GitHub 仓库的测试 Release。用户已要求执行打包和上传。
+> 2026-11-17 更新：这是一份固定 0.8.0 源码的历史本地交接。仓库现已公开，原阻塞任务已重跑成功，0.8.0 IPA 已发布。当前 0.9.0 与 Windows 7 的云端构建使用功能提交 `5e113836f025fb4e5b915ef2e570be7b432cbe59`，无需等待 Arthur；后续流程见 [本地与云端构建](LOCAL-RELEASE.md)。
+
+任务：使用下面固定的功能源码，在可用的 Mac/Xcode 上生成 iPhone 0.8.0 IPA，完成检查后上传到私有 GitHub 仓库的测试 Release。用户已要求执行打包和上传。
 
 ## 源码与目标
 
@@ -10,7 +12,7 @@
 - iPhone：版本 `0.8.0`、build `9`、Bundle ID `com.deskbox.mobile`、iOS 17+、iPhoneOS arm64。
 - 目标文件：`DeskBoxMobile-0.8.0-unsigned.ipa`。这是未签名 IPA，安装时需要沿用原 Apple 签名团队及 Bundle ID；不要先卸载旧应用。
 
-当前主要改动包括手机主要页面/AI 键盘布局、长播报缓冲、收音上传抖动、回声处理、千问单轮失败续接和未完成记录保留。当前 0.8.0 尚未完成最终 Xcode/真机验证，GitHub 上没有已发布的 0.8.0 IPA。
+当前主要改动包括手机主要页面/AI 键盘布局、长播报缓冲、收音上传抖动、回声处理、千问单轮失败续接和未完成记录保留。交接建立时 0.8.0 尚无最终 IPA；现已在公开仓库的云端完成 Xcode 构建并发布，真机语音仍需安装后测试。
 
 ## 先确认执行条件
 
@@ -18,7 +20,7 @@
 
 Mac 需要完整 Xcode、iPhoneOS SDK、可用 iOS 模拟器、Swift 编译器、Python 3、Git；上传需要仓库写权限及正常的 GitHub CLI 登录。签名证书或账号只留在构建机。没有 Mac 时应明确报告缺少的构建机，保留本任务与源码。
 
-最新托管 Actions 尝试：[44037347279](https://github.com/zong-technology/DeskBox/actions/runs/44037347279)，在启动前因账号付款/额度限制被拒绝，没有生成新 IPA。本任务优先本地 Mac 打包，不要求购买或开通新收费服务。
+交接建立时的托管 Actions 尝试：[44037347279](https://github.com/zong-technology/DeskBox/actions/runs/44037347279)，在启动前因账号付款/额度限制被拒绝，没有生成新 IPA。该次任务现已重跑成功，不再是当前阻塞；以下保留原本地 Mac 打包方式。
 
 ## 在 Mac 的新目录准备源码
 

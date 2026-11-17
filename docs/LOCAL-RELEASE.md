@@ -1,6 +1,6 @@
 # 本地构建与低成本更新
 
-日常更新默认在自己的电脑打包，GitHub 保存源码和 Release 安装包。运行这些本地脚本不使用 GitHub Actions；上传 Release 本身也不需要启动 Actions。电脑、电力、设备和已有网络仍由构建机提供；千问等模型服务按各自账号计费。
+仓库已公开，2026-11-17 已实测 Windows/macOS 的 GitHub 标准云端构建恢复可用。日常开发仍可在自己的电脑打包，GitHub 保存源码和 Release 安装包。运行这些本地脚本不使用 GitHub Actions；上传 Release 本身也不需要启动 Actions。电脑、电力、设备和已有网络仍由构建机提供；千问等模型服务按各自账号计费。
 
 ## Windows：一键生成更新包
 
@@ -62,12 +62,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-local-release.
 
 Mac 构建目录也可在 GitHub Releases 网页创建草稿，选择本次源码提交作为 tag 来源，上传 IPA、清单、校验文件和说明；或使用 `gh release create … --draft --prerelease`。安装包上传无需 Actions，仍需仓库写权限和正常的 GitHub 登录。
 
-## 可选：自有构建机与手动云端兜底
+## 手动云端打包与可选自有构建机
 
 本次将三个构建工作流改成仅 `workflow_dispatch` 手动触发，移除 PR 更新和发布分支 push 的自动构建；完整验证条件仍保留，不通过就不发布。每次源码更新不会自动启动 Windows/Mac 云端构建。
 
-- `runner=self-hosted`：默认选择。需仓库管理员在 **Settings → Actions → Runners → New self-hosted runner** 按 GitHub 当页指令登记独立测试机，附加 `deskbox-qa` 标签。Windows 工作流需要 `Windows` 标签，iPhone 工作流需要 `macOS` 标签；构建机需在线。注册令牌不要提交进仓库。
-- `runner=github-hosted`：明确手动选择才使用 GitHub 云端机器，仍会消耗账号额度。额度或付款限制未解决时，这个选项仍不可用。
+- `runner=self-hosted`：可选。需仓库管理员在 **Settings → Actions → Runners → New self-hosted runner** 按 GitHub 当页指令登记独立测试机，附加 `deskbox-qa` 标签。Windows 工作流需要 `Windows` 标签，iPhone 工作流需要 `macOS` 标签；构建机需在线。注册令牌不要提交进仓库。
+- `runner=github-hosted`：默认选择 GitHub 标准 Windows/macOS 云端构建机。当前公开仓库已经实测运行成功；无需连接 Arthur，也不需要自己拥有 Mac。GitHub 对公开仓库标准 runner 的免费规则适用，未来转回私有仓库时需重新考虑账号额度。未启用付费大型 runner。
 - `publish=false` 默认只构建；全部检查通过后，手动选择发布才生成新的测试 Release。已有发布 tag 不覆盖。
 - 同平台工作流串行，避免同一自有电脑并发改写 `dist`。Windows 测试机需交互桌面、.NET Framework、Inno Setup；Mac 需 Xcode、对应模拟器与命令行工具。发布还需 `gh`。
 - 安装包产物只保留 7 天，截图/原生预览保留 3 天。长期可下载版本放进 Releases，不依赖临时 Actions 产物链接。
@@ -79,7 +79,7 @@ Mac 构建目录也可在 GitHub Releases 网页创建草稿，选择本次源�
 ## 之后每次更新
 
 1. 拉取已确认的源码，Windows 更新 `src/AssemblyInfo.cs` 的版本；手机更新 Xcode 项目的版本/build，并编写对应发布说明。
-2. 用本地入口构建，检查清单中的源码、版本、哈希和未验项目。
+2. 在 Actions 手动选择对应工作流和 `feat/holographic-ai-call` 分支，保留 `runner=github-hosted`；需要上传到 Releases 时勾选 `publish`。也可用上述本地入口构建。检查源码、版本、哈希和未验项目。
 3. 在独立测试环境完成升级保留、UI 和真机语音验证；未验收包保持候选/草稿状态。
 4. 上传新的 Release，保留旧版供回退。无需为每次开发提交启动完整的云端打包。
 

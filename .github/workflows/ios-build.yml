@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: 'self-hosted 使用已登记的专用构建机；github-hosted 消耗 GitHub 云端额度'
+        description: 'github-hosted 使用 GitHub 标准云端构建机；self-hosted 需事先登记专用测试机'
         type: choice
-        options: [self-hosted, github-hosted]
-        default: self-hosted
+        options: [github-hosted, self-hosted]
+        default: github-hosted
 concurrency:
   group: local-release-macOS-${{ github.ref }}
   cancel-in-progress: false
