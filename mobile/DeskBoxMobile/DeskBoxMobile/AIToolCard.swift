@@ -33,7 +33,7 @@ struct AIToolCard: View {
                     .accessibilityIdentifier("ai.tool.raw-toggle." + tool.name)
                     .accessibilityValue(rawExpanded ? "已展开" : "已收起")
                 if rawExpanded {
-                    Text(tool.raw).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("ai.tool.raw")
+                    Text(tool.raw).accessibilityIdentifier("ai.tool.raw").font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
