@@ -54,12 +54,14 @@ jobs:
         shell: powershell
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          $mock = Start-Process node -ArgumentList 'tools\mock-ai-server.js' -PassThru -WindowStyle Hidden
+          $mock = Start-Process node -ArgumentList 'tools\mock-ai-server.js' -PassThru -WindowStyle Hidden -RedirectStandardOutput dist\hologram-qa\mock.stdout.log -RedirectStandardError dist\hologram-qa\mock.stderr.log
           try {
             for ($i=0; $i -lt 30; $i++) {
               $probe = New-Object System.Net.Sockets.TcpClient
               try { $probe.Connect('127.0.0.1',18080); break } catch { Start-Sleep -Milliseconds 100 } finally { $probe.Dispose() }
             }
+            $health = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/health -TimeoutSec 5
+            if ($health.StatusCode -ne 200) { throw 'Local AI fixture unavailable' }
             & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\mobile-ai-accept.exe tools\mobile-ai-accept.cs
             if ($LASTEXITCODE -ne 0) { throw 'Text AI acceptance compile failed' }
             & .\dist\mobile-ai-accept.exe | Tee-Object dist\hologram-qa\mobile-ai-accept.log

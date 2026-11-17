@@ -31,9 +31,9 @@ function sse(res, deltas, delayMs) {
 
 function readBody(req) {
   return new Promise((resolve) => {
-    let buf = '';
-    req.on('data', (c) => (buf += c));
-    req.on('end', () => resolve(buf));
+    const chunks = [];
+    req.on('data', c => chunks.push(Buffer.from(c)));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
   });
 }
 
@@ -54,6 +54,7 @@ const server = http.createServer(async (req, res) => {
   let payload = {};
   try { payload = JSON.parse(body || '{}'); } catch {}
   const model = payload.model || '';
+  console.log(req.method + ' ' + url + ' model=' + model + ' bodyBytes=' + Buffer.byteLength(body));
   if (model === 'mock-mobile-create') {
     const results=(payload.messages||[]).filter(m=>(m.content||'').startsWith('[工具'));
     const project=results.find(m=>m.content.startsWith('[工具project.list'));
