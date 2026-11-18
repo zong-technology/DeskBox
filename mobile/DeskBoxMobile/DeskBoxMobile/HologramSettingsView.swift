@@ -29,7 +29,7 @@ struct HologramSettingsView: View {
             Section {
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.cyan) }
             }
-            Section("使用") { Text("轻点投影可打断播报；左上角可静音。切到后台或音频被系统打断时停止通话，返回后轻点投影继续。项目与任务查询来自手机同步缓存；新建与修改任务、记录现场问题可直接保存并等待同步。电脑文件、文档和工作流操作需已连接的电脑在线，保留原有权限与确认。").font(.caption) }
+            Section("使用") { Text("通话期间保持亮屏，普通点屏不会打断；需要接话时使用字幕下方的“打断后提问”，左上角可静音。退出、切到后台或音频被系统打断时停止通话并恢复原锁屏设置，返回后使用“重新连接”继续。项目与任务查询来自手机同步缓存；新建与修改任务、记录现场问题可直接保存并等待同步。电脑文件、文档和工作流操作需已连接的电脑在线，保留原有权限与确认。").font(.caption) }
         }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle("全息语音设置")
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("保存") { save() } } }
         .onChange(of: profile.service) { _, service in

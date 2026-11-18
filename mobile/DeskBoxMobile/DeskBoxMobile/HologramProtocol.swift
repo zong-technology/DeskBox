@@ -90,7 +90,7 @@ enum HologramWire {
         }
         var packet = HologramPacket()
         if service == .gemini {
-            if root["goAway"] != nil { throw HologramError.message("语音服务需要重新连接，轻点投影可重试。") }
+            if root["goAway"] != nil { throw HologramError.message("语音服务需要重新连接，点击下方“重新连接”重试。") }
             packet.ready = root["setupComplete"] != nil; packet.toolsCancelled = root["toolCallCancellation"] != nil
             let content = root["serverContent"] as? [String: Any] ?? [:]
             packet.interrupted = content["interrupted"] as? Bool == true; packet.turnComplete = content["turnComplete"] as? Bool == true
