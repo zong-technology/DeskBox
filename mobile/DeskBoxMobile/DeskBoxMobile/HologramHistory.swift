@@ -27,9 +27,10 @@ struct HologramSession: Codable, Identifiable {
     private var environment = AIEnvironment.current
     private var loadFailed = false
     init(url: URL? = nil, directory: URL? = nil) {
-        self.directory = directory ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let root = directory ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        self.directory = root
         customURL = url != nil
-        self.url = url ?? Self.environmentURL(directory: self.directory, environment: AIEnvironment.current)
+        self.url = url ?? Self.environmentURL(directory: root, environment: AIEnvironment.current)
         load()
     }
     private static func environmentURL(directory: URL, environment: AIEnvironment) -> URL { directory.appendingPathComponent("hologram-history" + environment.historySuffix + ".json") }
