@@ -7,6 +7,7 @@ using DeskBox.Engineering.Tia;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
+using System.Threading.Tasks;
 using DeskBox;
 using DeskBox.Core;
 using DeskBox.UI;
@@ -87,34 +88,48 @@ public static class TiaEngineerAcceptance
         var store = new Store(); store.Init(); store.Settings.AiFileAccess = true; store.Settings.ReferenceUi = true; store.Settings.TakeoverIcons = false;
         store.Settings.Theme = "cyber";
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
+        Exception failure = null;
         using (var form = new MainForm(store))
         {
-            form.Bounds = new Rectangle(0, 0, 1600, 900); form.Show(); Application.DoEvents();
-            var nav = form.Controls.Find("nav-tia", true).FirstOrDefault();
-            Check(nav != null && nav.Visible, "TIA has an independent reference navigation button");
-            form.SwitchView("tia"); Application.DoEvents();
-            var view = form.Controls.Find("page-tia", true).OfType<TiaEngineerView>().Single();
-            var tree = Children(view).OfType<TreeView>().Single(); var tabs = Children(view).OfType<TabControl>().Single();
-            var mode = Children(view).OfType<ComboBox>().First(x => x.AccessibleName == "操作模式");
-            var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增模板并编译");
-            Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode hides write path behind approval mode");
-            view.LoadExports(files);
-            var until = DateTime.UtcNow.AddSeconds(12);
-            while ((!mode.Enabled || tree.Nodes.Count < 3) && DateTime.UtcNow < until) { Application.DoEvents(); Thread.Sleep(25); }
-            Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
-            Console.WriteLine("TIA view visible=" + view.Visible + " tabs=" + tabs.TabPages.Count + " roots=" + string.Join(" | ", tree.Nodes.Cast<TreeNode>().Select(n => n.Text)));
-            Console.WriteLine("TIA text panes: " + string.Join(" | ", Children(view).OfType<RichTextBox>().Where(box => box.TextLength > 0).Select(box => box.AccessibleName + ":" + box.Text.Substring(0, Math.Min(100, box.TextLength)))));
-            Capture(form, evidence, "tia-workbench-1600.png");
-            Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
-            Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
-            Reject(() => view.ReadForVoice("CheckValve"), "Voice path requires explicit project authorization");
-            Children(view).OfType<CheckBox>().Single().Checked = true;
-            Check(view.ReadForVoice("CheckValve").Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab");
-            form.Size = new Size(1024, 768); Application.DoEvents();
-            Capture(form, evidence, "tia-workbench-1024.png");
-            Check(tabs.Width > 350, "Main work area retains room at narrow width");
-            form.Close();
+            form.Shown += async delegate
+            {
+                try { await ExerciseWorkbench(form, evidence, files); }
+                catch (Exception e) { failure = e; }
+                finally { form.Close(); }
+            };
+            Application.Run(form);
         }
+        if (failure != null) throw new InvalidOperationException("Native workbench failed", failure);
+    }
+    private static async Task ExerciseWorkbench(MainForm form, string evidence, string[] files)
+    {
+        await Task.Yield();
+        form.Bounds = new Rectangle(0, 0, 1600, 900);
+        var nav = form.Controls.Find("nav-tia", true).FirstOrDefault();
+        Check(nav != null && nav.Visible, "TIA has an independent reference navigation button");
+        form.SwitchView("tia");
+        var view = form.Controls.Find("page-tia", true).OfType<TiaEngineerView>().Single();
+        var tree = Children(view).OfType<TreeView>().Single(); var tabs = Children(view).OfType<TabControl>().Single();
+        var mode = Children(view).OfType<ComboBox>().First(x => x.AccessibleName == "操作模式");
+        var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增模板并编译");
+        Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode and write approval gate");
+        view.LoadExports(files);
+        var until = DateTime.UtcNow.AddSeconds(12);
+        while (!mode.Enabled && DateTime.UtcNow < until) await Task.Delay(50);
+        Console.WriteLine("TIA view visible=" + view.Visible + " tabs=" + tabs.TabPages.Count + " roots=" + string.Join(" | ", tree.Nodes.Cast<TreeNode>().Select(n => n.Text)));
+        Console.WriteLine("TIA text panes: " + string.Join(" | ", Children(view).OfType<RichTextBox>().Where(box => box.TextLength > 0).Select(box => box.AccessibleName + ":" + box.Text.Substring(0, Math.Min(100, box.TextLength)))));
+        Capture(form, evidence, "tia-workbench-1600.png");
+        Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
+        Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
+        Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
+        Reject(() => view.ReadForVoice("CheckValve"), "Voice path requires explicit project authorization");
+        Children(view).OfType<CheckBox>().Single().Checked = true;
+        Check(view.ReadForVoice("CheckValve").Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab");
+        form.Size = new Size(1024, 768);
+        await Task.Yield();
+        Capture(form, evidence, "tia-workbench-1024.png");
+        Check(tabs.Width > 350, "Main work area retains room at narrow width");
     }
     private static void Capture(Form form, string directory, string file)
     {
