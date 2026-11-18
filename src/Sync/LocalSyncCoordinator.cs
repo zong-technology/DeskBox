@@ -127,13 +127,15 @@ namespace DeskBox.Sync
                 Sync.UpsertSnapshot("project",p.Id,Json.ToJson(dto),"windows");
             }
             var tasks = _store.Tasks.ToArray();
+            var priorTasks=Sync.Records.Where(r=>r.EntityType=="task"&&!r.Deleted).ToDictionary(r=>r.Id,StringComparer.Ordinal);
             foreach (var t in tasks)
             {
-                var previous=Sync.Records.FirstOrDefault(r=>r.EntityType=="task"&&r.Id==t.Id&&!r.Deleted);
+                SyncRecord previous;priorTasks.TryGetValue(t.Id,out previous);
                 var old=previous==null?null:Json.FromJson<MobileTaskDto>(previous.Json);
                 var dto=new MobileTaskDto{Id=t.Id,ProjectId=t.Project,Title=t.Title,Status=t.Done?"done":"open",Priority=t.Priority,Due=t.Due,Notes=t.Notes,
                     Owner=t.Owner??(old==null?"":old.Owner??""),UpdatedAt=old==null?Math.Max(t.CreatedAt,t.DoneAt):old.UpdatedAt};
-                if(old!=null && Json.ToJson(dto)==Json.ToJson(old)){
+                if(old!=null && dto.Id==old.Id && dto.ProjectId==old.ProjectId && dto.Title==old.Title && dto.Status==old.Status
+                    && dto.Priority==old.Priority && dto.Due==old.Due && dto.Owner==old.Owner && dto.Notes==old.Notes && dto.UpdatedAt==old.UpdatedAt){
                     // Keep the original wire representation: Swift and C# can order JSON fields differently.
                     Sync.UpsertSnapshot("task",t.Id,previous.Json,"windows");
                 }else{
