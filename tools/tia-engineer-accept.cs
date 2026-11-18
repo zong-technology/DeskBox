@@ -50,7 +50,11 @@ public static class TiaEngineerAcceptance
             Check(checks.Any(x => x.Contains("地址重叠")) && checks.Any(x => x.Contains("宽度不一致")) && checks.Any(x => x.Contains("地址待确认")), "IO overlap, width mismatch and unresolved address");
             Check(PlcEngineering.PlanIo(data, 0, 0).Contains("Spare · BOOL · I2.0"), "Propose free IO bit after occupied input word");
             Check(data.Objects.Single(x => x.Kind == "FB" && x.Language == "SCL").References.Contains("#Raw"), "SCL variables extracted from source");
-            Check(data.Notes.Count == 0, "SCL template boundaries are complete");
+            Check(data.Notes.Count == 0, "SCL template boundaries and scoped references are complete");
+            var invalidScl = Path.Combine(temp, "invalid.scl");
+            File.WriteAllText(invalidScl, "FUNCTION_BLOCK FB_Review\nVAR_OUTPUT\n Result : Real;\n Spare : Bool;\n Spare : Bool;\nEND_VAR\nBEGIN\n #Result := #Unknown;\nEND_FUNCTION_BLOCK\n");
+            var invalidNotes = PlcEngineering.ReadExports(new[] { invalidScl }, CancellationToken.None).Notes;
+            Check(invalidNotes.Any(x => x.Contains("重复局部变量 Spare")) && invalidNotes.Any(x => x.Contains("#Unknown")) && invalidNotes.Any(x => x.Contains("#Spare")), "Static SCL detects duplicate, unresolved and unused locals");
             string previous = File.ReadAllText(csv);
             File.WriteAllText(csv, previous.Replace("%IW0", "%IW4"));
             var changed = PlcEngineering.ReadExports(new[] { xml, csv, scl }, CancellationToken.None);
@@ -119,7 +123,7 @@ public static class TiaEngineerAcceptance
         while (!mode.Enabled && DateTime.UtcNow < until) await Task.Delay(50);
         Console.WriteLine("TIA view visible=" + view.Visible + " tabs=" + tabs.TabPages.Count + " roots=" + string.Join(" | ", tree.Nodes.Cast<TreeNode>().Select(n => n.Text)));
         Console.WriteLine("TIA text panes: " + string.Join(" | ", Children(view).OfType<RichTextBox>().Where(box => box.TextLength > 0).Select(box => box.AccessibleName + ":" + box.Text.Substring(0, Math.Min(100, box.TextLength)))));
-        Capture(form, evidence, "tia-workbench-1600.png");
+        await Capture(form, evidence, "tia-workbench-1600.png");
         Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
         Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
         Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
@@ -128,13 +132,20 @@ public static class TiaEngineerAcceptance
         Check(view.ReadForVoice("CheckValve").Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab");
         form.Size = new Size(1024, 768);
         await Task.Yield();
-        Capture(form, evidence, "tia-workbench-1024.png");
+        await Capture(form, evidence, "tia-workbench-1024.png");
         Check(tabs.Width > 350, "Main work area retains room at narrow width");
     }
-    private static void Capture(Form form, string directory, string file)
+    private static async Task Capture(Form form, string directory, string file)
     {
-        using (var image = new Bitmap(form.Width, form.Height))
-        { form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size)); image.Save(Path.Combine(directory, file), ImageFormat.Png); }
+        form.TopMost = true;
+        form.Activate(); form.Refresh();
+        await Task.Delay(180);
+        using (var image = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
+        using (var graphics = Graphics.FromImage(image))
+        {
+            graphics.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, image.Size);
+            image.Save(Path.Combine(directory, file), ImageFormat.Png);
+        }
     }
     private static System.Collections.Generic.IEnumerable<Control> Children(Control control)
     {

@@ -179,6 +179,19 @@ namespace DeskBox.Engineering.Tia
                 item.References = Regex.Matches(code, @"#[A-Za-z_][A-Za-z0-9_]*|""[^""\r\n]+""").Cast<Match>().SkipWhile(m => m.Index < block.Length).Select(m => m.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 var declarations = Regex.Matches(code, @"(?ims)^\s*VAR(?:_[A-Z_]+)?\b(.*?)\bEND_VAR\b").Cast<Match>().ToList();
                 item.Interface = string.Join("\n", declarations.Select(x => x.Value.Trim()));
+                var declared = declarations.SelectMany(d => Regex.Matches(d.Groups[1].Value, @"(?im)^\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:")
+                    .Cast<Match>().SelectMany(m => m.Groups[1].Value.Split(',').Select(n => n.Trim()))).ToList();
+                foreach (var duplicate in declared.GroupBy(n => n, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+                    snapshot.Notes.Add(item.Source + " · 重复局部变量 " + duplicate.Key);
+                if (declarations.Count != 0)
+                {
+                    var locals = item.References.Where(r => r.StartsWith("#", StringComparison.Ordinal)).Select(r => r.Substring(1)).ToList();
+                    foreach (var missing in locals.Except(declared, StringComparer.OrdinalIgnoreCase))
+                        snapshot.Notes.Add(item.Source + " · 未匹配到局部声明 #" + missing + "，核对接口或源文件范围。");
+                    foreach (var unused in declared.Except(locals, StringComparer.OrdinalIgnoreCase))
+                        snapshot.Notes.Add(item.Source + " · 正文未发现局部引用 #" + unused + "，核对外部使用和接口约定。");
+                }
+
                 if (!Regex.IsMatch(code, @"(?im)^\s*END_" + header + @"\b")) snapshot.Notes.Add(item.Source + " · 未找到 END_" + header);
                 snapshot.Objects.Add(item);
             }

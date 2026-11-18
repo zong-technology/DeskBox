@@ -71,7 +71,23 @@ namespace DeskBox.UI.Views
             voiceAccess.CheckedChanged += delegate { if (voiceAccess.Checked) voiceScope = AiEnvironment.Token; };
             var center = new Panel { Dock = DockStyle.Fill };
             center.Controls.Add(tabs); center.Controls.Add(side); center.Controls.Add(left);
-            center.Resize += delegate { left.Width = Dpi.D(this, center.Width > 1130 ? 260 : 180); side.Width = Dpi.D(this, center.Width > 1130 ? 340 : 205); side.Visible = center.Width >= Dpi.D(this, 850); };
+            center.Resize += delegate
+            {
+                bool wide = center.Width >= Dpi.D(this, 1050);
+                left.Width = Dpi.D(this, wide ? 260 : 180);
+                side.Dock = wide ? DockStyle.Right : DockStyle.Bottom;
+                if (wide) side.Width = Dpi.D(this, 340);
+                else side.Height = Dpi.D(this, 132);
+            };
+            tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
+            tabs.DrawItem += delegate(object sender, DrawItemEventArgs e)
+            {
+                bool activeTab = e.Index == tabs.SelectedIndex;
+                using (var fill = new SolidBrush(activeTab ? Palette.PanelAlt : Palette.HeaderBg)) e.Graphics.FillRectangle(fill, e.Bounds);
+                TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font, e.Bounds, activeTab ? Palette.Accent : Palette.Text,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+            };
+            FormatCombo(mode); FormatCombo(cpu);
             Body.Controls.Add(center); Body.Controls.Add(top);
             tree.AfterSelect += delegate(object sender, TreeViewEventArgs e) { ShowObject(e.Node == null ? null : e.Node.Tag as PlcObject); };
             assistant.Text = "选择已导出的 SimaticML、SCL 或 IO CSV，或读取本机 .ap20 工程副本。\r\n\r\n默认只读。工程写入需要明确审批及本机 V20。";
@@ -84,13 +100,28 @@ namespace DeskBox.UI.Views
         private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = 24, ForeColor = Palette.TextDim, Font = Font }; }
         private RichTextBox TextArea(string name, bool readOnly = true)
         {
-            return new RichTextBox { Dock = DockStyle.Fill, ReadOnly = readOnly, AccessibleName = name, BorderStyle = BorderStyle.FixedSingle, DetectUrls = false, Font = new Font(readOnly ? "Microsoft YaHei UI" : "Consolas", 10), MaxLength = 24000 };
+            return new RichTextBox { Dock = DockStyle.Fill, ReadOnly = readOnly, AccessibleName = name, BorderStyle = BorderStyle.None, DetectUrls = false, Font = new Font(readOnly ? "Microsoft YaHei UI" : "Consolas", 10), MaxLength = 24000 };
         }
         private DarkButton Button(string label, Action action)
         {
-            var button = new DarkButton(label) { Width = Math.Max(90, label.Length * 13 + 16), Height = 32, Palette = Palette, AccessibleName = label };
+            var button = new DarkButton(label) { Height = 32, Palette = Palette, AccessibleName = label };
+            button.Width = Math.Max(90, TextRenderer.MeasureText(label, button.Font).Width + 24);
             button.Click += delegate { try { action(); } catch (Exception e) { Failed(e.Message); } };
             actions.Add(button); return button;
+        }
+        private void FormatCombo(ComboBox box)
+        {
+            box.FlatStyle = FlatStyle.Flat;
+            box.DrawMode = DrawMode.OwnerDrawFixed;
+            box.DrawItem += delegate(object sender, DrawItemEventArgs e)
+            {
+                if (e.Index < 0) return;
+                bool selected = (e.State & DrawItemState.Selected) != 0;
+                using (var fill = new SolidBrush(selected ? Palette.Hover : Palette.PanelAlt)) e.Graphics.FillRectangle(fill, e.Bounds);
+                TextRenderer.DrawText(e.Graphics, Convert.ToString(box.Items[e.Index]), box.Font, e.Bounds, Palette.Text,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+                e.DrawFocusRectangle();
+            };
         }
         private TabPage Page(string title, Control target, params Control[] buttons)
         {
