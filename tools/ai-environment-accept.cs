@@ -36,6 +36,10 @@ internal static class AiEnvironmentAccept
             Check(!ToolRegistry.Instance.Invoke("web.read",new Dictionary<string,string>{{"url","https://fixture.invalid"}},new ToolContext()).Ok,"Direct tool calls cannot bypass the environment");
             Check(!ToolRegistry.Instance.Invoke("workflow.run",new Dictionary<string,string>(),new ToolContext()).Ok,"Local AI cannot start an external workflow");
             Check(!ToolRegistry.Instance.Tools.Any(t=>t.Name=="web.read"||t.Name=="workflow.run"),"Local tool discovery omits network and external execution capabilities");
+            var legacy=new LocalAiProvider().Ask(new AiRequest{Kind="summarize",Paths=new List<string>{@"\\fixture.invalid\private\must-not-open.txt"}});
+            Check(!legacy.Ok&&legacy.Error.Contains("本地隔离"),"The legacy summary entry point rejects UNC paths before probing the file");
+            var document=DocumentSkills.Run(new Dictionary<string,string>{{"op","read"},{"path",@"\\fixture.invalid\private\must-not-open.pdf"}});
+            Check(!document.Ok&&document.Error.Contains("本地隔离"),"Direct document parsing cannot bypass the local network path boundary");
             var relay=new MobileAiRunner(providers,()=>new ToolContext{Store=store});var response=relay.Run("offline-phone",new List<AiMessage>{new AiMessage{Content=MobileAiRunner.OperationPrefix+"{\"tool\":\"task.create\",\"arguments\":\"{\\\"title\\\":\\\"blocked\\\"}\"}"}},CancellationToken.None,p=>{}).GetAwaiter().GetResult();
             Check(response.Status=="error"&&store.Tasks.Count==0,"A paired phone cannot write through the isolated desktop relay");
             var recipient=new TcpListener(IPAddress.Loopback,0);recipient.Start();var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();

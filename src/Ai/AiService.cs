@@ -48,6 +48,7 @@ namespace DeskBox.Ai
             try
             {
                 if (r == null) { a.Ok = false; a.Error = "空请求"; return a; }
+                if(r.Paths!=null)foreach(var path in r.Paths)AiEnvironment.RequireLocalPath(path);
                 switch ((r.Kind ?? "").ToLowerInvariant())
                 {
                     case "summarize": Summarize(r, a); break;

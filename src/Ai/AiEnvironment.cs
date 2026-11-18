@@ -50,6 +50,19 @@ namespace DeskBox.Ai
         {
             if(Local)throw new InvalidOperationException("本地隔离模式禁止联网及设备同步。");
         }
+        public static void RequireLocalPath(string path)
+        {
+            if(!Local || string.IsNullOrWhiteSpace(path))return;
+            var full=Path.GetFullPath(path);
+            if(full.StartsWith(@"\\",StringComparison.Ordinal)||new DriveInfo(Path.GetPathRoot(full)).DriveType==DriveType.Network)throw new InvalidOperationException("本地隔离模式不能访问网络共享或映射的网络磁盘。");
+            var root=Path.GetPathRoot(full);var current=root;
+            // Walk from the drive root so a remote junction is rejected before probing anything beneath it.
+            foreach(var part in full.Substring(root.Length).Split(new[]{Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar},StringSplitOptions.RemoveEmptyEntries)) {
+                current=Path.Combine(current,part);
+                try {if((File.GetAttributes(current)&FileAttributes.ReparsePoint)!=0)throw new InvalidOperationException("本地隔离模式不能访问符号链接或重解析路径。");}
+                catch(FileNotFoundException){break;}catch(DirectoryNotFoundException){break;}
+            }
+        }
         public static bool ToolAllowed(string name) { return !Local || (name!="workflow.run" && name!="web.read"); }
     }
 }

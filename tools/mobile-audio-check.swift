@@ -3,6 +3,7 @@ import AVFoundation
 
 @main struct MobileAudioCheck {
     static func main() async throws {
+        setbuf(stdout, nil)
         var checks = 0
         func check(_ ok: Bool, _ message: String) { precondition(ok, message); checks += 1; print("PASS " + message) }
         let engine = AVAudioEngine(), format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
@@ -29,8 +30,18 @@ import AVFoundation
         check(player.queuedSeconds < 0.03, "Completed playback drains its queue")
         _ = try render(5 * 24000)
         check(try player.enqueue(pcm), "A new packet is accepted after an idle gap")
-        check(player.level() != nil && player.queuedSeconds > 0.95, "The meter follows the new buffer after the player clock has advanced through silence")
-        check(try render(24000) > 23500, "Speech after a gap is not lost or scheduled in the past")
+        check(player.queuedSeconds > 0.95, "A packet after silence retains its full playback duration")
+        let onset = try render(1920)
+        check(player.level() != nil, "The speech meter follows actual playback after its bounded startup lead")
+        let tail = try render(24000)
+        print("Gap render audible samples: \(onset + tail) / 24000")
+        check(onset + tail >= 23900, "Speech after a gap is not lost or scheduled in the past")
+        for gap in [2400, 12000, 120000] {
+            _ = try render(gap); _ = try player.enqueue(pcm)
+            let audible = try render(25920)
+            print("Repeated gap \(gap): \(audible) / 24000 audible samples")
+            check(audible >= 23900, "Complete speech survives repeated gaps of \(gap) samples")
+        }
         _ = try player.enqueue(pcm); player.flush()
         check(player.queuedSeconds == 0 && player.level() == nil, "Manual interruption clears queued audio and its meter together")
         check(try render(24000) < 480, "Flushed speech does not resume on the next render")

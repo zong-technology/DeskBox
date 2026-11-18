@@ -123,7 +123,7 @@ namespace DeskBox.Ai
                 if (ctx != null && ctx.Cancellation.IsCancellationRequested) { error = "文件任务已取消或授权发生变化"; return false; }
                 if (ctx != null && ctx.FileAccessEnabled != null && !ctx.FileAccessEnabled()) { error = "AI 文件访问已关闭，请在设置 → 文件与隐私中启用"; return false; }
                 var full = Path.GetFullPath(path);
-                if(AiEnvironment.Local && new DriveInfo(Path.GetPathRoot(full)).DriveType==DriveType.Network) {error="本地隔离模式不能访问映射的网络磁盘。";return false;}
+                AiEnvironment.RequireLocalPath(full);
                 var component = full;
                 while (!string.IsNullOrEmpty(component))
                 {

@@ -43,6 +43,7 @@ jobs:
           path: ${{ runner.temp }}/audio-check.log
           if-no-files-found: warn
   unsigned-ipa:
+    needs: audio-regression
     if: inputs.artifact_run_id == ''
     outputs:
       version: ${{ steps.version.outputs.version }}

@@ -21,9 +21,8 @@ final class HologramPlayback {
     @discardableResult func enqueue(_ pcm: Data) throws -> Bool {
         guard !pcm.isEmpty else { return true }
         guard pcm.count % 2 == 0 else { throw HologramError.message("音频块不完整。") }
-        let now = position; segments.removeAll { $0.start + Int64($0.frames) <= now }
-        let start = max(end, now), count = pcm.count / 2
-        guard Double(start - now + Int64(count)) / 24000 <= Self.maximumSeconds else { return false }
+        let count = pcm.count / 2
+        guard Double(max(0, end - position) + Int64(count)) / 24000 <= Self.maximumSeconds else { return false }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)), let channel = buffer.floatChannelData?[0] else { throw HologramError.message("无法准备音频播放。") }
         buffer.frameLength = AVAudioFrameCount(count)
         var levels: [Double] = [], sum = 0.0, samples = 0
@@ -36,14 +35,20 @@ final class HologramPlayback {
                 if samples == 480 || index == count - 1 { levels.append(sqrt(sum / Double(samples))); sum = 0; samples = 0 }
             }
         }
+        // Decode first, then anchor to the player clock. Implicit scheduling can use host time
+        // after an underrun, dropping the beginning of speech. A bounded 40ms lead covers a render quantum.
+        let now = position; segments.removeAll { $0.start + Int64($0.frames) <= now }
+        let start = max(end, now + (player.isPlaying && end <= now ? 960 : 0))
+        guard Double(start - now + Int64(count)) / 24000 <= Self.maximumSeconds else { return false }
         segments.append(Segment(start: start, frames: count, levels: levels)); end = start + Int64(count)
-        player.scheduleBuffer(buffer)
+        player.scheduleBuffer(buffer, at: AVAudioTime(sampleTime: start, atRate: format.sampleRate))
         if !player.isPlaying { player.play() }
         return true
     }
     func level() -> Double? {
         let now = position; segments.removeAll { $0.start + Int64($0.frames) <= now }
         guard let block = segments.first else { return nil }
+        guard now >= block.start else { return nil }
         let offset = max(0, Int(now - block.start)) / 480
         return block.levels[min(offset, block.levels.count - 1)]
     }

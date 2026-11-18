@@ -31,12 +31,14 @@ namespace DeskBox.Ai
             if (cancellation.IsCancellationRequested) return new DocumentResponse { Error = "文档操作已取消" };
             try
             {
+                foreach(var key in new[]{"path","root","backup_dir"}) {string value;if(request.TryGetValue(key,out value))AiEnvironment.RequireLocalPath(value);}
                 string worker;
                 lock (Gate)
                 {
+                    if(Worker!=null)AiEnvironment.RequireLocalPath(Worker);
                     if (Worker == null || !File.Exists(Worker))
                     {
-                        var directory = Path.Combine(Path.GetTempPath(), "DeskBoxDocument-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
+                        var directory = Path.Combine(Path.GetTempPath(), "DeskBoxDocument-" + Guid.NewGuid().ToString("N"));AiEnvironment.RequireLocalPath(directory);Directory.CreateDirectory(directory);
                         Worker = Path.Combine(directory, "worker.py");
                         using (var resource = typeof(DocumentSkills).Assembly.GetManifestResourceStream("DeskBox.DocumentWorker"))
                         using (var file = new FileStream(Worker, FileMode.CreateNew, FileAccess.Write, FileShare.None)) resource.CopyTo(file);
@@ -49,9 +51,12 @@ namespace DeskBox.Ai
                 if (string.IsNullOrWhiteSpace(python))
                 {
                     var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Python");
+                    AiEnvironment.RequireLocalPath(root);
                     python = Directory.Exists(root) ? Directory.GetDirectories(root).Select(x => Path.Combine(x, "python.exe")).FirstOrDefault(File.Exists) : null;
                     if (python == null) python = "python.exe";
                 }
+                if(AiEnvironment.Local && !Path.IsPathRooted(python))throw new IOException("本地文档解析请配置本机 Python 绝对路径（DESKBOX_DOCUMENT_PYTHON），隔离模式不搜索外部 PATH。");
+                AiEnvironment.RequireLocalPath(python);
                 var start = new ProcessStartInfo(python, "-I -u \"" + worker + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
                 start.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
                 using (var process = Process.Start(start))
