@@ -130,7 +130,7 @@ public static class TiaEngineerAcceptance
         {
             form.Shown += async delegate
             {
-                try { await ExerciseWorkbench(form, evidence, files); }
+                try { await ExerciseWorkbench(form, store, evidence, files); }
                 catch (Exception e) { failure = e; }
                 finally { form.Close(); }
             };
@@ -138,7 +138,7 @@ public static class TiaEngineerAcceptance
         }
         if (failure != null) throw new InvalidOperationException("Native workbench failed", failure);
     }
-    private static async Task ExerciseWorkbench(MainForm form, string evidence, string[] files)
+    private static async Task ExerciseWorkbench(MainForm form, Store store, string evidence, string[] files)
     {
         await Task.Yield();
         form.Bounds = new Rectangle(0, 0, 1600, 900);
@@ -159,13 +159,14 @@ public static class TiaEngineerAcceptance
         Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
         Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
         Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
-        var voice = new ToolContext { TiaRead = view.ReadForVoice };
+        var voice = new ToolContext { Store = store, TiaRead = view.ReadForVoice };
         var call = new Dictionary<string, string> { { "name", "CheckValve" } };
-        Check(!ToolRegistry.Instance.Invoke("tia.read", call, voice).Ok, "Voice tool requires explicit project authorization");
+        var denied = ToolRegistry.Instance.Invoke("tia.read", call, voice);
+        Check(!denied.Ok && denied.Error.Contains("语音查询授权"), "Voice tool requires explicit project authorization");
         Check(!ToolRegistry.Instance.Invoke("tia.write", call, voice).Ok, "No TIA write tool is exposed to an assistant");
         Children(view).OfType<CheckBox>().Single().Checked = true;
         var lookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
-        Check(lookup.Ok && lookup.Output.Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab");
+        Check(lookup.Ok && lookup.Output.Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab " + lookup.Error);
         form.Size = new Size(1024, 768);
         await Task.Yield();
         await Capture(form, evidence, "tia-workbench-1024.png");

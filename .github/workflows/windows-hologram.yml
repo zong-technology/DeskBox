@@ -119,6 +119,9 @@ jobs:
         shell: powershell
         timeout-minutes: 3
         run: |
+          $tokens = $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools\tia-v20-smoke.ps1).Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
           & $csc /nologo /define:TIA_WINFORMS /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:dist\DeskBox.exe /out:dist\tia-engineer-accept.exe tools\tia-engineer-accept.cs
           if ($LASTEXITCODE -ne 0) { throw 'TIA acceptance host compile failed' }
