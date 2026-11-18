@@ -79,6 +79,7 @@ namespace DeskBox.Sync
 
         private void Route(Stream stream, Request request)
         {
+            if(DeskBox.Ai.AiEnvironment.Local){Write(stream,503,new{error="local_ai_isolation"});return;}
             if (request.Method == "GET" && request.Path == "/health") { Write(stream, 200, new { ok = true, service = "DeskBox Local Sync", thumbprint = CertificateThumbprint }); return; }
             if (request.Method == "POST" && request.Path == "/pair")
             {
@@ -132,6 +133,7 @@ namespace DeskBox.Sync
 
         private static void Write(Stream stream, int status, object value)
         {
+            if(DeskBox.Ai.AiEnvironment.Local){status=503;value=new{error="local_ai_isolation"};}
             var body = Encoding.UTF8.GetBytes(Json.ToJson(value)); var reason = status == 200 ? "OK" : status == 400 ? "Bad Request" : status == 401 ? "Unauthorized" : "Not Found";
             var header = Encoding.ASCII.GetBytes("HTTP/1.1 " + status + " " + reason + "\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " + body.Length + "\r\nConnection: close\r\n\r\n");
             stream.Write(header, 0, header.Length); stream.Write(body, 0, body.Length); stream.Flush();

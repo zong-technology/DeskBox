@@ -66,6 +66,7 @@ namespace DeskBox.Ai
             _tools.Add(new SaveFileTool());
             _tools.Add(new CreateTaskTool());
             _tools.Add(new RunWorkflowTool());
+            _tools.Add(new WebReadTool());
             foreach(var name in new[]{"app.context","app.navigate","task.list","task.update","project.list","incident.list","incident.create","incident.update","workflow.list"})_tools.Add(new ApplicationTool(name));
             foreach(var name in new[]{"fs.list","fs.move","fs.copy","fs.rename","fs.trash","fs.undo"})_tools.Add(new FileManagementTool(name));
             _tools.Add(new Scale420Tool());
@@ -79,7 +80,7 @@ namespace DeskBox.Ai
             _tools.Add(new DocumentTool("edit"));
         }
 
-        public List<IAiTool> Tools { get { return _tools.ToList(); } }
+        public List<IAiTool> Tools { get { return _tools.Where(t=>AiEnvironment.ToolAllowed(t.Name)).ToList(); } }
 
         public IAiTool Get(string name)
         {
@@ -90,7 +91,7 @@ namespace DeskBox.Ai
         {
             var sb = new StringBuilder();
             sb.AppendLine("可用工具（需要时输出 ```tool 块，内容为 JSON：{\"name\":\"工具名\",\"args\":{...}}）：");
-            foreach (var t in _tools) sb.AppendLine("- " + t.Name + "：" + t.Description);
+            foreach (var t in _tools.Where(t=>AiEnvironment.ToolAllowed(t.Name))) sb.AppendLine("- " + t.Name + "：" + t.Description);
             return sb.ToString();
         }
 
@@ -98,6 +99,7 @@ namespace DeskBox.Ai
         {
             var tool = Get(name);
             if (tool == null) return ToolResult.Fail("未注册的工具：" + name);
+            if(!AiEnvironment.ToolAllowed(name))return ToolResult.Fail("本地隔离环境未开放可能联网或启动外部程序的工作流。");
             try
             {
                 ctx=ctx??new ToolContext();args=args??new Dictionary<string,string>();
@@ -113,6 +115,7 @@ namespace DeskBox.Ai
 
         internal static bool IsAllowed(ToolContext ctx, string path, out string error)
         {
+            if(AiEnvironment.Local && (path??"").StartsWith(@"\\",StringComparison.Ordinal)) { error="本地隔离模式不能读取网络共享。";return false; }
             error = "";
             try
             {
@@ -120,6 +123,7 @@ namespace DeskBox.Ai
                 if (ctx != null && ctx.Cancellation.IsCancellationRequested) { error = "文件任务已取消或授权发生变化"; return false; }
                 if (ctx != null && ctx.FileAccessEnabled != null && !ctx.FileAccessEnabled()) { error = "AI 文件访问已关闭，请在设置 → 文件与隐私中启用"; return false; }
                 var full = Path.GetFullPath(path);
+                if(AiEnvironment.Local && new DriveInfo(Path.GetPathRoot(full)).DriveType==DriveType.Network) {error="本地隔离模式不能访问映射的网络磁盘。";return false;}
                 var component = full;
                 while (!string.IsNullOrEmpty(component))
                 {

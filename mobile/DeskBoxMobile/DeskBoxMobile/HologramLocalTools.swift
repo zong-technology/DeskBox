@@ -45,7 +45,7 @@ import Foundation
             case "deskbox_incidents":
                 let items = store.incidents.filter { (project.isEmpty || $0.projectId == project) && (query.isEmpty || ($0.description + $0.equipment + $0.solution + projectText($0.projectId)).localizedCaseInsensitiveContains(query)) }
                 result["total"] = items.count; result["incidents"] = try items.dropFirst(offset).prefix(limit).map { try stamped($0) }
-            default: result["tools"] = HologramWire.declarations; result["computerTools"] = "deskbox_execute(tool: app.context, arguments: {}) 读取已连接电脑的完整工具目录；电脑须在线。"; result["tasks"] = store.tasks.count; result["projects"] = store.projects.count; result["incidents"] = store.incidents.count
+            default: result["tools"] = HologramWire.availableDeclarations; result["computerTools"] = AIEnvironment.current == .network && UserDefaults.standard.bool(forKey: "aiAllowComputer") ? "deskbox_execute可调用已授权且在线的电脑。" : "电脑操作已关闭；手机可独立处理本机任务与问题。"; result["tasks"] = store.tasks.count; result["projects"] = store.projects.count; result["incidents"] = store.incidents.count
             }
             let text = try HologramWire.json(result)
             if text.count > 16000 { return ["ok": false, "error": "结果过长，请按关键词缩小查询或减少limit。", "source": "iPhone本地同步缓存"] }

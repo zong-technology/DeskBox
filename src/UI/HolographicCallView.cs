@@ -90,7 +90,7 @@ namespace DeskBox.UI
 
         private async Task RunAsync()
         {
-            var active=new CancellationTokenSource();
+            var active=CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token);
             session=active; mode=HologramMode.Connecting; caption="正在与你连接…";
             muted=false; thinking=false; assistantCaption=userCaption=""; captionFinished=true;
             Task<VoicePacket> receive=null;

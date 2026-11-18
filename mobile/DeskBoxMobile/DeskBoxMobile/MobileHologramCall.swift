@@ -18,6 +18,11 @@ import QuartzCore
     private let audio = HologramAudio()
     private let tools: HologramLocalTools
     private let computer: (([String: Any]) async -> [String: Any])?
+    private let environment = AIEnvironment.current
+    private let localVoice = VoiceConversation()
+    private var localOperation: Task<Void, Never>?
+    private var localHistory: [[String: String]] = []
+    private var localLevel = 0.0
     private var toolTasks: [(UUID, Task<Void, Never>)] = []
     private let preview: Bool
     private var recorder: HologramRecorder
@@ -34,6 +39,8 @@ import QuartzCore
     init(profile: HologramProfile, store: OfflineStore, history: HologramHistory, lastSync: @escaping () -> Date?, computer: (([String: Any]) async -> [String: Any])? = nil, preview: Bool = false) {
         self.profile = profile; self.history = history; self.preview = preview; self.computer = computer
         recorder = HologramRecorder(profile: profile); tools = HologramLocalTools(store: store, lastSync: lastSync)
+        localVoice.onFinal = { [weak self] text in self?.localQuestion(text) }
+        localVoice.onSpeechPulse = { [weak self] in self?.localLevel = 0.7 }
     }
     func animate() {
         guard timer == nil else { return }; lastFrame = CACurrentMediaTime()
@@ -47,7 +54,11 @@ import QuartzCore
         let now = CACurrentMediaTime(), dt = now - lastFrame; lastFrame = now
         var target = 0.0
         if preview { mode = .speaking; target = 0.3 + 0.55 * pow(sin(now * 5), 2); caption = "模拟预览：已为你整理今天的任务。" }
-        else if ready {
+        else if environment == .local && active {
+            mode = localVoice.speaking ? .speaking : waiting ? .thinking : muted ? .muted : .listening
+            target = localLevel; localLevel *= exp(-dt / 0.15)
+            if !localVoice.listening && !localVoice.speaking && !waiting { notice = localVoice.status }
+        } else if ready {
             let playback = audio.playbackLevel()
             mode = playback != nil && !discardOutput ? .speaking : muted ? .muted : waiting ? .thinking : .listening
             inputGate.updatePlayback(playback != nil, now: now)
@@ -64,6 +75,8 @@ import QuartzCore
     }
     func start() {
         animate(); guard !active, !preview else { return }
+        guard environment == AIEnvironment.current else { mode = .paused; caption = "运行环境已切换，请返回后重新进入。"; return }
+        if environment == .local { startLocal(); return }
         guard profile.ready else { mode = .idle; caption = "语音尚未连接。"; return }
         active = true; ready = false; mode = .connecting; caption = "正在与你连接…"; muted = false
         notice = ""; observedLoss = 0; outputCapacityReached = false
@@ -105,6 +118,7 @@ import QuartzCore
         }
     }
     private func send(_ payload: [String: Any], id: UUID) async throws {
+        try environment.requireNetwork()
         guard generation == id, active, let connection else { throw CancellationError() }
         try await connection.send(.string(HologramWire.json(payload)))
     }
@@ -209,8 +223,10 @@ import QuartzCore
             guard generation == id, active else { throw CancellationError() }
             let result: [String: Any]
             if call.name == "deskbox_execute" {
-                result = await computer?(call.arguments) ?? ["ok": false, "error": "电脑操作通道未连接。"]
-            } else { result = tools.execute(call) }
+                if UserDefaults.standard.bool(forKey: "aiAllowComputer"), AIEnvironment.current == .network { result = await computer?(call.arguments) ?? ["ok": false, "error": "电脑操作通道未连接。"] }
+                else { result = ["ok": false, "error": "电脑操作未开放，手机任务与问题可独立处理。"] }
+            } else if call.name == "deskbox_web_read" { result = await MobileWebTools.read(call.arguments) }
+            else { result = tools.execute(call) }
             // Keep evidence of a completed operation even if speech was interrupted while awaiting it.
             let text = try HologramWire.json(result)
             if call.name == "hologram_show" || call.name == "hologram_clear" { information = tools.information; if result["ok"] as? Bool == true { motion.impulse = 1 } }
@@ -228,6 +244,7 @@ import QuartzCore
     }
     func toggleMute() {
         guard ready else { return }; muted.toggle()
+        if environment == .local { if muted { localVoice.stopRecording() } else { Task { await localVoice.start() } }; return }
         do { inputGate.setMuted(muted); try audio.setMuted(muted); diagnostics.note("input.mute", ["muted": String(muted)]) }
         catch { stop(message: "麦克风暂不可用，轻点投影可重试。", mode: .failed); return }
         let id = generation
@@ -235,6 +252,10 @@ import QuartzCore
     }
     func tapProjection() {
         if mode == .failed || mode == .paused || mode == .idle { start(); return }
+        if environment == .local {
+            localOperation?.cancel(); localVoice.stop(); waiting = false; motion.interrupt(); recorder.close(); history.upsert(recorder.session)
+            if !muted { localVoice.continuous = true; Task { await localVoice.start() } }; return
+        }
         guard ready, mode == .speaking || waiting else { return }
         cancelTools(); diagnostics.note("response.user_interrupt"); inputGate.interrupt(now: CACurrentMediaTime()); outputCapacityReached = false
         audio.flush(); motion.interrupt(); discardOutput = true; waiting = false; caption = muted ? "播报已停止，麦克风仍静音。" : "我在听。"
@@ -243,6 +264,7 @@ import QuartzCore
     }
     func suspend(reason: String = "background") { diagnostics.note("call.pause", ["reason": reason]); stop(message: "通话已暂停，轻点投影继续。", mode: .paused); timer?.invalidate(); timer = nil }
     func stop(message: String = "通话已结束。", mode: HologramMode = .idle) {
+        localOperation?.cancel(); localVoice.stop(); localLevel = 0
         diagnostics.note("call.stop", ["reason": mode.rawValue]); diagnostics.save()
         cancelTools(); inputGate.stop(); generation = UUID(); active = false; ready = false
         receiver?.cancel(); sender?.cancel(); timeout?.cancel(); input?.finish(); input = nil
@@ -251,4 +273,35 @@ import QuartzCore
         self.mode = mode; caption = message
     }
     func close() { stop(); timer?.invalidate(); timer = nil }
+
+    private func startLocal() {
+        guard MobileLocalAI.available else { mode = .failed; caption = MobileLocalAI.status; return }
+        active = true; ready = true; muted = false; waiting = false; caption = "本地隔离 · 我在听。"; notice = ""
+        generation = UUID(); localVoice.continuous = true
+        Task { await localVoice.start() }
+    }
+    private func localQuestion(_ text: String) {
+        guard active, !waiting, !muted else { return }; waiting = true
+        var user = HologramPacket(); user.user = text; recorder.accept(user); historyDirty = true
+        localHistory.append(["Role": "user", "Content": text]); caption = text
+        let id = generation
+        localOperation = Task {
+            do {
+                let reply = try await MobileLocalAI.run(history: localHistory, instructions: profile.instructions, execute: { call in
+                    guard !Task.isCancelled, self.active, self.generation == id, AIEnvironment.current == .local else { return ["ok": false, "error": "操作已停止。"] }
+                    let result = self.tools.execute(call); self.information = self.tools.information
+                    self.recorder.tool(call.name, result: (try? HologramWire.json(result)) ?? "{}"); self.historyDirty = true
+                    return result
+                }, progress: { _ in })
+                guard !Task.isCancelled, generation == id, active else { return }
+                let text = AIToolPresentation.conversation(reply).text
+                caption = text; localHistory.append(["Role": "assistant", "Content": text]); localHistory = Array(localHistory.suffix(6))
+                var response = HologramPacket(); response.caption = text; response.turnComplete = true; recorder.accept(response); history.upsert(recorder.session)
+                waiting = false; localVoice.speak(text)
+            } catch {
+                guard !Task.isCancelled, generation == id, active else { return }
+                waiting = false; caption = (error as? HologramError)?.errorDescription ?? "本机模型未完成回复，请轻点投影后继续。"; notice = "本地隔离保持开启，未切换云端。"
+            }
+        }
+    }
 }

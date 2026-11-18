@@ -15,6 +15,7 @@ namespace DeskBox.Ai
     {
         public const string DefaultModel = "qwen3.8-omni-flash-realtime";
         public const string DefaultEndpoint = "wss://YOUR-WORKSPACE.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime";
+        private CancellationTokenRegistration environmentRegistration;
         private readonly ClientWebSocket _socket = new ClientWebSocket();
         private readonly Uri _endpoint;
         private readonly string _model;
@@ -37,8 +38,11 @@ namespace DeskBox.Ai
 
         public async Task ConnectAsync(CancellationToken token)
         {
+            var environmentToken=AiEnvironment.Token;
+            AiEnvironment.RequireEndpoint(_endpoint.ToString());
             try
             {
+                environmentRegistration.Dispose();environmentRegistration=environmentToken.Register(_socket.Abort);
                 var target = new UriBuilder(_endpoint) { Query = "model=" + Uri.EscapeDataString(_model) };
                 await _socket.ConnectAsync(target.Uri, token).ConfigureAwait(false);
                 await SendAsync(Setup(_model,_profile), token).ConfigureAwait(false);
@@ -201,7 +205,7 @@ namespace DeskBox.Ai
             return data != null && data.TryGetValue(key, out value) ? value : null;
         }
 
-        public void Dispose() { _socket.Dispose(); }
+        public void Dispose() { environmentRegistration.Dispose();_socket.Dispose(); }
     }
 
     internal static class VoiceModelCatalog
@@ -241,11 +245,15 @@ namespace DeskBox.Ai
 
         internal static async Task<string> GetAsync(Uri url, string header, string value, CancellationToken token)
         {
+            var environmentToken=AiEnvironment.Token;
+            AiEnvironment.RequireEndpoint(url.ToString());
             var request = (HttpWebRequest)WebRequest.Create(url);
+            if(AiEnvironment.Local)request.Proxy=null;
             request.AllowAutoRedirect = false;
             request.Headers[header] = value;
             try
             {
+                using (environmentToken.Register(request.Abort))
                 using (token.Register(request.Abort))
                 using (var response = (HttpWebResponse)await request.GetResponseAsync().ConfigureAwait(false))
                 {

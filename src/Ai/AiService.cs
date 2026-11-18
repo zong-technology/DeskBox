@@ -287,12 +287,16 @@ namespace DeskBox.Ai
             {
                 var prompt = "你是文件整理助手。请用中文简洁回答：" + (r.Text ?? "");
                 var payload = "{\"model\":\"" + Escape(_model) + "\",\"messages\":[{\"role\":\"user\",\"content\":\"" + Escape(prompt) + "\"}],\"temperature\":0.3}";
+                var environmentToken=AiEnvironment.Token;
+                AiEnvironment.RequireEndpoint(_endpoint);
                 var req = (HttpWebRequest)WebRequest.Create(_endpoint);
+                req.AllowAutoRedirect=false;if(AiEnvironment.Local)req.Proxy=null;
                 req.Method = "POST";
                 req.ContentType = "application/json";
                 req.Timeout = 15000;
                 req.Headers.Add("Authorization", "Bearer " + _apiKey);
                 try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
+                using(environmentToken.Register(req.Abort)) {
                 var bytes = Encoding.UTF8.GetBytes(payload);
                 req.ContentLength = bytes.Length;
                 using (var s = req.GetRequestStream()) s.Write(bytes, 0, bytes.Length);
@@ -315,6 +319,7 @@ namespace DeskBox.Ai
                                 object contentObj;
                                 if (msg != null && msg.TryGetValue("content", out contentObj))
                                 {
+                                    environmentToken.ThrowIfCancellationRequested();
                                     a.Text = Convert.ToString(contentObj);
                                     a.Title = "远程回答";
                                     return a;
@@ -325,6 +330,7 @@ namespace DeskBox.Ai
                 }
                 a.Ok = false;
                 a.Error = "远程返回格式无法解析";
+                }
             }
             catch (Exception ex)
             {
@@ -351,7 +357,7 @@ namespace DeskBox.Ai
         private RemoteAiProvider _remote;
         private bool _remoteEnabled;
 
-        public string ActiveProvider { get { return _remoteEnabled && _remote != null && _remote.Available ? "远程" : "本地"; } }
+        public string ActiveProvider { get { return !AiEnvironment.Local && _remoteEnabled && _remote != null && _remote.Available ? "远程" : "本地"; } }
         public bool RemoteEnabled { get { return _remoteEnabled; } }
 
         public List<string> Capabilities
@@ -401,6 +407,7 @@ namespace DeskBox.Ai
 
         public AiAnswer Ask(AiRequest r)
         {
+            if(AiEnvironment.Local)return _local.Ask(r);
             if (_remoteEnabled && _remote != null && _remote.Available)
             {
                 var ans = _remote.Ask(r);

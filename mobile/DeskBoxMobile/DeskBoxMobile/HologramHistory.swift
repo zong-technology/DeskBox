@@ -20,10 +20,17 @@ struct HologramSession: Codable, Identifiable {
 @MainActor final class HologramHistory: ObservableObject {
     @Published private(set) var sessions: [HologramSession] = []
     @Published private(set) var error = ""
-    private let url: URL
+    private var url: URL
+    private let customURL: Bool
     private var loadFailed = false
     init(url: URL? = nil) {
-        self.url = url ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-history.json")
+        customURL = url != nil
+        self.url = url ?? Self.environmentURL()
+        load()
+    }
+    private static func environmentURL() -> URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-history" + AIEnvironment.current.historySuffix + ".json") }
+    func changeEnvironment() { guard !customURL else { return }; url = Self.environmentURL(); sessions = []; error = ""; loadFailed = false; load() }
+    private func load() {
         guard FileManager.default.fileExists(atPath: self.url.path) else { return }
         do {
             sessions = try JSONDecoder().decode([HologramSession].self, from: Data(contentsOf: self.url))
@@ -48,7 +55,7 @@ struct HologramRecorder {
     private(set) var session: HologramSession
     private var userID: String?, assistantID: String?
     private var started: [String: Date] = [:]
-    init(profile: HologramProfile) { session = HologramSession(name: profile.name, persona: profile.persona, model: profile.model) }
+    init(profile: HologramProfile) { session = HologramSession(name: profile.name, persona: profile.persona, model: AIEnvironment.current == .local ? "Apple 本机模型" : profile.model) }
     mutating func accept(_ packet: HologramPacket) {
         if packet.interrupted || packet.responseFailed { markAssistantPartial(); userID = nil }
         if packet.inputStarted { userID = packet.userID ?? UUID().uuidString; started[userID!] = Date() }

@@ -41,6 +41,7 @@ namespace DeskBox.Ai
     internal sealed class GeminiLiveVoiceProvider : IRealtimeVoiceProvider
     {
         public const string DefaultEndpoint = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+        private CancellationTokenRegistration environmentRegistration;
         private readonly ClientWebSocket _socket = new ClientWebSocket();
         private readonly Uri _endpoint;
         private readonly string _model, _key;
@@ -66,9 +67,12 @@ namespace DeskBox.Ai
 
         public async Task ConnectAsync(CancellationToken cancellation)
         {
+            var environmentToken=AiEnvironment.Token;
+            AiEnvironment.RequireEndpoint(_endpoint.ToString());
             var uri = new UriBuilder(_endpoint) { Query = "key=" + Uri.EscapeDataString(_key) };
             try
             {
+                environmentRegistration.Dispose();environmentRegistration=environmentToken.Register(_socket.Abort);
                 await _socket.ConnectAsync(uri.Uri, cancellation).ConfigureAwait(false);
                 await SendAsync(SetupJson(_model,_profile), cancellation).ConfigureAwait(false);
                 var packet = await ReceiveAsync(cancellation).ConfigureAwait(false);
@@ -113,7 +117,7 @@ namespace DeskBox.Ai
             return VoiceWire.SendAsync(_socket, json, cancellation);
         }
 
-        public void Dispose() { _socket.Dispose(); }
+        public void Dispose() { environmentRegistration.Dispose();_socket.Dispose(); }
 
         internal static string SetupJson(string model, RealtimeVoiceSettings profile = null)
         {

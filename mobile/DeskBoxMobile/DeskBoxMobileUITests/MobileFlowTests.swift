@@ -73,4 +73,17 @@ final class MobileFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["QA offline task"].waitForExistence(timeout: 5))
         for name in ["项目", "事件", "AI", "首页"] { app.tabBars.buttons[name].tap(); XCTAssertTrue(app.tabBars.buttons[name].isSelected) }
     }
+    func testAIEnvironmentPersistsWithoutComputer() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "ai-settings", "--qa-preserve-environment"]; app.launch()
+        let picker = app.buttons["ai.environment"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap(); app.buttons["本地隔离"].tap()
+        app.buttons["ai.settings.save"].tap()
+        XCTAssertFalse(app.textFields["文字模型"].exists)
+        app.terminate(); app.launch()
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.textFields["文字模型"].exists)
+        let local = XCTAttachment(screenshot: app.screenshot()); local.name = "Local environment survives reopening"; local.lifetime = .keepAlways; add(local)
+        picker.tap(); app.buttons["网络开放"].tap(); app.buttons["ai.settings.save"].tap()
+        XCTAssertTrue(app.textFields["文字模型"].waitForExistence(timeout: 5))
+    }
 }

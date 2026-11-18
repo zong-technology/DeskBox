@@ -73,7 +73,15 @@ namespace DeskBox.Ai
         public ChatSession Current { get { return _current; } }
         public string Status { get; private set; }
 
-        private static string SessionsFile { get { return Path.Combine(AppPaths.DataDir, "chats.json"); } }
+        private string environment = AiEnvironment.Mode;
+        private string SessionsFile { get { return Path.Combine(AppPaths.DataDir, environment == "local" ? "chats-local.json" : "chats.json"); } }
+        public void ChangeEnvironment()
+        {
+            if(Busy)throw new InvalidOperationException("请先停止当前对话，再切换 AI 环境。");
+            if(environment==AiEnvironment.Mode)return;
+            Save();environment=AiEnvironment.Mode;AllowedFiles.Clear();AllowedRoots.Clear();
+            lock(_lock)_sessions.Clear();Load();_current=Sessions.FirstOrDefault();if(_current==null)NewSession();Raise();
+        }
 
         public ChatService(Store store, ProviderStore providers)
         {
@@ -300,7 +308,7 @@ namespace DeskBox.Ai
                 return;
             }
 
-            var requestCts = new CancellationTokenSource(); _cts = requestCts;
+            var requestCts = CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token); _cts = requestCts;
             var ct = requestCts.Token;
             var model = string.IsNullOrWhiteSpace(session.Model) ? provider.Model : session.Model;
 

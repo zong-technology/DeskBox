@@ -8,6 +8,10 @@ struct HologramDebugRoute: View {
     @EnvironmentObject var sync: SyncClient
     @StateObject private var history = HologramHistory(url: FileManager.default.temporaryDirectory.appendingPathComponent("hologram-preview-" + UUID().uuidString + ".json"))
     var route: String
+    init(route: String) {
+        self.route = route
+        if !ProcessInfo.processInfo.arguments.contains("--qa-preserve-environment") { AIEnvironment.select(.network) }
+    }
     var body: some View {
         Group {
             switch route.replacingOccurrences(of: "-keyboard", with: "").replacingOccurrences(of: "-large", with: "") {
@@ -21,6 +25,8 @@ struct HologramDebugRoute: View {
             case "incidents": IncidentView()
             case "incident-editor": IncidentEditor(incident: Incident(equipment: "PT-101 冻干机压力变送器", description: "现场压力读数偏差，复核联锁及趋势记录。"), isNew: true)
             case "ai-attachment": MobileAIView(preview: true, attachmentPreview: true)
+            case "ai-settings": NavigationStack { MobileAISettingsView() }
+            case "ai-local-settings": NavigationStack { MobileAISettingsView(previewEnvironment: .local) }
             case "ai": MobileAIView(preview: true)
             case "ai-empty": MobileAIView()
             case "connection": ConnectionSettingsView()

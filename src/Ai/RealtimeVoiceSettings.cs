@@ -56,7 +56,7 @@ namespace DeskBox.Ai
         }
         private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("DeskBox.RealtimeVoice.v1");
         private readonly string path;
-        public RealtimeVoiceSettingsStore(string directory = null) { path = Path.Combine(directory ?? AppPaths.DataDir, "realtime-voice.json"); }
+        public RealtimeVoiceSettingsStore(string directory = null) { path = Path.Combine(directory ?? AppPaths.DataDir, "realtime-voice"+AiEnvironment.Suffix+".json"); }
 
         public RealtimeVoiceSettings Load()
         {

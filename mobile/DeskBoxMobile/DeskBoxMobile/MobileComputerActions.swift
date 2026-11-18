@@ -3,6 +3,7 @@ import Foundation
 /// Uses the same paired-device job channel as text AI, without making another model request.
 @MainActor enum MobileComputerActions {
     static func execute(_ arguments: [String: Any], sync: SyncClient) async -> [String: Any] {
+        guard AIEnvironment.current == .network, UserDefaults.standard.bool(forKey: "aiAllowComputer") else { return ["ok": false, "error": "当前环境未开放电脑操作。手机任务与问题可独立保存。"] }
         guard sync.cloudCredential != nil else { return ["ok": false, "error": "电脑操作需先连接云账号，并让升级后的电脑端在线。手机任务与问题仍可直接保存。"] }
         guard let tool = arguments["tool"] as? String, let json = arguments["arguments"] as? String,
               !tool.isEmpty, json.utf8.count <= 32000, (try? JSONSerialization.jsonObject(with: Data(json.utf8))) is [String: Any] else { return ["ok": false, "error": "请提供工具名与JSON对象参数。"] }

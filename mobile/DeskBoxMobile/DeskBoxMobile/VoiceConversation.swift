@@ -8,6 +8,8 @@ import UIKit
     @Published private(set) var listening = false
     @Published private(set) var transcript = ""
     @Published private(set) var status = "语音就绪"
+    @Published private(set) var speaking = false
+    var onSpeechPulse: (() -> Void)?
     var continuous = false
     var onFinal: ((String) -> Void)?
     private let engine = AVAudioEngine()
@@ -34,6 +36,7 @@ import UIKit
         guard starting == attempt, UIApplication.shared.applicationState == .active else { return }
         guard speech && microphone else { status = "请在系统设置允许麦克风与语音识别"; return }
         guard let recognizer, recognizer.isAvailable else { status = "语音识别暂不可用，请检查网络或使用文字"; return }
+        guard AIEnvironment.current != .local || recognizer.supportsOnDeviceRecognition else { status = "本地隔离模式仅允许设备内听写，当前设备不支持，请使用文字。"; return }
         do {
             stopRecording(); try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
             try AVAudioSession.sharedInstance().setActive(true); ownsSession = true
@@ -60,11 +63,12 @@ import UIKit
     private func finish() { let value = transcript.trimmingCharacters(in: .whitespacesAndNewlines); stopRecording(); status = value.isEmpty ? "没有识别到内容" : "识别完成"; if !value.isEmpty { onFinal?(value) } }
     func stopRecording() { starting = nil; session = UUID(); silence?.cancel(); engine.stop(); if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }; request?.endAudio(); recognition?.cancel(); recognition = nil; request = nil; listening = false; releaseSession() }
     func speak(_ text: String) {
-        speaker.stopSpeaking(at: .immediate); spokenID = nil; stopRecording()
+        speaker.stopSpeaking(at: .immediate); speaking = false; spokenID = nil; stopRecording()
         let clean = text.replacingOccurrences(of: "(?s)```.*?```", with: "代码块请查看屏幕。", options: .regularExpression).replacingOccurrences(of: "[#*`]", with: "", options: .regularExpression)
-        do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: .duckOthers); try AVAudioSession.sharedInstance().setActive(true); ownsSession = true; let utterance = AVSpeechUtterance(string: String(clean.prefix(6000))); utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN"); spokenID = ObjectIdentifier(utterance); speaker.speak(utterance); status = "正在朗读回复" } catch { status = "朗读失败：" + error.localizedDescription }
+        do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: .duckOthers); try AVAudioSession.sharedInstance().setActive(true); ownsSession = true; let utterance = AVSpeechUtterance(string: String(clean.prefix(6000))); utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN"); spokenID = ObjectIdentifier(utterance); speaking = true; speaker.speak(utterance); status = "正在朗读回复" } catch { status = "朗读失败：" + error.localizedDescription }
     }
-    func stop() { continuous = false; speaker.stopSpeaking(at: .immediate); spokenID = nil; stopRecording() }
+    func stop() { continuous = false; speaker.stopSpeaking(at: .immediate); speaking = false; spokenID = nil; stopRecording() }
     private func releaseSession() { if ownsSession { ownsSession = false; try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) } }
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { Task { @MainActor in guard self.spokenID == ObjectIdentifier(utterance) else { return }; self.spokenID = nil; self.releaseSession(); if self.continuous && UIApplication.shared.applicationState == .active { await self.start() } } }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) { Task { @MainActor in guard self.spokenID == ObjectIdentifier(utterance) else { return }; self.onSpeechPulse?() } }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { Task { @MainActor in guard self.spokenID == ObjectIdentifier(utterance) else { return }; self.speaking = false; self.spokenID = nil; self.releaseSession(); if self.continuous && UIApplication.shared.applicationState == .active { await self.start() } } }
 }

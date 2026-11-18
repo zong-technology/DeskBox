@@ -122,6 +122,7 @@ struct MobileHologramView: View {
         }
         .background(Color(red: 0.008, green: 0.02, blue: 0.043).ignoresSafeArea()).preferredColorScheme(.dark)
         .task { call.start() }
+        .onReceive(NotificationCenter.default.publisher(for: AIEnvironment.changed)) { _ in call.stop(message: "运行环境已切换，请返回后重新进入。", mode: .paused) }
         .onChange(of: phase) { _, value in if value == .background { call.suspend() } else if value == .active { call.animate() } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notice in
             if (notice.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue { call.suspend(reason: "audio_interruption") }

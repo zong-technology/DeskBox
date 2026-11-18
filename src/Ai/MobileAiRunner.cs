@@ -38,6 +38,7 @@ namespace DeskBox.Ai
         {
             return Task.Run(delegate{
                 var progress=new MobileAiProgress{Id=id};
+                if(AiEnvironment.Local){progress.Status="error";progress.Error="电脑处于本地隔离模式，未接受手机中继操作。";publish(progress);return progress;}
                 // A paired phone may invoke a registered tool without a second model request.
                 // Only an entire, single user message is an operation envelope; documents cannot enable this mode.
                 if(messages!=null && messages.Count==1 && messages[0].Role=="user" && (messages[0].Content??"").StartsWith(OperationPrefix,StringComparison.Ordinal))

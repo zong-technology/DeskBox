@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Render delayed long replies with native AVAudioEngine and test input jitter
         run: |
-          swiftc mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramPlayback.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramInputGate.swift tools/mobile-audio-check.swift -o "$RUNNER_TEMP/audio-check"
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramPlayback.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramInputGate.swift tools/mobile-audio-check.swift -o "$RUNNER_TEMP/audio-check"
           "$RUNNER_TEMP/audio-check" | tee "$RUNNER_TEMP/audio-check.log"
           grep -E '^PASS [0-9]+ native audio checks' "$RUNNER_TEMP/audio-check.log"
       - uses: actions/upload-artifact@v4
@@ -69,12 +69,16 @@ jobs:
       - name: Check live protocol, history, cached tools and speech motion
         run: |
           mkdir -p "$RUNNER_TEMP/mobile-qa"
-          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/AIToolPresentation.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramDiagnostics.swift tools/mobile-hologram-check.swift -o "$RUNNER_TEMP/hologram-check"
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/AIToolPresentation.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramDiagnostics.swift tools/mobile-hologram-check.swift -o "$RUNNER_TEMP/hologram-check"
           "$RUNNER_TEMP/hologram-check" | tee "$RUNNER_TEMP/mobile-qa/hologram-check.log"
       - name: Read native PDF, image and text attachments and validate AI request limits
         run: |
-          swiftc mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAttachmentReader.swift tools/mobile-attachment-check.swift -o "$RUNNER_TEMP/attachment-check"
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAttachmentReader.swift tools/mobile-attachment-check.swift -o "$RUNNER_TEMP/attachment-check"
           "$RUNNER_TEMP/attachment-check" | tee "$RUNNER_TEMP/mobile-qa/attachment-check.log"
+      - name: Check independent phone models, actual local tools and offline network rejection
+        run: |
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/AIToolPresentation.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileDirectAI.swift tools/mobile-independent-ai-check.swift -o "$RUNNER_TEMP/independent-ai-check"
+          "$RUNNER_TEMP/independent-ai-check" | tee "$RUNNER_TEMP/mobile-qa/independent-ai-check.log"
       - name: Build unsigned arm64 iPhoneOS IPA
         run: |
           VERSION='${{ steps.version.outputs.version }}'
@@ -88,13 +92,13 @@ jobs:
           bash tools/ios-hologram-smoke.sh "$RUNNER_TEMP/mobile-qa"
           python3 - "$RUNNER_TEMP/mobile-qa" <<'PY'
           import sys,json,pathlib
-          p=pathlib.Path(sys.argv[1]);routes='home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics ai-empty tool-history tool-history-large ai-attachment ai-attachment-large'.split()
+          p=pathlib.Path(sys.argv[1]);routes='home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics ai-empty tool-history tool-history-large ai-attachment ai-attachment-large ai-settings ai-settings-large ai-local-settings ai-local-settings-large'.split()
           for label in ['main','small']:
             for route in routes:
               m=json.loads((p/(label+'-'+route+'.json')).read_text())
               assert m['route']==route and m['active']
               assert (p/(label+'-'+route+'.png')).stat().st_size>1000
-          print('PASS complete native UI matrix: 54 routes')
+          print('PASS complete native UI matrix: 62 routes')
           PY
       - uses: actions/upload-artifact@v4
         if: always()

@@ -25,6 +25,8 @@ namespace DeskBox.UI.Views
         private Label _toast;
 
         public event EventHandler ProvidersChanged;
+        public event EventHandler AIEnvironmentChanged;
+        public Func<bool> CanSwitchAIEnvironment;
         public event EventHandler FilePermissionsChanged;
         public event EventHandler TemporaryAccessRevoked;
         private void NotifyPermissionsChanged() { if (FilePermissionsChanged != null) FilePermissionsChanged(this, EventArgs.Empty); }
@@ -432,6 +434,16 @@ namespace DeskBox.UI.Views
         private Control PageAi()
         {
             var p = NewPage();
+            Section(p,"全部 AI 的运行环境","本地与网络分别保存模型配置、密钥和对话；普通 AI、全息、工作流 AI 及手机中继共用执行边界。");
+            var environment=new ComboBox {Left=8,Top=_y,Width=280,DropDownStyle=ComboBoxStyle.DropDownList,Name="ai-environment",AccessibleName="AI 运行环境"};
+            environment.Items.AddRange(new object[]{"本地隔离 · 仅本机模型","网络开放 · 允许联网模型"});environment.SelectedIndex=AiEnvironment.Local?0:1;p.Controls.Add(environment);_y+=38;
+            RowLabel(p,"本地仅允许 127.0.0.1 / ::1，不跟随重定向，不开放网络共享、工作流执行或设备同步。需事先安装本机模型服务；不会自动改用云端。");
+            environment.SelectedIndexChanged+=delegate {
+                var mode=environment.SelectedIndex==0?"local":"network";if(mode==AiEnvironment.Mode)return;
+                if(CanSwitchAIEnvironment!=null&&!CanSwitchAIEnvironment()){Toast("请先停止正在生成的对话，再切换环境",false);environment.SelectedIndex=AiEnvironment.Local?0:1;return;}
+                try {AiEnvironment.Select(mode);_providers.ChangeEnvironment();_editing=null;var changed=AIEnvironmentChanged;if(changed!=null)changed(this,EventArgs.Empty);ReloadProviderList();RaiseProviders();Toast("AI 环境已切换，原配置和记录保留");}
+                catch(Exception error){Toast(error.Message,false);environment.SelectedIndex=AiEnvironment.Local?0:1;}
+            };
             Section(p, "AI 服务商管理", "API Key 使用 Windows DPAPI 加密存储，界面与日志永不显示明文");
 
             var bar = new Panel { Left = 0, Top = _y, Height = 36, Width = Math.Max(700, Body.Width - 230), BackColor = Palette.Bg };

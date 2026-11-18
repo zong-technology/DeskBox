@@ -68,6 +68,14 @@ jobs:
             & (".\dist\"+$suite+'.exe') | Tee-Object ("dist\hologram-qa\"+$suite+'.log')
             if ($LASTEXITCODE -ne 0) { throw ($suite+' failed') }
           }
+      - name: Check all AI environment gates, separate histories and real redirect isolation
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\ai-environment-accept.exe tools\ai-environment-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'AI environment acceptance failed to compile' }
+          & .\dist\ai-environment-accept.exe | Tee-Object dist\hologram-qa\ai-environment-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'AI isolation checks failed' }
       - name: Check text AI project lookup and creation with a local model fixture
         timeout-minutes: 3
         shell: powershell

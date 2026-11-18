@@ -37,6 +37,9 @@ struct MobileAIView: View {
             }.background(MobileStyle.background)
                 .safeAreaInset(edge: .bottom, spacing: 0) { composer }
                 .navigationTitle("AI 助手").navigationBarTitleDisplayMode(.inline)
+                .onReceive(NotificationCenter.default.publisher(for: AIEnvironment.changed)) { _ in
+                    voiceMode = false; voice.stop(); ai.changeEnvironment(); history.changeEnvironment(); attachment = nil; draft = ""; cancelAttachmentRead()
+                }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) { Button { chooseAttachment() } label: { Image(systemName: "paperclip").frame(width: 44, height: 44) }.disabled(readingAttachment).accessibilityLabel("添加附件").accessibilityIdentifier("ai.attach") }
                     ToolbarItem(placement: .topBarTrailing) { Menu { menu } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("AI 更多操作") }
@@ -72,7 +75,7 @@ struct MobileAIView: View {
             HStack(spacing: 10) {
                 Button { openHologram() } label: { Label("全息语音", systemImage: "waveform.circle.fill").frame(maxWidth: .infinity) }.buttonStyle(MobilePrimaryButtonStyle()).accessibilityIdentifier("ai.hologram")
                 Button { composerFocused = false; sheet = .history } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 44, height: 44) }.background(MobileStyle.panel, in: RoundedRectangle(cornerRadius: 12)).accessibilityLabel("对话记录")
-                Button { composerFocused = false; sheet = .settings } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44) }.background(MobileStyle.panel, in: RoundedRectangle(cornerRadius: 12)).accessibilityLabel("全息语音设置")
+                Button { composerFocused = false; sheet = .settings } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44) }.background(MobileStyle.panel, in: RoundedRectangle(cornerRadius: 12)).accessibilityLabel("AI 环境与模型")
             }
             if !composerFocused {
                 HStack(spacing: 7) { if ai.busy { ProgressView().controlSize(.mini) }; Text(ai.stage).font(.caption).lineLimit(1); Spacer(); if ai.hasPendingRequest && !ai.busy { Button("恢复") { ai.resume(sync: sync) }.font(.caption.bold()) } }.foregroundStyle(.secondary)
@@ -99,11 +102,11 @@ struct MobileAIView: View {
         VStack(alignment: .leading, spacing: 14) {
             Image(systemName: "sparkles").font(.system(size: 28)).foregroundStyle(MobileStyle.accent).padding(.top, 12)
             Text("让工作更清楚").font(.title2.weight(.semibold))
-            Text("文字对话由电脑处理；全息语音直接连接已保存的实时服务。").font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("文字和全息 AI 均可由手机独立运行。在设置中选择本地隔离或网络开放环境，并一次保存模型。").font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             ForEach(["整理今天的未完成任务", "查看当前项目进度", "分析最近的现场事件"], id: \.self) { text in
                 Button { draft = text; composerFocused = true } label: { HStack(alignment: .top) { Text(text).multilineTextAlignment(.leading); Spacer(minLength: 8); Image(systemName: "arrow.up.left") }.font(.callout).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(MobileStyle.panel, in: RoundedRectangle(cornerRadius: 13)) }.buttonStyle(.plain)
             }
-            if sync.cloudCredential == nil { Button("连接账号与电脑") { sheet = .connection }.buttonStyle(.bordered).frame(minHeight: 44) }
+            Button("AI 环境与模型") { sheet = .settings }.buttonStyle(.bordered).frame(minHeight: 44)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private func messageCard(_ message: MobileAIMessage) -> some View {
@@ -134,22 +137,22 @@ struct MobileAIView: View {
                 Button {
                     composerFocused = false
                     if voice.listening { voice.stopRecording() } else { Task { await voice.start() } }
-                } label: { Image(systemName: voice.listening ? "stop.circle.fill" : "mic").font(.title3).frame(width: 44, height: 44) }.disabled(ai.busy || sync.cloudCredential == nil).accessibilityLabel(voice.listening ? "停止听写" : "语音听写")
+                } label: { Image(systemName: voice.listening ? "stop.circle.fill" : "mic").font(.title3).frame(width: 44, height: 44) }.disabled(ai.busy).accessibilityLabel(voice.listening ? "停止听写" : "语音听写")
                 TextField("输入问题", text: $draft, axis: .vertical).focused($composerFocused).lineLimit(1...4).padding(12).frame(minHeight: 44).background(MobileStyle.elevated, in: RoundedRectangle(cornerRadius: 14)).accessibilityIdentifier("ai.composer")
                 if ai.busy { Button { voice.stop(); ai.cancel(sync: sync) } label: { Image(systemName: "stop.fill").frame(width: 44, height: 44) }.accessibilityLabel("停止生成") }
-                else { Button { send() } label: { Image(systemName: "arrow.up").font(.headline).frame(width: 44, height: 44).background(MobileStyle.accent, in: Circle()).foregroundStyle(MobileStyle.background) }.disabled((draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachment == nil) || readingAttachment || sync.cloudCredential == nil).accessibilityLabel("发送问题") }
+                else { Button { send() } label: { Image(systemName: "arrow.up").font(.headline).frame(width: 44, height: 44).background(MobileStyle.accent, in: Circle()).foregroundStyle(MobileStyle.background) }.disabled((draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachment == nil) || readingAttachment).accessibilityLabel("发送问题") }
             }
         }.padding(.horizontal, 12).padding(.vertical, 10).background(MobileStyle.background).overlay(alignment: .top) { Rectangle().fill(MobileStyle.line).frame(height: 1) }
     }
     @ViewBuilder private var menu: some View {
         Button("添加PDF、图片或文本附件") { chooseAttachment() }.disabled(readingAttachment)
-        Button("全息语音设置") { sheet = .settings }
+        Button("AI 环境与模型") { sheet = .settings }
         Button("对话记录") { sheet = .history }
         Button("连接设置") { sheet = .connection }
         Button("通话诊断") { sheet = .diagnostics }
         Divider()
         Button("保存并新建对话") { archiveAndStart() }.disabled(!ai.canStartNewConversation)
-        Toggle("连续语音对话", isOn: $voiceMode).disabled(sync.cloudCredential == nil)
+        Toggle("连续语音对话", isOn: $voiceMode)
         Toggle("跟随最新回复", isOn: $follow)
         Button("恢复当前请求") { ai.resume(sync: sync) }.disabled(!ai.hasPendingRequest)
         Button("停止朗读") { voice.stop() }
@@ -158,7 +161,7 @@ struct MobileAIView: View {
         if value == .connection { ConnectionSettingsView() } else { NavigationStack {
             Group {
                 switch value {
-                case .settings: HologramSettingsView()
+                case .settings: MobileAISettingsView()
                 case .history: HologramHistoryView(history: history)
                 case .connection: ConnectionSettingsView()
                 case .diagnostics: HologramDiagnosticsView()
@@ -202,6 +205,6 @@ struct MobileAIView: View {
     }
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines); guard (!text.isEmpty || attachment != nil), !readingAttachment else { return }
-        voice.stopRecording(); ai.send(text, sync: sync, attachment: attachment); if ai.busy { draft = ""; attachment = nil; composerFocused = false }
+        voice.stopRecording(); ai.send(text, sync: sync, store: store, attachment: attachment); if ai.busy { draft = ""; attachment = nil; composerFocused = false }
     }
 }

@@ -22,7 +22,7 @@ struct CloudAIResult: Decodable {
 @MainActor final class MobileAIService: ObservableObject {
     @Published private(set) var messages: [MobileAIMessage] = []
     @Published private(set) var busy = false
-    @Published private(set) var stage = "就绪 · 使用电脑端配置的AI服务商"
+    @Published private(set) var stage = "就绪 · 手机独立 AI"
     @Published private(set) var provider = ""
     @Published private(set) var model = ""
     @Published private(set) var error = ""
@@ -32,9 +32,11 @@ struct CloudAIResult: Decodable {
     private var loadFailed = false
     private var operationId = UUID()
     private var operation: Task<Void, Never>?
-    private let historyURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("mobile-ai-history.json")
+    private var environment = AIEnvironment.current
+    private var direct = false
+    private var historyURL: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("mobile-ai-history" + environment.historySuffix + ".json") }
     private var savedAt = Date.distantPast
-    private var jobId: String? { get { UserDefaults.standard.string(forKey: "mobileAIJob") } set { UserDefaults.standard.set(newValue, forKey: "mobileAIJob") } }
+    private var jobId: String? { get { environment == .network ? UserDefaults.standard.string(forKey: "mobileAIJob") : nil } set { UserDefaults.standard.set(newValue, forKey: "mobileAIJob") } }
     private var assistantId: String? { get { UserDefaults.standard.string(forKey: "mobileAIAssistant") } set { UserDefaults.standard.set(newValue, forKey: "mobileAIAssistant") } }
     init(preview: Bool = false) {
         #if DEBUG
@@ -48,29 +50,60 @@ struct CloudAIResult: Decodable {
         catch { loadFailed = true; self.error = "文字记录读取失败，原文件已保留，暂停覆盖。" }
     }
     private func save() { guard !loadFailed else { return }; do { try JSONEncoder().encode(Array(messages.suffix(60))).write(to: historyURL, options: .atomic); savedAt = Date() } catch { self.error = "AI历史保存失败，当前内容仍保留在内存" } }
-    func send(_ text: String, sync: SyncClient, attachment: MobileAIAttachment? = nil) {
+    func send(_ text: String, sync: SyncClient, store: OfflineStore, attachment: MobileAIAttachment? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = trimmed.isEmpty && attachment != nil ? "请分析这份附件，说明依据和需要核实的地方。" : trimmed
         guard !value.isEmpty, !busy, !loadFailed else { return }
-        guard jobId == nil else { error = "还有尚未确认的请求，请先恢复查看或取消"; return }
-        guard sync.cloudCredential != nil else { error = "请先在连接设置登录云账号；手机AI通过已授权电脑处理"; return }
+        guard jobId == nil else { error = "旧版电脑请求尚未确认，请先恢复查看或取消"; return }
         let user = MobileAIMessage(role: "user", content: value, attachment: attachment)
-        guard user.requestContent.utf16.count <= 16000 else { error = "问题与附件超过单条内容限制，请缩短问题或分段发送附件。"; return }
-        let history: [[String: String]]
-        do { history = try MobileAIRequest.history((messages + [user]).filter { !$0.content.isEmpty && $0.error.isEmpty }.map { ($0.role, AIToolPresentation.conversation($0.requestContent).text) }) }
+        let request: [[String: String]]
+        do { request = try MobileAIRequest.history((messages + [user]).filter { !$0.content.isEmpty && $0.error.isEmpty }.map { ($0.role, AIToolPresentation.conversation($0.requestContent).text) }) }
         catch { self.error = error.localizedDescription; return }
-        error = ""; messages.append(user)
-        let assistant = MobileAIMessage(role: "assistant", content: ""); messages.append(assistant); assistantId = assistant.id
-        let id = UUID().uuidString.lowercased(); jobId = id; save(); busy = true; stage = "提交请求 · 等待电脑接入"
+        let profile = MobileAISettings.resolved(), scope = environment
+        let assistant = MobileAIMessage(role: "assistant", content: "")
+        messages.append(user); messages.append(assistant); error = ""; busy = true; direct = true; save()
         let token = UUID(); operationId = token
+        let tools = HologramLocalTools(store: store, lastSync: { [weak sync] in sync?.lastSyncedAt })
         operation = Task {
             do {
-                let body = try JSONSerialization.data(withJSONObject: ["Id": id, "Messages": history])
-                _ = try await sync.mobileAIRequest("ai-request", body: body)
-                guard !Task.isCancelled, operationId == token else { return }
-                await poll(id: id, token: token, sync: sync)
-            } catch { if !Task.isCancelled && operationId == token { self.error = error.localizedDescription; stage = "连接中断 · 返回页面可恢复"; busy = false; save() } }
+                let execute: (HologramFunction) async -> [String: Any] = { call in
+                    guard !Task.isCancelled, self.operationId == token, AIEnvironment.current == scope else { return ["ok": false, "error": "环境已切换，操作已停止。"] }
+                    if call.name == "deskbox_execute" {
+                        guard scope == .network, profile.allowComputer else { return ["ok": false, "error": "电脑操作未开启。"] }
+                        return await MobileComputerActions.execute(call.arguments, sync: sync)
+                    }
+                    if call.name == "deskbox_web_read" { return await MobileWebTools.read(call.arguments) }
+                    return tools.execute(call)
+                }
+                let progress: (String) -> Void = { text in
+                    guard self.operationId == token else { return }
+                    if text.hasPrefix("```deskbox-results"), let index = self.messages.firstIndex(where: { $0.id == assistant.id }) { self.messages[index].content = text; self.save() }
+                    else { self.stage = text }
+                }
+                let instructions = HologramSettings.load().instructions + "\n你现在是手机独立文字助手；不要要求电脑版在线。只使用本次实际提供的工具。附件已由手机提取，不要通过电脑读取附件文件名。结果用中文概括，不粘贴原始JSON。"
+                self.provider = scope == .local ? "本机模型" : profile.provider.rawValue; self.model = scope == .local ? "Apple 本机模型" : profile.model
+                let reply: String
+                if scope == .local { reply = try await MobileLocalAI.run(history: request, instructions: instructions, execute: execute, progress: progress) }
+                else { reply = try await MobileDirectAI.run(profile: profile, history: request, instructions: instructions, execute: execute, progress: progress) }
+                guard !Task.isCancelled, operationId == token, environment == scope else { return }
+                if let index = messages.firstIndex(where: { $0.id == assistant.id }) { messages[index].content = reply }
+                completedReply = assistant.id; stage = "已完成 · " + scope.title
+            } catch {
+                guard operationId == token else { return }
+                self.error = error is CancellationError ? "已停止；已完成的修改不会撤销。" : (error as? HologramError)?.errorDescription ?? "模型连接中断，请重试；已保存的工具结果仍可查看。"
+                if let index = messages.firstIndex(where: { $0.id == assistant.id }) { messages[index].error = self.error }
+                stage = "未完成 · " + scope.title
+            }
+            guard operationId == token else { return }; busy = false; direct = false; save()
         }
+    }
+    func changeEnvironment() {
+        guard environment != AIEnvironment.current else { return }
+        suspend(); save(); environment = AIEnvironment.current
+        messages = []; error = ""; completedReply = nil; provider = ""; model = ""; loadFailed = false; stage = "就绪 · " + environment.title
+        guard FileManager.default.fileExists(atPath: historyURL.path) else { return }
+        do { messages = try JSONDecoder().decode([MobileAIMessage].self, from: Data(contentsOf: historyURL)) }
+        catch { loadFailed = true; self.error = "此环境的记录读取失败，原文件已保留。" }
     }
     func resume(sync: SyncClient) {
         guard !busy, let id = jobId, sync.cloudCredential != nil else { return }
@@ -92,7 +125,8 @@ struct CloudAIResult: Decodable {
         } catch { if !Task.isCancelled && operationId == token { self.error = error.localizedDescription; stage = "网络中断，已有内容保留"; busy = false; if (error as NSError).code == 404 { jobId = nil }; save() } }
     }
     func cancel(sync: SyncClient) {
-        guard let id = jobId else { return }
+        if direct { stopDirect(); return }
+        guard let id = jobId, AIEnvironment.current == .network else { return }
         operation?.cancel(); let token = UUID(); operationId = token; busy = true; stage = "正在通知电脑取消"
         operation = Task {
             do {
@@ -103,6 +137,10 @@ struct CloudAIResult: Decodable {
             busy = false; save()
         }
     }
-    func suspend() { operationId = UUID(); operation?.cancel(); busy = false; if jobId != nil { stage = "电脑继续处理，回到前台可恢复查看" } }
+    private func stopDirect() {
+        operationId = UUID(); operation?.cancel(); direct = false; busy = false; stage = "已停止 · 已有结果保留"
+        if let index = messages.indices.last, messages[index].role == "assistant" { messages[index].error = "回复已停止，已完成的操作不会撤销。" }; save()
+    }
+    func suspend() { if direct { stopDirect(); return }; operationId = UUID(); operation?.cancel(); busy = false; if jobId != nil { stage = "旧版电脑请求已暂停查看" } }
     func newConversation() { guard canStartNewConversation else { return }; messages = []; error = ""; stage = "新对话"; save() }
 }

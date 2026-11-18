@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum HologramSettings {
-    static let account = "DeskBoxMobileHologramProfile"
+    static var account: String { "DeskBoxMobileHologramProfile" + AIEnvironment.current.historySuffix }
     static func load() -> HologramProfile { Keychain.load(account: account) ?? HologramProfile() }
 }
 struct HologramSettingsView: View {
@@ -19,13 +19,13 @@ struct HologramSettingsView: View {
                 Toggle("允许免按键打断", isOn: $profile.allowInterruption)
                 Text("默认在 AI 播报时抑制收音回声；需要提问时点投影或下方打断按钮。戴耳机时可开启免按键打断，直接说话接续。").font(.caption).foregroundStyle(.secondary)
             }
-            Section("实时语音服务") {
+            if AIEnvironment.current == .network { Section("实时语音服务") {
                 Picker("服务", selection: $profile.service) { Text("Google · Gemini Live").tag(HologramService.gemini); Text("千问百炼 · Omni Realtime").tag(HologramService.qwen) }
                 TextField("WSS 服务地址", text: $profile.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                 TextField("实时语音模型", text: $profile.model).textInputAutocapitalization(.never).autocorrectionDisabled()
                 SecureField(saved.key.isEmpty || profile.service != saved.service ? "API 密钥" : "已保存，留空保留", text: $secret).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Text("在这里配置一次，通话中只显示全息与字幕。手机密钥保存在系统钥匙串，不通过私人云同步；电脑中继文字AI的密钥仍留在电脑。").font(.caption).foregroundStyle(.secondary)
-            }
+                Text("在这里配置一次，通话中只显示全息与字幕。手机密钥保存在系统钥匙串，不通过私人云同步；文字AI也可在手机独立配置。").font(.caption).foregroundStyle(.secondary)
+            } }
             Section {
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.cyan) }
             }
@@ -44,7 +44,7 @@ struct HologramSettingsView: View {
                     do {
                         try value.validate(requireKey: !value.key.isEmpty)
                         guard Keychain.save(value, account: HologramSettings.account) else { status = "钥匙串保存失败，请稍后重试。"; return }
-                        profile = value; saved = value; secret = ""; status = value.ready ? "已保存，下次进入全息通话会直接连接。" : "偏好已保存，语音尚未启用。"
+                        profile = value; saved = value; secret = ""; status = AIEnvironment.current == .local ? "本地角色已保存。" : value.ready ? "已保存，下次进入全息通话会直接连接。" : "偏好已保存，语音尚未启用。"
                     } catch { status = error.localizedDescription }
 
     }
