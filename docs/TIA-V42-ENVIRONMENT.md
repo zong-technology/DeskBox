@@ -25,3 +25,15 @@
 上述 V20 连接层依据官方文档实现，必须在真实 Siemens 安装上运行样本工程验证。检测成功、反射绑定成功、编译成功与现场验收各为不同检查。
 
 官方依据：[Siemens V20 Openness 手册](https://docs.tia.siemens.cloud/r/en-us/v20/tia-portal-openness-api-for-automation-of-engineering-workflows) · [项目打开](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/bj_3j5_TiiIIs0wEhO0JHQ/content) · [工程编译](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/DwXLzDT2glAOnCAxC4jvtA/content) · [外部源导入](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/7uZIiuJJ0sZyioGHa_qBEw/content) · [从外部源生成块](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/kxNuDb_uRdA8BYt~s8WRXw/content) · [硬件目录](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/wGo9C06GmdclJwfMLN33Pw/content)。
+
+## 持证机器原生验收
+
+用关闭后的独立 S7-1200 或 S7-1500 V20 样本和已加入 Openness 用户组的 Windows 测试账户运行。脚本生成独立证据目录，记录枚举出的精确 PLC 路径。首次仅指定源文件和证据目录。检查输出与 TIA 中的设备、块、类型和变量数量一致后，可用新证据目录、`-TargetCpu` 和 `-Compile` 验证离线编译。要单独验证新增缩放模板，使用 `-ApprovedNewScaleBlock` 指定新块名并检查回执、差异、源 SHA-256 清单和工作副本。脚本使用真实连接器，没有替代的模拟成功结果。
+
+```powershell
+powershell -NoProfile -File tools\tia-v20-smoke.ps1 `
+  -ClosedOfflineProject 'D:\TIA-QA\S7-1200\Example.ap20' `
+  -EvidenceDirectory 'D:\TIA-QA\evidence-inspect'
+```
+
+`tools/tia-v20-smoke.ps1` 的语法已检查。当前执行环境缺少 Siemens 运行时，尚未运行该脚本的原生工程流程。
