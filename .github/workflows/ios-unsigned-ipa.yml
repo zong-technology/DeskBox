@@ -15,8 +15,12 @@ on:
         description: '仅恢复发布：填写同工作流已通过原生检查的运行 ID，留空正常构建'
         type: string
         default: ''
+      audio_only:
+        description: '仅运行原生离线音频回归，不生成或发布安装包'
+        type: boolean
+        default: false
 concurrency:
-  group: local-release-macOS-${{ github.ref }}
+  group: local-release-macOS-${{ github.ref }}${{ inputs.audio_only && '-audio' || '' }}
   cancel-in-progress: false
 permissions:
   contents: read
@@ -44,7 +48,7 @@ jobs:
           if-no-files-found: warn
   unsigned-ipa:
     needs: audio-regression
-    if: inputs.artifact_run_id == ''
+    if: inputs.artifact_run_id == '' && !inputs.audio_only
     outputs:
       version: ${{ steps.version.outputs.version }}
     runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
@@ -115,7 +119,7 @@ jobs:
           path: ${{ runner.temp }}/mobile-release/
           if-no-files-found: error
   publish:
-    if: ${{ always() && inputs.publish && (inputs.artifact_run_id != '' || (needs.unsigned-ipa.result == 'success' && needs.audio-regression.result == 'success')) }}
+    if: ${{ always() && inputs.publish && !inputs.audio_only && (inputs.artifact_run_id != '' || (needs.unsigned-ipa.result == 'success' && needs.audio-regression.result == 'success')) }}
     needs: [unsigned-ipa, audio-regression]
     runs-on: ubuntu-latest
     permissions:
