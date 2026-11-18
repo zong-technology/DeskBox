@@ -18,6 +18,7 @@ namespace DeskBox.Ai
         Task ConnectAsync(CancellationToken cancellation);
         Task SendAudioAsync(byte[] pcm16, CancellationToken cancellation);
         Task EndInputAsync(CancellationToken cancellation);
+        Task CompleteToolsAsync(IList<VoiceToolResult> results, CancellationToken cancellation);
         Task<VoicePacket> ReceiveAsync(CancellationToken cancellation);
     }
 
@@ -26,18 +27,28 @@ namespace DeskBox.Ai
         public bool Ready, Interrupted, TurnComplete, ReconnectRequested;
         public string Caption;
         public readonly List<byte[]> Audio = new List<byte[]>();
-        public readonly List<VoiceSceneCall> SceneCalls = new List<VoiceSceneCall>();
+        public bool InputEnded, InputStarted, ResponseStarted, ResponseFailed;
+        public string UserCaption;
+        public bool UserCaptionDelta;
+        public string UserTurnId;
+        public bool ToolsCancelled;
+        public readonly List<VoiceToolCall> ToolCalls = new List<VoiceToolCall>();
     }
+
+    internal interface IVoiceInput : IDisposable { int Read(short[] samples); }
+    internal interface IVoiceOutput : IDisposable { bool Play(byte[] pcm); void Flush(); double? PlaybackLevel(); }
 
     internal sealed class GeminiLiveVoiceProvider : IRealtimeVoiceProvider
     {
         public const string DefaultEndpoint = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+        private CancellationTokenRegistration environmentRegistration;
         private readonly ClientWebSocket _socket = new ClientWebSocket();
         private readonly Uri _endpoint;
         private readonly string _model, _key;
+        private readonly RealtimeVoiceSettings _profile;
 
 
-        public GeminiLiveVoiceProvider(string endpoint, string model, string apiKey)
+        public GeminiLiveVoiceProvider(string endpoint, string model, string apiKey, RealtimeVoiceSettings profile = null)
         {
             Uri uri;
             if (!Uri.TryCreate(endpoint, UriKind.Absolute, out uri) || uri.Scheme != "wss" ||
@@ -48,6 +59,7 @@ namespace DeskBox.Ai
             _endpoint = uri;
             _model = model.Trim();
             _key = apiKey.Trim();
+            _profile=profile ?? new RealtimeVoiceSettings();
         }
 
         public int InputSampleRate { get { return 16000; } }
@@ -55,11 +67,14 @@ namespace DeskBox.Ai
 
         public async Task ConnectAsync(CancellationToken cancellation)
         {
+            var environmentToken=AiEnvironment.Token;
+            AiEnvironment.RequireEndpoint(_endpoint.ToString());
             var uri = new UriBuilder(_endpoint) { Query = "key=" + Uri.EscapeDataString(_key) };
             try
             {
+                environmentRegistration.Dispose();environmentRegistration=environmentToken.Register(_socket.Abort);
                 await _socket.ConnectAsync(uri.Uri, cancellation).ConfigureAwait(false);
-                await SendAsync(SetupJson(_model), cancellation).ConfigureAwait(false);
+                await SendAsync(SetupJson(_model,_profile), cancellation).ConfigureAwait(false);
                 var packet = await ReceiveAsync(cancellation).ConfigureAwait(false);
                 if (!packet.Ready) throw new InvalidDataException("Gemini Live 未确认会话设置。");
             }
@@ -80,6 +95,18 @@ namespace DeskBox.Ai
             return SendAsync("{\"realtimeInput\":{\"audioStreamEnd\":true}}", cancellation);
         }
 
+        public Task CompleteToolsAsync(IList<VoiceToolResult> results, CancellationToken cancellation)
+        {
+            return SendAsync(ToolResponseJson(results),cancellation);
+        }
+
+        internal static string ToolResponseJson(IList<VoiceToolResult> results)
+        {
+            var responses=new List<object>();
+            foreach(var result in results)responses.Add(new {id=result.Id,name=result.Name,response=result.Response});
+            return new JavaScriptSerializer().Serialize(new {toolResponse=new {functionResponses=responses}});
+        }
+
         public async Task<VoicePacket> ReceiveAsync(CancellationToken cancellation)
         {
             return ParsePacket(await VoiceWire.ReceiveAsync(_socket, cancellation).ConfigureAwait(false));
@@ -90,15 +117,17 @@ namespace DeskBox.Ai
             return VoiceWire.SendAsync(_socket, json, cancellation);
         }
 
-        public void Dispose() { _socket.Dispose(); }
+        public void Dispose() { environmentRegistration.Dispose();_socket.Dispose(); }
 
-        internal static string SetupJson(string model)
+        internal static string SetupJson(string model, RealtimeVoiceSettings profile = null)
         {
             return new JavaScriptSerializer().Serialize(new { setup = new {
                 model = model.StartsWith("models/", StringComparison.Ordinal) ? model : "models/" + model,
                 generationConfig = new { responseModalities = new[] { "AUDIO" } },
                 outputAudioTranscription = new object(),
-                systemInstruction = new { parts = new[] { new { text = "默认使用简体中文回答。没有设备实时数据时，明确说明是工程示意。" } } }
+                inputAudioTranscription = new object(),
+                systemInstruction = new { parts = new[] { new { text = (profile ?? new RealtimeVoiceSettings()).Instructions } } },
+                tools = new[] {new {functionDeclarations=HologramTools.Declarations()}}
             } });
         }
 
@@ -124,6 +153,18 @@ namespace DeskBox.Ai
             };
             var transcription = Read(content, "outputTranscription") as IDictionary<string, object>;
             packet.Caption = Read(transcription, "text") as string;
+            var input = Read(content, "inputTranscription") as IDictionary<string, object>;
+            packet.UserCaption = Read(input, "text") as string;
+            packet.UserCaptionDelta = true;
+            packet.InputEnded=object.Equals(Read(input,"finished"),true);
+            packet.ToolsCancelled=Read(root,"toolCallCancellation")!=null;
+            var toolCall=Read(root,"toolCall") as IDictionary<string,object>;
+            var functions=Read(toolCall,"functionCalls") as IList;
+            if(functions!=null)foreach(var function in functions){
+                var call=function as IDictionary<string,object>;
+                packet.ToolCalls.Add(new VoiceToolCall {Id=Read(call,"id") as string,Name=Read(call,"name") as string,
+                    Arguments=Read(call,"args") as IDictionary<string,object>});
+            }
             // On interruption the owner must flush its existing playback queue too.
             if (packet.Interrupted) return packet;
             var turn = Read(content, "modelTurn") as IDictionary<string, object>;

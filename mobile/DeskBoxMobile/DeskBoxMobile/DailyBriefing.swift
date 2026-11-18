@@ -72,23 +72,28 @@ struct BriefingForecast: Codable {
         return lines.joined(separator: "\n")
     }
 
+    var voiceSessionActive = false
+    private var ownsAudioSession = false
+    private var spokenID: ObjectIdentifier?
     func speak(tasks: [MobileTask]) {
+        guard !voiceSessionActive else { return }
+        stopSpeaking()
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: .duckOthers)
-            try AVAudioSession.sharedInstance().setActive(true)
-            speaker.stopSpeaking(at: .immediate)
+            try AVAudioSession.sharedInstance().setActive(true); ownsAudioSession = true
             let utterance = AVSpeechUtterance(string: summary(tasks: tasks))
             utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
-            speaker.speak(utterance)
+            spokenID = ObjectIdentifier(utterance); speaker.speak(utterance)
         } catch { weatherStatus = "语音播放失败：" + error.localizedDescription }
     }
-    func stopSpeaking() { speaker.stopSpeaking(at: .immediate); try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    func stopSpeaking() { spokenID = nil; speaker.stopSpeaking(at: .immediate); releaseAudio() }
+    private func releaseAudio() { if ownsAudioSession { ownsAudioSession = false; try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) } }
 
     func tick(tasks: [MobileTask]) async {
         await refreshWeather()
         reschedule(tasks: tasks)
         let day = UserDefaults.standard.string(forKey: "lastSpokenBriefingDay") ?? ""
-        if UIApplication.shared.applicationState == .active && BriefingRules.shouldSpeak(preferences: preferences, now: Date(), spokenDay: day) {
+        if UIApplication.shared.applicationState == .active && !voiceSessionActive && BriefingRules.shouldSpeak(preferences: preferences, now: Date(), spokenDay: day) {
             UserDefaults.standard.set(BriefingRules.dateKey(Date()), forKey: "lastSpokenBriefingDay")
             speak(tasks: tasks)
         }
@@ -159,7 +164,7 @@ struct BriefingForecast: Codable {
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) { completionHandler([.banner, .sound]) }
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { Task { @MainActor in guard self.spokenID == ObjectIdentifier(utterance) else { return }; self.spokenID = nil; self.releaseAudio() } }
 }
 
 struct DailyBriefingCard: View {
@@ -172,14 +177,18 @@ struct DailyBriefingCard: View {
             HStack { Label("每日工程简报", systemImage: "sun.horizon.fill").font(.headline); Spacer(); Button("设置") { settings = true } }
             Text(briefing.preferences.city.flatMap { _ in briefing.forecast?.city == briefing.preferences.city ? briefing.forecast?.text(on: Date()) : nil } ?? "选择城市，开启天气与任务简报").font(.subheadline)
             Text(briefing.preferences.reminders ? briefing.notificationStatus : "每日提醒未开启 · 可选择任务与提醒时间").font(.caption).foregroundStyle(.secondary)
-            HStack {
+            ViewThatFits(in: .horizontal) { HStack {
                 Button { briefing.speak(tasks: store.tasks) } label: { Label("朗读", systemImage: "speaker.wave.2.fill") }.buttonStyle(.bordered)
                 Button("停止") { briefing.stopSpeaking() }.font(.caption)
                 Spacer()
                 if MFMailComposeViewController.canSendMail() { Button("邮件草稿") { mail = true }.buttonStyle(.bordered) }
                 else { ShareLink(item: briefing.summary(tasks: store.tasks)) { Label("分享简报", systemImage: "square.and.arrow.up") }.font(.caption) }
-            }
-        }.padding().background(Color(red: 0.055, green: 0.09, blue: 0.15), in: RoundedRectangle(cornerRadius: 18))
+            }; VStack(alignment: .leading, spacing: 8) {
+                Button("朗读简报") { briefing.speak(tasks: store.tasks) }.buttonStyle(.bordered)
+                Button("停止朗读") { briefing.stopSpeaking() }.frame(minHeight: 44)
+                ShareLink(item: briefing.summary(tasks: store.tasks)) { Label("分享简报", systemImage: "square.and.arrow.up") }.frame(minHeight: 44)
+            } }
+        }.workspaceCard()
         .sheet(isPresented: $settings) { DailyBriefingSettingsView() }
         .sheet(isPresented: $mail) { BriefingMailComposer(recipient: briefing.preferences.email, messageBody: briefing.summary(tasks: store.tasks)) }
     }
@@ -230,7 +239,7 @@ struct DailyBriefingSettingsView: View {
                     TextField("默认收件邮箱（可空）", text: $briefing.preferences.email).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Text("首页生成含任务和天气的邮件草稿，由你确认收件人并发送。未配置系统邮件时可分享给邮件应用；暂不读取收件箱。").font(.caption).foregroundStyle(.secondary)
                 }
-            }.navigationTitle("每日简报设置")
+            }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle("每日简报设置")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { briefing.reschedule(tasks: store.tasks); dismiss() } } }
             .onChange(of: briefing.preferences.reminders) { _, enabled in if enabled { Task { await briefing.requestNotifications(tasks: store.tasks) } } else { briefing.reschedule(tasks: store.tasks) } }
         }

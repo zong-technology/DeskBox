@@ -15,20 +15,21 @@ namespace DeskBox.Ai
     {
         public const string DefaultModel = "qwen3.8-omni-flash-realtime";
         public const string DefaultEndpoint = "wss://YOUR-WORKSPACE.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime";
+        private CancellationTokenRegistration environmentRegistration;
         private readonly ClientWebSocket _socket = new ClientWebSocket();
         private readonly Uri _endpoint;
         private readonly string _model;
-        private readonly bool _enableScenes;
+        private readonly RealtimeVoiceSettings _profile;
         private bool _discardAudio;
-        private readonly Dictionary<string, VoiceSceneCall> _pendingScenes = new Dictionary<string, VoiceSceneCall>();
+        private readonly List<VoiceToolCall> _pendingTools=new List<VoiceToolCall>();
 
-        public QwenLiveVoiceProvider(string endpoint, string model, string key, bool enableScenes = true)
+        public QwenLiveVoiceProvider(string endpoint, string model, string key, RealtimeVoiceSettings profile = null)
         {
             _endpoint = Endpoint(endpoint);
             if (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(key))
                 throw new ArgumentException("请填写百炼模型 ID 和 API Key。");
             _model = model.Trim();
-            _enableScenes = enableScenes;
+            _profile=profile ?? new RealtimeVoiceSettings();
             _socket.Options.SetRequestHeader("Authorization", "Bearer " + key.Trim());
         }
 
@@ -37,11 +38,14 @@ namespace DeskBox.Ai
 
         public async Task ConnectAsync(CancellationToken token)
         {
+            var environmentToken=AiEnvironment.Token;
+            AiEnvironment.RequireEndpoint(_endpoint.ToString());
             try
             {
+                environmentRegistration.Dispose();environmentRegistration=environmentToken.Register(_socket.Abort);
                 var target = new UriBuilder(_endpoint) { Query = "model=" + Uri.EscapeDataString(_model) };
                 await _socket.ConnectAsync(target.Uri, token).ConfigureAwait(false);
-                await SendAsync(Setup(_model, _enableScenes), token).ConfigureAwait(false);
+                await SendAsync(Setup(_model,_profile), token).ConfigureAwait(false);
                 while (!(await ReceiveAsync(token).ConfigureAwait(false)).Ready) { }
             }
             catch (WebSocketException) { throw new IOException("无法连接百炼，请检查工作空间地址、API Key 和模型权限。"); }
@@ -55,6 +59,18 @@ namespace DeskBox.Ai
         public Task EndInputAsync(CancellationToken token)
         {
             return SendAsync(new { type = "input_audio_buffer.clear" }, token);
+        }
+
+        public async Task CompleteToolsAsync(IList<VoiceToolResult> results, CancellationToken token)
+        {
+            foreach(var result in results)await SendAsync(ToolOutput(result),token).ConfigureAwait(false);
+            await SendAsync(new {type="response.create"},token).ConfigureAwait(false);
+        }
+
+        internal static object ToolOutput(VoiceToolResult result)
+        {
+            return new {type="conversation.item.create",item=new {type="function_call_output",call_id=result.Id,
+                output=new JavaScriptSerializer().Serialize(result.Response)}};
         }
 
         private Task SendAsync(object payload, CancellationToken token)
@@ -71,30 +87,37 @@ namespace DeskBox.Ai
         {
             var evt = new JavaScriptSerializer().DeserializeObject(json) as IDictionary<string, object>;
             var type = Read(evt, "type") as string;
-            if (type == "error") throw new InvalidDataException("百炼拒绝了语音请求，请检查模型权限和会话配置。");
-            var packet = new VoicePacket { Ready = type == "session.updated", TurnComplete = type == "response.done" };
-            if (type == "response.created") _discardAudio = false;
+            if (type == "error") {
+                if(object.Equals(Read(Read(evt,"error") as IDictionary<string,object>,"code"),"response_cancel_not_active"))return new VoicePacket();
+                throw new InvalidDataException("百炼拒绝了语音请求，请检查模型权限和会话配置。");
+            }
+            var packet = new VoicePacket { Ready = type == "session.updated", TurnComplete = type == "response.done", ResponseStarted=type=="response.created" };
+            if (type == "response.created") {_discardAudio = false;_pendingTools.Clear();}
             var response = Read(evt, "response") as IDictionary<string, object>;
-            if (type == "response.done" && object.Equals(Read(response, "status"), "failed"))
-                throw new InvalidDataException("百炼语音回复失败，请检查配额和模型权限。");
+            packet.ResponseFailed=packet.TurnComplete && (object.Equals(Read(response,"status"),"failed") || object.Equals(Read(response,"status"),"incomplete"));
+            if(packet.ResponseFailed){_discardAudio=true;_pendingTools.Clear();}
             if (type == "input_audio_buffer.speech_started" ||
                 (type == "response.done" && object.Equals(Read(response, "status"), "cancelled")))
             {
                 packet.Interrupted = true;
                 _discardAudio = true;
-                _pendingScenes.Clear();
+                _pendingTools.Clear();
             }
-            if (type == "response.function_call_arguments.done" && !_discardAudio)
-            {
-                var id = Read(evt, "call_id") as string;
-                if (!string.IsNullOrEmpty(id) && id.Length <= 128)
-                    _pendingScenes[id] = new VoiceSceneCall(id, Read(evt, "name") as string, Read(evt, "arguments") as string);
+            packet.InputEnded = type == "input_audio_buffer.speech_stopped";
+            packet.InputStarted=type=="input_audio_buffer.speech_started";
+            if(packet.InputStarted)packet.UserTurnId=Read(evt,"item_id") as string;
+            if (type == "conversation.item.input_audio_transcription.completed") {
+                packet.UserCaption = Read(evt, "transcript") as string;packet.UserTurnId=Read(evt,"item_id") as string;
             }
-            if (type == "response.done" && !_discardAudio)
-            {
-                packet.SceneCalls.AddRange(_pendingScenes.Values);
-                _pendingScenes.Clear();
+            if(type=="response.function_call_arguments.done" && !_discardAudio){
+                IDictionary<string,object> arguments=null;
+                try {arguments=new JavaScriptSerializer().DeserializeObject(Convert.ToString(Read(evt,"arguments"))) as IDictionary<string,object>;}
+                catch(ArgumentException) { }
+                if(_pendingTools.Count>=8)throw new InvalidDataException("一次回复的工具请求过多。");
+                _pendingTools.Add(new VoiceToolCall {Id=Read(evt,"call_id") as string,Name=Read(evt,"name") as string,Arguments=arguments});
             }
+            // Wait for the current response to finish before returning outputs and requesting one continuation.
+            if(packet.TurnComplete && !_discardAudio){packet.ToolCalls.AddRange(_pendingTools);_pendingTools.Clear();}
             if (type == "response.audio_transcript.delta" && !_discardAudio)
                 packet.Caption = Read(evt, "delta") as string;
             if (type == "response.audio.delta" && !_discardAudio)
@@ -106,47 +129,32 @@ namespace DeskBox.Ai
             return packet;
         }
 
-        public async Task CompleteScenesAsync(IEnumerable<VoiceSceneCall> calls, CancellationToken token)
+        internal static object Setup(string model, RealtimeVoiceSettings profile = null)
         {
-            foreach (var call in calls)
-            {
-                var result = string.IsNullOrEmpty(call.Scene) ? "未切换：场景指令无效。" :
-                    call.Scene == "progress" ? "已打开本地进度面板。未读取或发送项目数据。" : "已切换本地场景。";
-                await SendAsync(new { type = "conversation.item.create", item = new {
-                    type = "function_call_output", call_id = call.Id, output = result
-                } }, token).ConfigureAwait(false);
-            }
-            await SendAsync(new { type = "response.create" }, token).ConfigureAwait(false);
-        }
-
-        internal static object Setup(string model, bool enableScenes = true)
-        {
-            const string instructions = "默认用简体中文交流。没有设备实时数据时，明确说明是工程示意。话题切换到反应器、PLC 通信或项目进度时，调用一次 deskbox_show_scene。收到工具结果后直接口头答复，不重复调用。项目进度由本地界面显示，勿编造。";
-            var tools = new[] { new { type = "function", function = new {
-                name = VoiceSceneCall.ToolName,
-                description = "切换 DeskBox 的本地场景。reactor=反应器示意，plc=PLC 通信拓扑示意，progress=当前项目进度，core=返回智能核心。",
-                parameters = new { type = "object", properties = new { scene = new { type = "string", @enum = VoiceSceneCall.Allowed } },
-                    required = new[] { "scene" } }
-            } } };
+            string instructions=(profile ?? new RealtimeVoiceSettings()).Instructions;
             if (model.StartsWith("qwen3.8-", StringComparison.OrdinalIgnoreCase))
             {
                 var session = new Dictionary<string, object> {
                     { "modalities", new[] { "text", "audio" } },
-                    { "instructions", enableScenes ? instructions : "默认用简体中文与用户实时语音交流。" },
+                    { "instructions", instructions },
+                    { "tools", HologramTools.QwenDeclarations() },
+                    { "input_audio_transcription", new {model="qwen3-asr-flash-realtime"} },
                     { "turn_detection", new { type = "semantic_vad_ec" } },
                     { "audio", new {
                         input = new { format = new { type = "pcm", sample_rate = 16000 } },
                         output = new { voice = "Tina", format = new { type = "pcm", sample_rate = 24000 } }
                     } }
                 };
-                if (enableScenes) session.Add("tools", tools);
                 return new { type = "session.update", session };
             }
-            return new { type = "session.update", session = new {
-                modalities = new[] { "text", "audio" }, instructions = "默认用简体中文交流。", voice = "Cherry",
-                turn_detection = new { type = "server_vad" },
-                input_audio_format = "pcm", output_audio_format = "pcm"
-            } };
+            bool supportsTools=model.StartsWith("qwen3.5-",StringComparison.OrdinalIgnoreCase);
+            var legacy=new Dictionary<string,object> {
+                {"modalities",new[]{"text","audio"}}, {"instructions",instructions+(supportsTools ? "" : "\n此模型不提供工具：不能查询软件数据或实际展示信息，请如实说明能力范围。")},
+                {"voice",supportsTools ? "Tina" : "Cherry"}, {"input_audio_transcription",new {model="qwen3-asr-flash-realtime"}},
+                {"turn_detection",new {type="server_vad"}}, {"input_audio_format","pcm"}, {"output_audio_format","pcm"}
+            };
+            if(supportsTools)legacy["tools"]=HologramTools.QwenDeclarations();
+            return new {type="session.update",session=legacy};
         }
 
         internal static Uri Endpoint(string value)
@@ -197,7 +205,7 @@ namespace DeskBox.Ai
             return data != null && data.TryGetValue(key, out value) ? value : null;
         }
 
-        public void Dispose() { _socket.Dispose(); }
+        public void Dispose() { environmentRegistration.Dispose();_socket.Dispose(); }
     }
 
     internal static class VoiceModelCatalog
@@ -237,11 +245,15 @@ namespace DeskBox.Ai
 
         internal static async Task<string> GetAsync(Uri url, string header, string value, CancellationToken token)
         {
+            var environmentToken=AiEnvironment.Token;
+            AiEnvironment.RequireEndpoint(url.ToString());
             var request = (HttpWebRequest)WebRequest.Create(url);
+            if(AiEnvironment.Local)request.Proxy=null;
             request.AllowAutoRedirect = false;
             request.Headers[header] = value;
             try
             {
+                using (environmentToken.Register(request.Abort))
                 using (token.Register(request.Abort))
                 using (var response = (HttpWebResponse)await request.GetResponseAsync().ConfigureAwait(false))
                 {

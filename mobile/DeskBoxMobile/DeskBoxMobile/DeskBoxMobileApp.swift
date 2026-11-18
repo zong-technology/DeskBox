@@ -5,7 +5,16 @@ import Combine
     @StateObject private var store = OfflineStore()
     @StateObject private var sync = SyncClient()
     @StateObject private var briefing = DailyBriefing()
-    var body: some Scene { WindowGroup { RootView().environmentObject(store).environmentObject(sync).environmentObject(briefing).preferredColorScheme(.dark) } }
+    var body: some Scene { WindowGroup { entry.environmentObject(store).environmentObject(sync).environmentObject(briefing).preferredColorScheme(.dark) } }
+    @ViewBuilder private var entry: some View {
+        #if DEBUG
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--hologram-preview"), ProcessInfo.processInfo.arguments.count > index + 1 {
+            HologramDebugRoute(route: ProcessInfo.processInfo.arguments[index + 1])
+        } else { RootView() }
+        #else
+        RootView()
+        #endif
+    }
 }
 
 struct RootView: View {
@@ -24,7 +33,7 @@ struct RootView: View {
             IncidentView().disabled(store.loadFailed).tabItem { Label("事件", systemImage: "exclamationmark.triangle") }.tag(3)
             MobileAIView().tabItem { Label("AI", systemImage: "sparkles") }.tag(4)
         }
-        .tint(.cyan).toolbarBackground(.visible, for: .tabBar)
+        .tint(MobileStyle.accent).toolbarBackground(MobileStyle.background, for: .tabBar).toolbarBackground(.visible, for: .tabBar)
         .safeAreaInset(edge: .top) { if !store.storageError.isEmpty { Text(store.storageError).font(.caption).foregroundStyle(.red).padding().frame(maxWidth: .infinity).background(Color.black) } }
         .task {
             while !Task.isCancelled {
@@ -54,6 +63,7 @@ struct HomeView: View {
     @EnvironmentObject var store: OfflineStore
     @EnvironmentObject var sync: SyncClient
     @AppStorage("selectedMobileProject") private var projectId = ""
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var connectionSettings = false
     @State private var conflictDetails = false
     var onNavigate: (Int) -> Void
@@ -62,23 +72,22 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Image("BrandMark").resizable().scaledToFit().frame(width: 42, height: 42).clipShape(RoundedRectangle(cornerRadius: 10))
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("ENGINEERING WORKSPACE").font(.caption.monospaced()).foregroundStyle(.cyan)
-                            Text("工程随行工作台").font(.title2.bold())
+                            Text("工作概览").font(.title2.weight(.semibold))
+                            Text(sync.connected ? "已连接 · 数据保持同步" : "离线可用 · 编辑暂存本机").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         if sync.busy { ProgressView() }
                         Image(systemName: sync.connected ? "checkmark.icloud.fill" : "icloud.slash").foregroundStyle(sync.connected ? Color.green : Color.gray)
                     }
                     projectPanel
-                    DailyBriefingCard()
-                    HStack(spacing: 12) {
+                    ViewThatFits(in: .horizontal) { HStack(spacing: 12) {
                         metric("未完成任务", value: openTasks.count, color: .cyan)
                         metric("高优先级", value: openTasks.filter { $0.priority == "high" }.count, color: .orange)
-                    }
+                    }; VStack(spacing: 12) { metric("未完成任务", value: openTasks.count, color: .cyan); metric("高优先级", value: openTasks.filter { $0.priority == "high" }.count, color: .orange) } }
                     VStack(alignment: .leading, spacing: 10) {
                         HStack { Label("同步与连接", systemImage: "arrow.triangle.2.circlepath").font(.headline); Spacer(); Text(sync.automatic ? "自动" : "手动").foregroundStyle(.cyan) }
                         Text(sync.status).font(.subheadline).foregroundStyle(.secondary)
@@ -91,14 +100,13 @@ struct HomeView: View {
                         }.font(.caption).foregroundStyle(.secondary)
                         if sync.credentials == nil && sync.cloudCredential == nil { Button("登录云账号 / 连接电脑") { connectionSettings = true }.buttonStyle(.borderedProminent) }
                     }.padding().background(panelColor, in: RoundedRectangle(cornerRadius: 18))
-                    HStack(spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 280 : 150), spacing: 12)], spacing: 12) {
                         shortcut("工程任务", detail: "编辑 · 提醒 · 完成", icon: "checklist", tab: 1)
                         shortcut("项目资料", detail: "进度 · 设备 · 客户", icon: "folder.badge.gearshape", tab: 2)
-                    }
-                    HStack(spacing: 12) {
                         shortcut("现场事件", detail: "记录问题 · 离线保存", icon: "exclamationmark.bubble", tab: 3)
-                        shortcut("AI 助手", detail: "中继功能待完成", icon: "sparkles", tab: 4)
+                        shortcut("AI 助手", detail: "文字 · 全息 · 语音", icon: "sparkles", tab: 4)
                     }
+                    DailyBriefingCard()
                     HStack { Text("当前待办").font(.headline); Spacer(); Button("全部任务") { onNavigate(1) }.font(.caption) }
                     if openTasks.isEmpty { Text("当前没有未完成任务").foregroundStyle(.secondary) }
                     ForEach(Array(openTasks.prefix(4))) { task in
@@ -110,23 +118,23 @@ struct HomeView: View {
                     }
                 }.padding()
             }
-            .background(Color(red: 0.02, green: 0.04, blue: 0.08))
+            .workspacePage()
             .navigationTitle("DeskBox").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { connectionSettings = true } label: { Image(systemName: "network") } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { connectionSettings = true } label: { Image(systemName: "network").frame(width: 44, height: 44) } } }
             .sheet(isPresented: $connectionSettings) { ConnectionSettingsView() }
             .sheet(isPresented: $conflictDetails) { SyncConflictView() }
         }
     }
-    private var panelColor: Color { Color(red: 0.055, green: 0.09, blue: 0.15) }
+    private var panelColor: Color { MobileStyle.panel }
     private var projectPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Text("当前项目").font(.caption).foregroundStyle(.cyan); Spacer(); Button("查看") { onNavigate(2) }.font(.caption) }
             if let project = currentProject {
-                Text(project.name).font(.title3.bold())
+                Text(project.name).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                 Text(project.number + (project.equipment.isEmpty ? "" : " · " + project.equipment)).font(.caption).foregroundStyle(.secondary)
                 HStack {
                     if project.progressApplicable == false { Text("N/A").font(.title.bold()).foregroundStyle(.cyan) }
-                    else { ProgressView(value: min(100, max(0, project.progress)), total: 100).tint(.cyan); Text("\(Int(project.progress))%").font(.title3.monospacedDigit().bold()) }
+                    else { ProgressView(value: min(100, max(0, project.progress)), total: 100).tint(.cyan); Text("\(Int(min(100, max(0, project.progress))))%").font(.title3.monospacedDigit().bold()) }
                 }
                 if store.projects.count > 1 {
                     Picker("切换项目", selection: Binding(get: { currentProject?.id ?? "" }, set: { projectId = $0 })) { ForEach(store.projects) { Text($0.name).tag($0.id) } }.pickerStyle(.menu)
@@ -159,6 +167,7 @@ struct ConnectionSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("AI 与语音") { NavigationLink("全息语音 · 名称与角色") { HologramSettingsView() } }
                 Section("自动同步") {
                     Toggle("自动连接与同步", isOn: $sync.automatic)
                     Text("应用回到前台、网络恢复、编辑后自动同步；前台每15秒刷新。iOS长期后台或被结束后不能保证持续运行。").font(.caption).foregroundStyle(.secondary)
@@ -168,7 +177,7 @@ struct ConnectionSettingsView: View {
                 Section("账号云同步 · 不同网络") {
                     TextField("部署得到的https://…workers.dev地址", text: $cloudServiceURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     if let url = CloudCredential.loginURL(cloudServiceURL) { Link("登录账号并授权此 iPhone", destination: url) }
-                    Text("先按“云同步最少开通步骤”部署到自己的Cloudflare账号，再在两端填写同一服务地址。网页登录owner账号，选择iPhone生成授权并导入；电脑也需授权Windows主电脑。首次设置后无需VPN或反复配对。").font(.caption).foregroundStyle(.secondary)
+                    DisclosureGroup("首次连接帮助") { Text("两端填写同一已部署的云服务地址，登录账号后授权 iPhone 和 Windows 主电脑；将 iPhone 凭证导入这里。首次设置后无需反复配对。").font(.caption).foregroundStyle(.secondary) }
                     if let credential = sync.cloudCredential {
                         LabeledContent("云账号已连接", value: URL(string: credential.baseUrl)?.host ?? "")
                         Button("退出云账号", role: .destructive) { sync.logoutCloud() }.disabled(sync.busy)
@@ -206,7 +215,7 @@ struct ConnectionSettingsView: View {
                     Section { Button("清除此手机配对", role: .destructive) { confirmReset = true }.disabled(sync.busy) }
                 }
                 Section("版本") { Text(versionLabel).font(.caption) }
-            }.navigationTitle("连接设置")
+            }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle("连接设置")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .onAppear { host = sync.credentials?.host ?? ""; port = String(sync.credentials?.port ?? 47831); remoteHost = sync.remoteEndpoint?.host ?? ""; remotePort = String(sync.remoteEndpoint?.port ?? 47831) }
             .alert("清除配对？离线数据仍保留", isPresented: $confirmReset) { Button("清除", role: .destructive) { sync.disconnect() }; Button("取消", role: .cancel) {} }
@@ -221,55 +230,54 @@ struct ConnectionSettingsView: View {
 
 struct TasksView: View {
     @EnvironmentObject var store: OfflineStore
-    @State private var title = ""
     @State private var query = ""
     @State private var filter = 0
     @State private var editing: MobileTask?
     @State private var deleting: MobileTask?
     @State private var confirmDelete = false
+    @State private var error = ""
     private var visible: [MobileTask] {
         store.tasks.filter { task in
             (filter == 0 || (filter == 1 ? task.status != "done" : task.status == "done")) &&
-            (query.isEmpty || (task.title + " " + task.notes).localizedCaseInsensitiveContains(query))
+            (query.isEmpty || (task.title + " " + task.notes + " " + task.owner).localizedCaseInsensitiveContains(query))
         }.sorted { a, b in let doneA = a.status == "done", doneB = b.status == "done"; return doneA == doneB ? a.title < b.title : !doneA }
     }
     var body: some View {
         NavigationStack {
-            VStack {
-                HStack {
-                    TextField("新增工程任务", text: $title).textFieldStyle(.roundedBorder)
-                    Button("添加") {
-                        let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !value.isEmpty else { return }
-                        store.updateTask(MobileTask(title: value)); title = ""
-                    }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }.padding(.horizontal)
-                Picker("状态", selection: $filter) { Text("全部").tag(0); Text("未完成").tag(1); Text("已完成").tag(2) }.pickerStyle(.segmented).padding(.horizontal)
-                Text("待上传 \(store.pending.count) 条 · 已保存到本机，开启自动同步后自动提交").font(.caption).foregroundStyle(.secondary)
-                List(visible) { task in
-                    HStack {
-                        Button {
-                            var value = task; value.status = task.status == "done" ? "open" : "done"; store.updateTask(value)
-                        } label: { Image(systemName: task.status == "done" ? "checkmark.circle.fill" : "circle").foregroundStyle(.cyan) }.buttonStyle(.borderless)
-                        Button { editing = task } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(task.title).foregroundStyle(.primary)
-                                Text((task.priority == "high" ? "高优先级 · " : "") + (task.due.isEmpty ? "无截止日期" : task.due)).font(.caption).foregroundStyle(.secondary)
-                                if !task.notes.isEmpty { Text(task.notes).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                            }
-                        }.buttonStyle(.plain)
-                    }
-                    .swipeActions {
-                        Button("删除", role: .destructive) { deleting = task; confirmDelete = true }
-                        Button("编辑") { editing = task }.tint(.cyan)
+            List {
+                Section {
+                    Picker("状态", selection: $filter) { Text("全部").tag(0); Text("未完成").tag(1); Text("已完成").tag(2) }.pickerStyle(.segmented)
+                    Text("共 \(visible.count) 项 · 待上传 \(store.pending.filter { $0.entityType == "task" }.count) 项").font(.caption).foregroundStyle(.secondary)
+                    if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.orange) }
+                }.listRowBackground(MobileStyle.panel)
+                Section {
+                    if visible.isEmpty { ContentUnavailableView("暂无匹配任务", systemImage: "checklist", description: Text("点击右上角新建，或调整搜索与筛选。")) }
+                    ForEach(visible) { task in
+                        HStack(alignment: .top, spacing: 8) {
+                            Button {
+                                var value = task; value.status = task.status == "done" ? "open" : "done"
+                                error = store.updateTask(value, expected: task) ?? ""
+                            } label: { Image(systemName: task.status == "done" ? "checkmark.circle.fill" : "circle").font(.title3).frame(width: 44, height: 44).foregroundStyle(MobileStyle.accent) }.buttonStyle(.borderless).accessibilityLabel(task.status == "done" ? "重新打开任务" : "完成任务")
+                            Button { editing = task } label: {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    Text(task.title).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                                    Text((task.priority == "high" ? "高优先级 · " : "") + (task.due.isEmpty ? "无截止日期" : task.due)).font(.caption).foregroundStyle(task.priority == "high" ? Color.orange : Color.secondary)
+                                    if !task.notes.isEmpty { Text(task.notes).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                                }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }.listRowBackground(MobileStyle.panel)
+                        .swipeActions {
+                            Button("删除", role: .destructive) { deleting = task; confirmDelete = true }
+                            Button("编辑") { editing = task }.tint(MobileStyle.accent)
+                        }
                     }
                 }
-            }
-            .searchable(text: $query, prompt: "搜索任务标题与备注")
-            .navigationTitle("工程任务")
-            .sheet(item: $editing) { task in TaskEditor(task: task) }
+            }.workspacePage().scrollDismissesKeyboard(.interactively)
+            .searchable(text: $query, prompt: "搜索任务标题、备注或负责人").navigationTitle("工程任务")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { editing = MobileTask() } label: { Image(systemName: "plus").frame(width: 44, height: 44) }.accessibilityLabel("新建任务") } }
+            .sheet(item: $editing) { task in TaskEditor(task: task, isNew: !store.tasks.contains(where: { $0.id == task.id })) }
             .confirmationDialog("删除后将在下次同步时提交删除标记，是否继续？", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("删除任务", role: .destructive) { if let task = deleting { store.deleteTask(task.id) }; deleting = nil }
+                Button("删除任务", role: .destructive) { if let task = deleting { error = store.deleteTask(task.id, expected: task) ?? "" }; deleting = nil }
                 Button("取消", role: .cancel) { deleting = nil }
             }
         }
@@ -281,38 +289,37 @@ struct TaskEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var task: MobileTask
     @State private var error = ""
-    init(task: MobileTask) { _task = State(initialValue: task) }
+    private let original: MobileTask?
+    init(task: MobileTask, isNew: Bool = false) { _task = State(initialValue: task); original = isNew ? nil : task }
     var body: some View {
         NavigationStack {
             Form {
-                TextField("任务标题", text: $task.title)
-                Picker("项目", selection: $task.projectId) {
-                    Text("未分配项目").tag("")
-                    if !task.projectId.isEmpty && !store.projects.contains(where: { $0.id == task.projectId }) { Text("原项目（待同步）").tag(task.projectId) }
-                    ForEach(store.projects) { project in Text(project.name).tag(project.id) }
+                Section("任务内容") { TextField("任务标题", text: $task.title, axis: .vertical).lineLimit(1...4).accessibilityIdentifier("task.title")
+                    TextField("备注 / 验证要求", text: $task.notes, axis: .vertical).lineLimit(4...10) }
+                Section("安排") {
+                    Picker("项目", selection: $task.projectId) {
+                        Text("未分配项目").tag("")
+                        if !task.projectId.isEmpty && !store.projects.contains(where: { $0.id == task.projectId }) { Text("原项目（待同步）").tag(task.projectId) }
+                        ForEach(store.projects) { project in Text(project.name).tag(project.id) }
+                    }
+                    Picker("优先级", selection: $task.priority) { Text("低").tag("low"); Text("普通").tag("normal"); Text("高").tag("high") }
+                    TextField("截止日期 yyyy-MM-dd（可空）", text: $task.due).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Toggle("已完成", isOn: Binding(get: { task.status == "done" }, set: { task.status = $0 ? "done" : "open" }))
                 }
-                Picker("优先级", selection: $task.priority) { Text("低").tag("low"); Text("普通").tag("normal"); Text("高").tag("high") }
-                TextField("截止日期 yyyy-MM-dd（可空）", text: $task.due).textInputAutocapitalization(.never)
-                TextField("备注 / 验证要求", text: $task.notes, axis: .vertical).lineLimit(4...10)
-                Toggle("已完成", isOn: Binding(get: { task.status == "done" }, set: { task.status = $0 ? "done" : "open" }))
-                if !error.isEmpty { Text(error).foregroundStyle(.red) }
-            }.navigationTitle("编辑任务")
+                if !error.isEmpty { Section { Text(error).foregroundStyle(.orange) } }
+            }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle(original == nil ? "新建任务" : "编辑任务")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                        task.due = task.due.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !task.title.isEmpty else { error = "任务标题不能为空"; return }
-                        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"; formatter.isLenient = false
-                        if !task.due.isEmpty {
-                            guard let date = formatter.date(from: task.due), formatter.string(from: date) == task.due else { error = "截止日期应为有效的 yyyy-MM-dd"; return }
-                        }
-                        store.updateTask(task); dismiss()
-                    }
-                }
+                ToolbarItem(placement: .confirmationAction) { Button("保存") { save() } }
             }
         }
+    }
+    private func save() {
+        task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines); task.due = task.due.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !task.title.isEmpty else { error = "任务标题不能为空"; return }
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"; formatter.isLenient = false
+        if !task.due.isEmpty { guard let date = formatter.date(from: task.due), formatter.string(from: date) == task.due else { error = "截止日期应为有效的 yyyy-MM-dd"; return } }
+        if let message = store.updateTask(task, expected: original) { error = message } else { dismiss() }
     }
 }
 
@@ -323,42 +330,39 @@ struct ProjectsView: View {
     var body: some View {
         NavigationStack {
             List(visible) { project in
-                NavigationLink {
-                    Form {
-                        Section("项目进度") {
-                            Text(project.name).font(.headline)
-                            Text(project.progressApplicable == false ? "N/A · 不适用" : "\(Int(project.progress))% 已完成").foregroundStyle(.cyan)
-                            if project.progressApplicable != false { ProgressView(value: project.progress, total: 100).tint(.cyan) }
-                        }
-                        Section("工程信息") {
-                            LabeledContent("项目编号", value: project.number.isEmpty ? "未填写" : project.number)
-                            LabeledContent("客户", value: project.customer.isEmpty ? "未填写" : project.customer)
-                            LabeledContent("设备", value: project.equipment.isEmpty ? "未填写" : project.equipment)
-                            LabeledContent("负责人", value: project.owner.isEmpty ? "未填写" : project.owner)
-                            LabeledContent("截止日期", value: project.deadline.isEmpty ? "未设置" : project.deadline)
-                        }
-                        Section("相关任务") {
-                            let tasks = store.tasks.filter { $0.projectId == project.id }
-                            if tasks.isEmpty { Text("暂无关联任务").foregroundStyle(.secondary) }
-                            ForEach(tasks) { task in Label(task.title, systemImage: task.status == "done" ? "checkmark.circle.fill" : "circle").foregroundStyle(task.status == "done" ? Color.secondary : Color.primary) }
-                        }
-                    }.navigationTitle("项目详情").navigationBarTitleDisplayMode(.inline)
-                } label: {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Image(systemName: "square.stack.3d.up.fill").foregroundStyle(.cyan)
-                            Text(project.name).font(.headline)
-                            Spacer()
-                            Text(project.progressApplicable == false ? "N/A" : "\(Int(project.progress))%").font(.headline.monospacedDigit()).foregroundStyle(.cyan)
-                        }
-                        if project.progressApplicable != false { ProgressView(value: project.progress, total: 100).tint(.cyan) }
-                        Text([project.number, project.customer, project.equipment].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                NavigationLink { ProjectDetailView(project: project) } label: {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(project.name).font(.headline).fixedSize(horizontal: false, vertical: true)
+                        HStack { Label(project.number.isEmpty ? "工程项目" : project.number, systemImage: "folder").font(.caption).foregroundStyle(.secondary); Spacer(minLength: 8); Text(project.progressApplicable == false ? "N/A" : "\(Int(min(100, max(0, project.progress))))%").font(.subheadline.monospacedDigit().bold()).foregroundStyle(MobileStyle.accent) }
+                        if project.progressApplicable != false { ProgressView(value: min(100, max(0, project.progress)), total: 100).tint(MobileStyle.accent) }
+                        Text([project.customer, project.equipment].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }.padding(.vertical, 8)
-                }
-            }
-            .overlay { if visible.isEmpty { ContentUnavailableView("暂无匹配项目", systemImage: "folder", description: Text("项目资料来自电脑同步，可按编号、客户或设备搜索。")) } }
-            .searchable(text: $query, prompt: "搜索项目、编号、客户或设备")
-            .navigationTitle("工程项目")
+                }.listRowBackground(MobileStyle.panel)
+            }.workspacePage().scrollDismissesKeyboard(.interactively)
+            .overlay { if visible.isEmpty { ContentUnavailableView("暂无匹配项目", systemImage: "folder", description: Text("按编号、客户或设备搜索，或连接电脑同步项目。")) } }
+            .searchable(text: $query, prompt: "搜索项目、编号、客户或设备").navigationTitle("工程项目")
         }
     }
+}
+struct ProjectDetailView: View {
+    @EnvironmentObject var store: OfflineStore
+    var project: MobileProject
+    var body: some View {
+        Form {
+            Section("项目进度") {
+                Text(project.name).font(.headline).fixedSize(horizontal: false, vertical: true)
+                Text(project.progressApplicable == false ? "N/A · 不适用" : "\(Int(min(100, max(0, project.progress))))% 已完成").foregroundStyle(MobileStyle.accent)
+                if project.progressApplicable != false { ProgressView(value: min(100, max(0, project.progress)), total: 100) }
+            }
+            Section("工程信息") {
+                detail("项目编号", project.number); detail("客户", project.customer); detail("设备", project.equipment); detail("负责人", project.owner); detail("截止日期", project.deadline)
+            }
+            Section("相关任务") {
+                let tasks = store.tasks.filter { $0.projectId == project.id }
+                if tasks.isEmpty { Text("暂无关联任务").foregroundStyle(.secondary) }
+                ForEach(tasks) { task in Label(task.title, systemImage: task.status == "done" ? "checkmark.circle.fill" : "circle").fixedSize(horizontal: false, vertical: true).foregroundStyle(task.status == "done" ? Color.secondary : Color.primary) }
+            }
+        }.workspacePage().navigationTitle("项目详情")
+    }
+    private func detail(_ title: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 6) { Text(title).font(.caption).foregroundStyle(.secondary); Text(value.isEmpty ? "未填写" : value).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }.padding(.vertical, 3) }
 }

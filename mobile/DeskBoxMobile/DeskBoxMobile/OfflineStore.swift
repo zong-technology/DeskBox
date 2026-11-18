@@ -95,28 +95,46 @@ import Combine
         save()
         return storageError.isEmpty ? nil : storageError
     }
-    func updateTask(_ task: MobileTask) {
-        guard !loadFailed else { return }
-        var value = task; value.updatedAt = Int64(Date().timeIntervalSince1970 * 1000)
+    @discardableResult func updateTask(_ task: MobileTask, expected: MobileTask? = nil) -> String? {
+        guard !loadFailed else { return storageError }
+        if let expected, tasks.first(where: { $0.id == task.id }) != expected { return "任务已被更新或删除，请重新打开；当前编辑内容尚未提交。" }
+        guard !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "任务标题不能为空" }
+        guard ["open", "done"].contains(task.status), ["low", "normal", "high"].contains(task.priority) else { return "任务状态或优先级无效" }
+        if !task.due.isEmpty {
+            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"; formatter.isLenient = false
+            guard let date = formatter.date(from: task.due), formatter.string(from: date) == task.due else { return "截止日期需要有效的yyyy-MM-dd日期" }
+        }
+        var value = task; value.updatedAt = max(Int64(Date().timeIntervalSince1970 * 1000), (tasks.first(where: { $0.id == task.id })?.updatedAt ?? 0) + 1)
+        let previousTasks = tasks, previousPending = pending, previousConflicts = conflicts
         tasks.removeAll { $0.id == value.id }; tasks.append(value)
         queue("task", id: value.id, value: value)
+        if !storageError.isEmpty { tasks = previousTasks; pending = previousPending; conflicts = previousConflicts }
+        return storageError.isEmpty ? nil : storageError
     }
     func updateIncident(_ incident: Incident, expectedUpdatedAt: Int64? = nil) -> String? {
         guard !loadFailed else { return storageError }
         if let error = incident.validationError { return error }
         if let expectedUpdatedAt, incidents.first(where: { $0.id == incident.id })?.updatedAt != expectedUpdatedAt { return "事件已被更新，请关闭编辑页后重新打开；当前内容尚未提交" }
         var value = incident; value.updatedAt = max(Int64(Date().timeIntervalSince1970 * 1000), value.updatedAt + 1)
+        let previousIncidents = incidents, previousPending = pending, previousConflicts = conflicts
         incidents.removeAll { $0.id == value.id }; incidents.append(value)
         queue("incident", id: value.id, value: value)
+        if !storageError.isEmpty { incidents = previousIncidents; pending = previousPending; conflicts = previousConflicts }
         return storageError.isEmpty ? nil : storageError
     }
-    func deleteTask(_ id: String) {
-        guard !loadFailed else { return }
+    @discardableResult func deleteTask(_ id: String, expected: MobileTask? = nil) -> String? {
+        guard !loadFailed else { return storageError }
+        guard let current = tasks.first(where: { $0.id == id }) else { return "任务已删除或不存在，请刷新列表。" }
+        if let expected, current != expected { return "任务已被更新，请重新查看后再删除；当前记录已保留。" }
+        let previousTasks = tasks, previousPending = pending, previousConflicts = conflicts
         let old = pending.first { $0.entityType == "task" && $0.id == id }
         let base = old?.baseVersion ?? versions["task:" + id] ?? 0
         tasks.removeAll { $0.id == id }; pending.removeAll { $0.entityType == "task" && $0.id == id }
         conflicts.removeAll { $0.id == "task:" + id }
-        pending.append(SyncRecord(entityType: "task", id: id, version: base + 1, baseVersion: base, updatedAt: max(Int64(Date().timeIntervalSince1970 * 1000), (old?.updatedAt ?? 0) + 1), deviceId: "", deleted: true, json: "")); save()
+        let timestamp = max(Int64(Date().timeIntervalSince1970 * 1000), max(old?.updatedAt ?? 0, current.updatedAt ?? 0) + 1)
+        pending.append(SyncRecord(entityType: "task", id: id, version: base + 1, baseVersion: base, updatedAt: timestamp, deviceId: "", deleted: true, json: "")); save()
+        if !storageError.isEmpty { tasks = previousTasks; pending = previousPending; conflicts = previousConflicts }
+        return storageError.isEmpty ? nil : storageError
     }
     private struct Snapshot: Codable { var projects: [MobileProject]; var tasks: [MobileTask]; var incidents: [Incident]; var pending: [SyncRecord]; var versions: [String: Int64]?; var conflicts: [MobileConflict]? }
 }

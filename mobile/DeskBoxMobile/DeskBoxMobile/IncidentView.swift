@@ -27,14 +27,14 @@ struct IncidentView: View {
                         Button { editing = item } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack { Label(item.severity, systemImage: "exclamationmark.triangle.fill").foregroundStyle(item.severity == "S1" ? .red : .orange); Spacer(); Text(item.stateLabel).foregroundStyle(.cyan) }.font(.caption.bold())
-                                Text(item.description).foregroundStyle(.primary).lineLimit(3)
+                                Text(item.description).foregroundStyle(.primary).lineLimit(4).fixedSize(horizontal: false, vertical: true)
                                 Text(projectName(item.projectId) + (item.equipment.isEmpty ? "" : " · " + item.equipment)).font(.caption).foregroundStyle(.secondary)
                                 HStack { Text(item.owner.isEmpty ? "未指定负责人" : item.owner); Spacer(); Text(Date(timeIntervalSince1970: Double(item.updatedAt) / 1000), style: .date) }.font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 6)
                         }.buttonStyle(.plain)
                     }
                 }
-            }.navigationTitle("现场事件")
+            }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle("现场事件")
             .searchable(text: $query, prompt: "搜索项目、设备、现象或负责人")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { editing = Incident() } label: { Label("新建事件", systemImage: "plus") } } }
             .sheet(item: $editing) { item in IncidentEditor(incident: item, isNew: !store.incidents.contains(where: { $0.id == item.id })) }
@@ -71,7 +71,7 @@ struct IncidentEditor: View {
                 }
                 if !error.isEmpty { Section { Text(error).foregroundStyle(.red) } }
                 Section { Text("保存在本机并自动同步。编辑期间收到另一端更新时，会阻止覆盖并提示重新查看。").font(.caption).foregroundStyle(.secondary) }
-            }.navigationTitle("事件详情")
+            }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle("事件详情")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("保存") {

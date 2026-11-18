@@ -1,0 +1,138 @@
+import XCTest
+
+final class MobileFlowTests: XCTestCase {
+    override func setUpWithError() throws { continueAfterFailure = false }
+    func testKeyboardAndHologramRoundTrip() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "ai-keyboard", "--qa-keyboard"]; app.launch()
+        let field = app.descendants(matching: .any)["ai.composer"].firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        let tutorial = app.buttons["Continue"]
+        if tutorial.waitForExistence(timeout: 2) { tutorial.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("Check project tasks")
+        XCTAssertTrue(field.isHittable)
+        XCTAssertTrue(app.buttons["发送问题"].exists)
+        XCTAssertLessThanOrEqual(field.frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
+        XCTAssertLessThanOrEqual(app.buttons["发送问题"].frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "AI keyboard and send controls"; shot.lifetime = .keepAlways; add(shot)
+        app.buttons["ai.hologram"].tap()
+        XCTAssertTrue(app.buttons["退出全息通话"].waitForExistence(timeout: 5))
+        app.buttons["退出全息通话"].tap()
+        XCTAssertTrue(app.buttons["ai.hologram"].waitForExistence(timeout: 5))
+    }
+    func testHologramScreenAndExplicitInterruption() {
+        let app = XCUIApplication()
+        for initiallyAwake in [false, true] {
+            app.launchArguments = ["--hologram-preview", "ai", "--qa-screen-state"] + (initiallyAwake ? ["--qa-idle-disabled"] : [])
+            app.launch()
+            let screen = app.staticTexts["qa.screen-state"]
+            XCTAssertTrue(screen.waitForExistence(timeout: 10))
+            XCTAssertEqual(screen.label, initiallyAwake ? "awake" : "automatic")
+            app.buttons["ai.hologram"].tap()
+            let close = app.buttons["退出全息通话"]
+            XCTAssertTrue(close.waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue("awake"))
+            let caption = app.staticTexts["模拟预览：已为你整理今天的任务。"]
+            XCTAssertTrue(caption.waitForExistence(timeout: 5))
+            for point in [CGVector(dx: 0.5, dy: 0.25), CGVector(dx: 0.4, dy: 0.45), CGVector(dx: 0.6, dy: 0.6)] {
+                app.coordinate(withNormalizedOffset: point).tap()
+            }
+            XCTAssertTrue(caption.exists)
+            XCTAssertTrue(close.waitForValue("awake"))
+            app.buttons["打断后提问"].tap()
+            XCTAssertTrue(app.staticTexts["我在听。"].waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue("awake"))
+            XCUIDevice.shared.press(.home); app.activate()
+            XCTAssertTrue(app.buttons["重新连接"].waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue(initiallyAwake ? "awake" : "automatic"))
+            app.buttons["重新连接"].tap()
+            XCTAssertTrue(caption.waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue("awake"))
+            let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Hologram awake, ordinary taps safe, explicit reconnect"; shot.lifetime = .keepAlways; add(shot)
+            close.tap()
+            XCTAssertTrue(screen.waitForExistence(timeout: 5))
+            XCTAssertEqual(screen.label, initiallyAwake ? "awake" : "automatic")
+            // A second entry and exit must not overwrite the original auto-lock setting.
+            app.buttons["ai.hologram"].tap(); XCTAssertTrue(close.waitForExistence(timeout: 5)); XCTAssertTrue(close.waitForValue("awake")); close.tap()
+            XCTAssertTrue(screen.waitForExistence(timeout: 5))
+            XCTAssertEqual(screen.label, initiallyAwake ? "awake" : "automatic")
+            app.terminate()
+        }
+    }
+    func testToolCardsCollapseAndExpand() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "tool-history"]; app.launch()
+        let card = app.buttons["ai.tool.toggle.deskbox_tasks"]
+        let raw = app.descendants(matching: .any)["ai.tool.raw"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue((card.value as? String)?.contains("已收起") == true)
+        XCTAssertFalse(raw.exists)
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.exists)
+        let collapsed = XCTAttachment(screenshot: app.screenshot()); collapsed.name = "Tool result collapsed"; collapsed.lifetime = .keepAlways; add(collapsed)
+        card.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(raw.exists)
+        let expanded = XCTAttachment(screenshot: app.screenshot()); expanded.name = "Readable tool result expanded"; expanded.lifetime = .keepAlways; add(expanded)
+        app.buttons["ai.tool.raw-toggle.deskbox_tasks"].tap()
+        XCTAssertTrue(raw.waitForExistence(timeout: 5))
+        app.buttons["ai.tool.raw-toggle.deskbox_tasks"].tap()
+        XCTAssertFalse(raw.exists)
+        card.tap()
+        XCTAssertTrue((card.value as? String)?.contains("已收起") == true)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.waitForNonExistence(timeout: 5))
+    }
+    func testAttachmentPreviewAndRemove() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "ai-attachment"]; app.launch()
+        let preview = app.buttons["ai.attachment.preview.qa-attachment"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["ai.attach"].isHittable)
+        preview.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.text.qa-attachment"].waitForExistence(timeout: 5))
+        preview.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.text.qa-attachment"].waitForNonExistence(timeout: 5))
+        let composer = app.descendants(matching: .any)["ai.composer"].firstMatch
+        composer.tap()
+        let tutorial = app.buttons["Continue"]
+        if tutorial.waitForExistence(timeout: 2) { tutorial.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        composer.typeText("Review attachment")
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.compact"].firstMatch.exists)
+        XCTAssertLessThanOrEqual(app.buttons["发送问题"].frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
+        let screenshot = XCTAttachment(screenshot: app.screenshot()); screenshot.name = "Attachment preview and remove"; screenshot.lifetime = .keepAlways; add(screenshot)
+        app.buttons["ai.attachment.remove"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.compact"].firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["ai.composer"].isHittable)
+    }
+    func testWorkspaceTabsAndTaskSave() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "workspace"]; app.launch()
+        XCTAssertTrue(app.tabBars.buttons["任务"].waitForExistence(timeout: 10)); app.tabBars.buttons["任务"].tap()
+        app.buttons["新建任务"].tap()
+        let title = app.descendants(matching: .any)["task.title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); title.typeText("QA offline task")
+        app.buttons["保存"].tap()
+        XCTAssertTrue(app.staticTexts["QA offline task"].waitForExistence(timeout: 5))
+        for name in ["项目", "事件", "AI", "首页"] { app.tabBars.buttons[name].tap(); XCTAssertTrue(app.tabBars.buttons[name].isSelected) }
+    }
+    func testAIEnvironmentPersistsWithoutComputer() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "ai-settings", "--qa-preserve-environment"]; app.launch()
+        let picker = app.buttons["ai.environment"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap(); app.buttons["本地隔离"].tap()
+        app.buttons["ai.settings.save"].tap()
+        XCTAssertTrue(app.staticTexts["已保存 · 本地隔离"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["文字模型"].exists)
+        app.terminate(); app.launch()
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.textFields["文字模型"].exists)
+        let local = XCTAttachment(screenshot: app.screenshot()); local.name = "Local environment survives reopening"; local.lifetime = .keepAlways; add(local)
+        picker.tap(); app.buttons["网络开放"].tap(); app.buttons["ai.settings.save"].tap()
+        XCTAssertTrue(app.textFields["文字模型"].waitForExistence(timeout: 5))
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.textFields["文字模型"].waitForExistence(timeout: 10))
+    }
+}
+
+private extension XCUIElement {
+    func waitForValue(_ expected: String) -> Bool {
+        let condition = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: self)
+        return XCTWaiter.wait(for: [condition], timeout: 5) == .completed
+    }
+}

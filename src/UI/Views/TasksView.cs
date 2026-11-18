@@ -112,6 +112,10 @@ namespace DeskBox.UI.Views
             _list = new DarkList { Dock = DockStyle.Fill, RowHeight = 34 };
             _list.Palette = Palette;
             _list.SetColumns(new[] { "状态", "标题", "优先级", "截止", "提醒", "项目" }, new[] { 70, 520, 90, 120, 140, 180 });
+            _list.Resize += delegate {
+                if(!_referenceStyle)return;
+                _list.SetColumns(new[]{"状态","标题","优先级","截止","提醒","项目"},_list.ClientSize.Width<760 ? new[]{56,520,72,100,0,0}:new[]{70,520,90,120,140,180});
+            };
             _list.RowActivated += delegate { ToggleSelected(); };
             _list.RowContextMenu += delegate(object s, MouseEventArgs e)
             {
@@ -181,8 +185,8 @@ namespace DeskBox.UI.Views
             var tasks = _store.Tasks ?? new List<TaskItem>();
             if(_referenceStyle)
             {
-                int[] counts={tasks.Count(t=>!t.Done),tasks.Count(t=>!t.Done&&IsOverdue(t)),tasks.Count(t=>!t.Done&&t.Priority=="high"),tasks.Count(t=>t.Done)};string[] captions={"进行中","已逾期","高优先级","已完成"};int width=Math.Max(140,(_overview.Width-48)/4);
-                using(var number=new Font("Segoe UI",25,FontStyle.Bold))using(var label=new Font("Microsoft YaHei UI",9))for(int i=0;i<4;i++){var rect=new Rectangle(i*(width+12),8,width,100);Palette.FillRounded(g,Palette.CardBg,rect,10);Palette.DrawRounded(g,Palette.Line,rect,10,1);using(var text=new SolidBrush(i==1&&counts[i]>0?Color.FromArgb(255,105,120):Palette.Accent))g.DrawString(counts[i].ToString(),number,text,rect.X+24,rect.Y+11);using(var text=new SolidBrush(Palette.TextDim))g.DrawString(captions[i],label,text,rect.X+27,rect.Y+64);}return;
+                int[] counts={tasks.Count(t=>!t.Done),tasks.Count(t=>!t.Done&&IsOverdue(t)),tasks.Count(t=>!t.Done&&t.Priority=="high"),tasks.Count(t=>t.Done)};string[] captions={"进行中","已逾期","高优先级","已完成"};int width=Math.Max(1,(_overview.Width-36)/4);
+                using(var number=new Font("Segoe UI",width<125?20:25,FontStyle.Bold))using(var label=new Font("Microsoft YaHei UI",9))for(int i=0;i<4;i++){var rect=new Rectangle(i*(width+12),8,width,100);Palette.FillRounded(g,Palette.CardBg,rect,10);Palette.DrawRounded(g,Palette.Line,rect,10,1);using(var text=new SolidBrush(i==1&&counts[i]>0?Color.FromArgb(255,105,120):Palette.Accent))g.DrawString(counts[i].ToString(),number,text,rect.X+12,rect.Y+11);using(var text=new SolidBrush(Palette.TextDim))g.DrawString(captions[i],label,text,rect.X+12,rect.Y+64);}return;
             }
             int done = tasks.Count(x => x.Done), open = tasks.Count(x => !x.Done), overdue = tasks.Count(x => !x.Done && IsOverdue(x)), high = tasks.Count(x => !x.Done && x.Priority == "high");
             float completed = tasks.Count == 0 ? 0 : (float)done / tasks.Count;

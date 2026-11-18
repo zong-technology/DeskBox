@@ -1,11 +1,20 @@
 name: DeskBox iOS simulator build
-"on":
+on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: 'github-hosted 使用 GitHub 标准云端构建机；self-hosted 需事先登记专用测试机'
+        type: choice
+        options: [github-hosted, self-hosted]
+        default: github-hosted
+concurrency:
+  group: local-release-macOS-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   simulator:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

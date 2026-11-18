@@ -41,3 +41,10 @@ cloud/deskbox-account-sync/
 cloud/deskbox-worker/.wrangler.generated.json
 cloud/deskbox-worker/.deployment-state.json
 cloud/deskbox-worker/.wrangler/
+
+# Optional hologram web preview
+.env
+node_modules/
+*.log
+public/hologram.bundle.js
+release/

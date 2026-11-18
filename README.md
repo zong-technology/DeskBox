@@ -12,6 +12,10 @@
 
 AI&SI 实际文档读取与内容搜索：[文档技能使用说明](docs/AI文档技能使用说明.md)。
 
+AI&SI 的「全息 AI 通话」现在直接在软件内进入沉浸投影，只显示全息光场与下方实时字幕。在「功能与设置 → 全息语音」一次保存服务、模型和密钥，后续进入自动连接；通话中没有配置面板、场景菜单或工具栏。Esc 返回，Ctrl+M 静音。使用说明见 [全息对话](docs/SILVERWING-NATIVE.md)。
+
+![沉浸全息界面原生渲染预览](docs/quantum-native.png)
+
 最新验证版本与启动路径：[当前版本说明](docs/LATEST-REVIEW.md)。不同路径的旧进程必须从托盘退出后，才能加载新程序功能。
 
 面向自动化、DCS、Siemens PLC、系统工程与制药设备验证工作：
@@ -47,7 +51,13 @@ AI&SI 实际文档读取与内容搜索：[文档技能使用说明](docs/AI文�
 
 ## 安装与运行
 
-**已经装好**：`D:\DeskBox\DeskBox.exe`，双击运行即可；运行后桌面由 DeskBox 接管（系统图标隐藏）。
+本地一键更新打包：Windows 双击 `build-update.cmd`；iPhone 在 Mac 运行 `bash tools/release-ios.sh`。日常更新不依赖 Actions 云端额度，见[本地构建与低成本更新](docs/LOCAL-RELEASE.md)。
+
+最新测试版：[Windows 测试版 13 安装包](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.13) 和 [iPhone 0.11.0 IPA（build 12）](https://github.com/zong-technology/DeskBox/releases/tag/v0.11.0-mobile-hologram) 均已发布。手机文字 AI 和全息 AI 可独立连接模型，不需要电脑版在线；支持手机任务、问题及附件操作，工具结果继续默认折叠。所有 AI 新增「本地隔离 / 网络开放」，分别保存配置和对话，电脑目录授权也分别保存；本地暂停 AI 联网及设备同步，业务任务、项目仍共用。电脑文件和工作流为可选能力，需要在线电脑及原有授权。手机离线生成另需 iOS 26+、支持且启用 Apple Intelligence 的设备；不满足时明确提示，不回退云端。见 [环境设置说明](docs/AI-ENVIRONMENTS.md) 与 [本轮验收记录](docs/AI-ENVIRONMENT-RELEASE-REVIEW.md)。
+
+Windows 10/11 x64 需 .NET Framework 4.8+；先从托盘退出旧版，升级时选择原目录。安装包保留数据、备份旧 EXE 并提供回退入口。详见 [Windows 安装升级说明](docs/WINDOWS-INSTALL.md)。当前安装包未签名。
+
+仓库已公开，标准 GitHub Windows/macOS 云端构建已恢复，后续仍手动触发，见[构建流程](docs/LOCAL-RELEASE.md)。最新功能源码在 [feat/holographic-ai-call](https://github.com/zong-technology/DeskBox/tree/feat/holographic-ai-call)，尚未合入 main；下载源码时请选该分支。
 
 重新构建 / 换机器安装：
 

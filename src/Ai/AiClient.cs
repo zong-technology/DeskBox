@@ -56,10 +56,12 @@ namespace DeskBox.Ai
         private static readonly JavaScriptSerializer Ser = new JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 };
 
         private readonly AiProvider _provider;
+        private readonly CancellationToken environmentToken;
 
         public AiClient(AiProvider p)
         {
             _provider = p ?? new AiProvider();
+            environmentToken=AiEnvironment.Token;
             EnsureTls();
         }
 
@@ -104,6 +106,7 @@ namespace DeskBox.Ai
             {
                 http = CreateRequest();
                 string json = BuildBody(req, false);
+                using (environmentToken.Register(delegate { TryAbort(http); }))
                 using (ct.Register(delegate { TryAbort(http); }))
                 {
                     WriteBody(http, json);
@@ -221,6 +224,7 @@ namespace DeskBox.Ai
             {
                 http = CreateRequest();
                 string json = BuildBody(req, true);
+                using (environmentToken.Register(delegate { TryAbort(http); }))
                 using (ct.Register(delegate { TryAbort(http); }))
                 {
                     WriteBody(http, json);
@@ -409,6 +413,8 @@ namespace DeskBox.Ai
                 case "ratelimit": text = "请求过于频繁（429）：请稍后重试"; break;
                 case "server": text = "服务端错误（5xx）：服务商暂时不可用"; break;
                 case "protocol": text = "响应格式异常：返回内容不是 OpenAI 兼容格式"; break;
+                case "environment": text = "AI 隔离限制"; break;
+                case "redirect": text = "接口发生跳转，已停止请求；请保存服务商最终接口地址"; break;
                 default: text = "未知错误"; break;
             }
             string detail = Sanitize(raw);
@@ -420,6 +426,7 @@ namespace DeskBox.Ai
         {
             string b = (body ?? "").ToLowerInvariant();
             if (status == 401 || status == 403) return "auth";
+            if (status >= 300 && status < 400) return "redirect";
             if (status == 404) return b.Contains("model") ? "model" : "url";
             if (status == 400) return b.Contains("model") ? "model" : "unknown";
             if (status == 408) return "timeout";
@@ -453,6 +460,8 @@ namespace DeskBox.Ai
 
         private AiChatResult Validate(AiChatRequest req)
         {
+            try { environmentToken.ThrowIfCancellationRequested();AiEnvironment.RequireEndpoint(_provider.BaseUrl); }
+            catch(Exception error) { return Fail("environment",error.Message); }
             if (req == null) return Fail("unknown", "请求为空");
             if (req.Messages == null || req.Messages.Count == 0) return Fail("unknown", "消息列表为空");
             if (string.IsNullOrWhiteSpace(EffectiveModel(req))) return Fail("model", "未配置模型名");
@@ -565,6 +574,7 @@ namespace DeskBox.Ai
 
         private HttpWebRequest CreateRequest()
         {
+            environmentToken.ThrowIfCancellationRequested();AiEnvironment.RequireEndpoint(Endpoint());
             var http = (HttpWebRequest)WebRequest.Create(Endpoint());
             http.Method = "POST";
             http.ContentType = "application/json; charset=utf-8";
@@ -575,7 +585,8 @@ namespace DeskBox.Ai
             http.Timeout = timeout;
             http.ReadWriteTimeout = timeout;
             http.KeepAlive = false;
-            http.AllowAutoRedirect = true;
+            http.AllowAutoRedirect = false;
+            if(AiEnvironment.Local)http.Proxy=null;
             ApplyHeaders(http);
             return http;
         }

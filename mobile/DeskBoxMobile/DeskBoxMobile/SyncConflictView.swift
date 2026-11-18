@@ -30,7 +30,7 @@ struct SyncConflictView: View {
                         }
                     }
                 }
-            }.navigationTitle("同步冲突")
+            }.workspacePage().scrollDismissesKeyboard(.interactively).navigationTitle("同步冲突")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) { Button("刷新") { sync.sync(store: store) }.disabled(sync.busy) }

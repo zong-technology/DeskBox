@@ -77,6 +77,40 @@ import Foundation
         assert(taskStore.tasks.isEmpty && taskStore.pending.count == 1 && taskStore.pending[0].deleted)
         let tombstone = taskStore.pending[0]; taskStore.acknowledge(tombstone)
         assert(taskStore.pending.isEmpty && taskStore.conflicts.isEmpty)
-        print("Briefing, cloud, incidents and conflict rules: PASS 37")
+        let editStore = OfflineStore(fileURL: directory.appendingPathComponent("edits.json"))
+        assert(editStore.updateTask(MobileTask(id: "edit", title: "原始任务")) == nil)
+        let snapshot = editStore.tasks[0]
+        var modified = snapshot; modified.title = "电脑同步的新标题"
+        let editRecord = SyncRecord(entityType: "task", id: modified.id, version: 4, baseVersion: 3, updatedAt: 100, deviceId: "windows", json: String(data: try! JSONEncoder().encode(modified), encoding: .utf8)!)
+        editStore.acknowledge(editStore.pending[0]); editStore.apply([editRecord])
+        assert(editStore.updateTask(snapshot, expected: snapshot) != nil && editStore.tasks[0].title == modified.title)
+        editStore.deleteTask(snapshot.id)
+        assert(editStore.updateTask(snapshot, expected: modified) != nil && editStore.tasks.isEmpty)
+        assert(editStore.updateTask(MobileTask(title: "  ")) != nil)
+        let unwritable = directory.appendingPathComponent("missing/state.json")
+        let retryStore = OfflineStore(fileURL: unwritable)
+        let retryTask = MobileTask(id: "retry", title: "可重试的任务")
+        assert(retryStore.updateTask(retryTask) != nil && retryStore.tasks.isEmpty && retryStore.pending.isEmpty)
+        try! FileManager.default.createDirectory(at: unwritable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        assert(retryStore.updateTask(retryTask) == nil && retryStore.tasks.count == 1)
+        let deletePath = directory.appendingPathComponent("delete/state.json")
+        try! FileManager.default.createDirectory(at: deletePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let deleteStore = OfflineStore(fileURL: deletePath)
+        assert(deleteStore.updateTask(MobileTask(id: "delete", title: "保留负责人与备注", owner: "王工", notes: "SIP的FS需要更新步骤")) == nil)
+        let deleting = deleteStore.tasks[0]
+        var replacement = deleting; replacement.notes = "电脑已更新的步骤"
+        assert(deleteStore.updateTask(replacement, expected: deleting) == nil)
+        assert(deleteStore.deleteTask(deleting.id, expected: deleting) != nil && deleteStore.tasks[0].notes == replacement.notes)
+        let latest = deleteStore.tasks[0], beforeQueue = deleteStore.pending
+        try! FileManager.default.removeItem(at: deletePath)
+        try! FileManager.default.removeItem(at: deletePath.deletingLastPathComponent())
+        assert(deleteStore.deleteTask(latest.id, expected: latest) != nil)
+        assert(deleteStore.tasks == [latest] && deleteStore.pending.count == beforeQueue.count && !deleteStore.pending[0].deleted)
+        try! FileManager.default.createDirectory(at: deletePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        assert(deleteStore.deleteTask(latest.id, expected: latest) == nil && deleteStore.tasks.isEmpty && deleteStore.pending[0].deleted)
+        let reloadedDelete = OfflineStore(fileURL: deletePath)
+        assert(reloadedDelete.tasks.isEmpty && reloadedDelete.pending.count == 1 && reloadedDelete.pending[0].deleted)
+        assert(deleteStore.deleteTask(latest.id) != nil && deleteStore.pending.count == 1)
+        print("Briefing, cloud, incidents, task editing and conflict rules: PASS 51")
     }
 }

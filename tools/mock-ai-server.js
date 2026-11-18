@@ -1,6 +1,6 @@
 ﻿// 本地 OpenAI 兼容 mock 服务：用于验证 DeskBox 的 AI 链路（流式/错误分类/超时）
 // 用法：node tools/mock-ai-server.js [port]
-const http = require('http');
+import http from 'node:http';
 
 const PORT = Number(process.argv[2] || 18080);
 
@@ -31,9 +31,9 @@ function sse(res, deltas, delayMs) {
 
 function readBody(req) {
   return new Promise((resolve) => {
-    let buf = '';
-    req.on('data', (c) => (buf += c));
-    req.on('end', () => resolve(buf));
+    const chunks = [];
+    req.on('data', c => chunks.push(Buffer.from(c)));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
   });
 }
 
@@ -54,6 +54,23 @@ const server = http.createServer(async (req, res) => {
   let payload = {};
   try { payload = JSON.parse(body || '{}'); } catch {}
   const model = payload.model || '';
+  console.log(req.method + ' ' + url + ' model=' + model + ' bodyBytes=' + Buffer.byteLength(body));
+  if (model === 'mock-mobile-attachment') {
+    const content=(payload.messages||[]).filter(m=>m.role==='user').at(-1)?.content||'';
+    const valid=content.includes('超滤SIP步骤.pdf')&&content.includes('第1页')&&content.includes('供应商更新步骤');
+    sse(res,[valid?'根据《超滤SIP步骤.pdf》第1页，供应商需更新FS步骤。':'附件内容未送达'],20);return;
+  }
+  if (model === 'mock-mobile-create') {
+    const results=(payload.messages||[]).filter(m=>(m.content||'').startsWith('[工具'));
+    const project=results.find(m=>m.content.startsWith('[工具project.list'));
+    let reply;
+    if(results.some(m=>m.content.startsWith('[工具task.create'))) reply='已保存超滤项目的SIP任务，等待手机同步。';
+    else if(project) {
+      const data=JSON.parse(project.content.slice(project.content.indexOf('\n')+1));
+      reply='```tool\n'+JSON.stringify({name:'task.create',args:{title:'SIP的FS需要更新步骤',project_id:data.Projects[0].Id,notes:'请供应商提供修订步骤'}})+'\n```';
+    } else reply='```tool\n'+JSON.stringify({name:'project.list',args:{query:'超滤'}})+'\n```';
+    sse(res,[reply],20);return;
+  }
   if (model === 'mock-mobile-tools' || model === 'mock-mobile-write') {
     const result=(payload.messages||[]).find(m=>(m.content||'').startsWith('[工具'));
     const reply=result?'真实结果：'+result.content:'```tool\n'+JSON.stringify({name:model==='mock-mobile-write'?'task.update':'task.list',args:{}})+'\n```';

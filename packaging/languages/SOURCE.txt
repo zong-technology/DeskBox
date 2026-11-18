@@ -1,0 +1,4 @@
+Chinese Simplified installer messages from Inno Setup upstream.
+Source: https://github.com/jrsoftware/issrc/blob/main/Files/Languages/ChineseSimplified.isl
+SHA256: e0b0b350e2245f3c5e65586dfe43d574f6e7f06f2261149aba284954b3fc9a8d
+Original upstream header retained.

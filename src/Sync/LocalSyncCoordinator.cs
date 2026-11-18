@@ -22,7 +22,7 @@ namespace DeskBox.Sync
         public DeviceTrustStore Devices { get; private set; }
         public event Action Changed;
 
-        public LocalSyncCoordinator(Store store, WorkspaceStore workspaces = null) { _store = store; Sync = new SyncStore(); Devices = new DeviceTrustStore(); _workspaces = workspaces ?? new WorkspaceStore(); }
+        public LocalSyncCoordinator(Store store, WorkspaceStore workspaces = null) { _store = store; Sync = new SyncStore(); Devices = new DeviceTrustStore(); _workspaces = workspaces ?? new WorkspaceStore(); _publishedTaskIds=new HashSet<string>(_store.Tasks.Select(t=>t.Id)); }
         public bool Running { get { return _server != null && _server.Running; } }
         public int Port { get { return _server == null ? 0 : _server.Port; } }
         public string Thumbprint { get { return _server == null ? "" : _server.CertificateThumbprint; } }
@@ -127,10 +127,21 @@ namespace DeskBox.Sync
                 Sync.UpsertSnapshot("project",p.Id,Json.ToJson(dto),"windows");
             }
             var tasks = _store.Tasks.ToArray();
+            var priorTasks=Sync.Records.Where(r=>r.EntityType=="task"&&!r.Deleted).ToDictionary(r=>r.Id,StringComparer.Ordinal);
             foreach (var t in tasks)
             {
-                var dto=new MobileTaskDto{Id=t.Id,ProjectId=t.Project,Title=t.Title,Status=t.Done?"done":"open",Priority=t.Priority,Due=t.Due,Notes=t.Notes,UpdatedAt=Math.Max(t.CreatedAt,t.DoneAt)};
-                Sync.UpsertSnapshot("task",t.Id,Json.ToJson(dto),"windows");
+                SyncRecord previous;priorTasks.TryGetValue(t.Id,out previous);
+                var old=previous==null?null:Json.FromJson<MobileTaskDto>(previous.Json);
+                var dto=new MobileTaskDto{Id=t.Id,ProjectId=t.Project,Title=t.Title,Status=t.Done?"done":"open",Priority=t.Priority,Due=t.Due,Notes=t.Notes,
+                    Owner=t.Owner??(old==null?"":old.Owner??""),UpdatedAt=old==null?Math.Max(t.CreatedAt,t.DoneAt):old.UpdatedAt};
+                if(old!=null && dto.Id==old.Id && dto.ProjectId==old.ProjectId && dto.Title==old.Title && dto.Status==old.Status
+                    && dto.Priority==old.Priority && dto.Due==old.Due && dto.Owner==old.Owner && dto.Notes==old.Notes && dto.UpdatedAt==old.UpdatedAt){
+                    // Keep the original wire representation: Swift and C# can order JSON fields differently.
+                    Sync.UpsertSnapshot("task",t.Id,previous.Json,"windows");
+                }else{
+                    dto.UpdatedAt=Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),dto.UpdatedAt+1);
+                    Sync.UpsertSnapshot("task",t.Id,Json.ToJson(dto),"windows");
+                }
             }
             var taskIds = new HashSet<string>(tasks.Select(x => x.Id));
             foreach (var removed in _publishedTaskIds.Where(x => !taskIds.Contains(x))) Sync.DeleteLocal("task", removed, "windows");
@@ -141,7 +152,7 @@ namespace DeskBox.Sync
         {
             if(record==null)return;
             if(record.Deleted){if(record.EntityType=="task"){_store.Tasks.RemoveAll(x=>x.Id==record.Id);_store.SaveTasksOnly();}if(record.EntityType=="project")_workspaces.Remove(record.Id);Raise();return;}
-            if(record.EntityType=="task") { var dto=Json.FromJson<MobileTaskDto>(record.Json); if(dto==null || dto.Id != record.Id)return; var timestamp=dto.UpdatedAt>0?dto.UpdatedAt:record.UpdatedAt>0?record.UpdatedAt:DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); var t=_store.Tasks.FirstOrDefault(x=>x.Id==dto.Id); if(t==null){t=new TaskItem{Id=dto.Id,CreatedAt=timestamp};_store.Tasks.Add(t);} t.Title=dto.Title;t.Project=dto.ProjectId;t.Priority=dto.Priority;t.Due=dto.Due;t.Notes=dto.Notes;t.Done=dto.Status=="done";t.DoneAt=t.Done?timestamp:0;_store.SaveTasksOnly(); }
+            if(record.EntityType=="task") { var dto=Json.FromJson<MobileTaskDto>(record.Json); if(dto==null || dto.Id != record.Id)return; var timestamp=dto.UpdatedAt>0?dto.UpdatedAt:record.UpdatedAt>0?record.UpdatedAt:DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); var t=_store.Tasks.FirstOrDefault(x=>x.Id==dto.Id); if(t==null){t=new TaskItem{Id=dto.Id,CreatedAt=timestamp};_store.Tasks.Add(t);} t.Title=dto.Title;t.Project=dto.ProjectId;t.Priority=dto.Priority;t.Due=dto.Due;t.Notes=dto.Notes;t.Owner=dto.Owner??"";t.Done=dto.Status=="done";t.DoneAt=t.Done?timestamp:0;_store.SaveTasksOnly(); }
             if(record.EntityType=="project") _workspaces.ApplyMobileProject(Json.FromJson<MobileProjectDto>(record.Json));
             Raise();
         }

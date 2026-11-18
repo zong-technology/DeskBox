@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace DeskBox.UI
@@ -28,6 +29,7 @@ namespace DeskBox.UI
         private int _selected = -1;
         private int _hover = -1;
         private int _scroll;
+        private readonly ToolTip _tip = new ToolTip {InitialDelay=500,ReshowDelay=100,AutoPopDelay=15000,ShowAlways=true};
 
         public Palette Palette { get; set; }
         public int RowHeight { get { return _rowH; } set { _rowH = Math.Max(18, value); Invalidate(); } }
@@ -59,11 +61,16 @@ namespace DeskBox.UI
         private void FitColumns()
         {
             if(_baseWidths==null)return;_colWidths=(int[])_baseWidths.Clone();
-            if(_autoFitColumns&&Width>40&&_colWidths.Length>0){double total=0;foreach(var width in _baseWidths)total+=width;int available=Width-24,minimum=Math.Min(72,available/_colWidths.Length),remaining=available-minimum*_colWidths.Length;if(total>0)for(int i=0;i<_colWidths.Length;i++)_colWidths[i]=minimum+(int)(remaining*_baseWidths[i]/total);}Invalidate();
+            if(_autoFitColumns&&Width>40&&_colWidths.Length>0){
+                double total=_baseWidths.Sum();int count=_baseWidths.Count(w=>w>0),available=Width-24;
+                int minimum=count==0?0:Math.Min(72,available/count),remaining=available-minimum*count;
+                if(total>0)for(int i=0;i<_colWidths.Length;i++)_colWidths[i]=_baseWidths[i]<=0?0:minimum+(int)(remaining*_baseWidths[i]/total);
+            }Invalidate();
         }
 
         public void SetRows(List<ListRow> rows)
         {
+            _tip.SetToolTip(this, ""); _hover=-1;
             _rows.Clear();
             if (rows != null) _rows.AddRange(rows);
             _selected = -1;
@@ -81,6 +88,7 @@ namespace DeskBox.UI
         {
             if (i < -1 || i >= _rows.Count) return;
             _selected = i;
+            AccessibleDescription = i < 0 ? "" : RowText(_rows[i]);
             EnsureVisible();
             Invalidate();
             if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
@@ -119,6 +127,7 @@ namespace DeskBox.UI
                     int x = x0;
                     for (int c = 0; c < _headers.Length && c < _colWidths.Length; c++)
                     {
+                        if (_colWidths[c] <= 0) continue;
                         using (var brush = new SolidBrush(Palette.TextDim)) g.DrawString(_headers[c], f, brush, x, 5);
                         x += _colWidths[c];
                     }
@@ -133,7 +142,7 @@ namespace DeskBox.UI
                 {
                     var s = "暂无数据";
                     var sz = g.MeasureString(s, f);
-                    g.DrawString(s, f, new SolidBrush(Palette.TextFaint), (Width - sz.Width) / 2, Height / 2 - 10);
+                    using(var brush=new SolidBrush(Palette.TextFaint))g.DrawString(s, f, brush, (Width - sz.Width) / 2, Height / 2 - 10);
                 }
                 return;
             }
@@ -211,13 +220,13 @@ namespace DeskBox.UI
         {
             base.OnMouseMove(e);
             int idx = RowIndexAt(e.Location);
-            if (idx != _hover) { _hover = idx; Cursor = idx >= 0 ? Cursors.Hand : Cursors.Default; Invalidate(); }
+            if (idx != _hover) { _hover = idx; _tip.SetToolTip(this,idx>=0 ? RowText(_rows[idx]) : ""); Cursor = idx >= 0 ? Cursors.Hand : Cursors.Default; Invalidate(); }
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (_hover != -1) { _hover = -1; Invalidate(); }
+            if (_hover != -1) { _hover = -1; _tip.SetToolTip(this, ""); Invalidate(); }
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -228,6 +237,7 @@ namespace DeskBox.UI
             if (e.Button == MouseButtons.Left)
             {
                 _selected = idx;
+                AccessibleDescription = idx < 0 ? "" : RowText(_rows[idx]);
                 Invalidate();
                 if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
             }
@@ -256,6 +266,9 @@ namespace DeskBox.UI
             _scroll = Math.Max(0, Math.Min(MaxScroll, _scroll - e.Delta));
             Invalidate();
         }
+
+        private static string RowText(ListRow row) { return string.IsNullOrEmpty(row.Tip) ? string.Join(" · ",row.Cells.Where(c=>!string.IsNullOrEmpty(c)).ToArray()) : row.Tip; }
+        protected override void Dispose(bool disposing) { if(disposing)_tip.Dispose();base.Dispose(disposing); }
 
         protected override void OnKeyDown(KeyEventArgs e)
         {

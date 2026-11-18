@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -592,7 +592,7 @@ namespace DeskBox.UI
                 _chat.Projects=_workspaces;_chat.Sync=_localSync;_chat.Cloud=_cloudSync;_chat.Files=_ops;_chat.Navigate=SwitchView;
                 _chat.UiInvoke=delegate(Func<DeskBox.Ai.ToolResult> action){if(IsDisposed||_closing)return DeskBox.Ai.ToolResult.Fail("界面已关闭");return InvokeRequired?(DeskBox.Ai.ToolResult)Invoke(action):action();};
                 _chat.RefreshApp=delegate{OnGlobalContextChanged();if(_referenceActive)_reference.RefreshData();else{var view=_views.ContainsKey(_currentView)?_views[_currentView] as DeskBox.UI.Views.ViewBase:null;if(view!=null&&_currentView!="ai")view.Activate();}};
-                _cloudSync.MobileAi=new DeskBox.Ai.MobileAiRunner(_providers,delegate{var context=new DeskBox.Ai.ToolContext{Store=_store,Projects=_workspaces,Sync=_localSync,Cloud=_cloudSync,Workflows=_workflows,Files=_ops,AllowedRoots=TrustedRoots.Load(),FileAccessEnabled=()=>_store.Settings.AiFileAccess,UiInvoke=_chat.UiInvoke};context.RefreshAuthorization=delegate{context.AllowedRoots=TrustedRoots.Load();};return context;});
+                _cloudSync.MobileAi=new DeskBox.Ai.MobileAiRunner(_providers,CreateAssistantContext);
             }
             catch (Exception ex) { AppLog.Write("error", "system", "AI 服务初始化失败: " + ex.Message); }
             StartReminderLoop();
@@ -1124,6 +1124,8 @@ namespace DeskBox.UI
             try
             {
                 _settingsCenter = new DeskBox.UI.Views.SettingsCenterView(_store, _providers);
+                _settingsCenter.CanSwitchAIEnvironment=delegate{return _liveVoice==null&&(_chat==null||!_chat.Busy);};
+                _settingsCenter.AIEnvironmentChanged+=delegate{if(_chat!=null)_chat.ChangeEnvironment();};
                 _settingsCenter.FilePermissionsChanged += delegate { if (_chat != null) _chat.RefreshPermissions(); };
                 _settingsCenter.TemporaryAccessRevoked += delegate { if (_chat != null) { if (_chat.Busy) _chat.Cancel(); _chat.AllowedFiles.Clear(); _chat.AllowedRoots.Clear(); } };
                 _settingsCenter.ProvidersChanged += delegate
@@ -2036,23 +2038,45 @@ namespace DeskBox.UI
             timer = null;
         }
 
-        private LiveVoiceForm _liveVoice;
+        private HolographicCallView _liveVoice;
+
+        private DeskBox.Ai.ToolContext CreateAssistantContext()
+        {
+            var context=new DeskBox.Ai.ToolContext{Store=_store,Projects=_workspaces,Sync=_localSync,Cloud=_cloudSync,Workflows=_workflows,Files=_ops,
+                Ai=DeskBox.Ai.AiService.Instance,AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList(),
+                AllowedRoots=TrustedRoots.Load(),FileAccessEnabled=()=>_store.Settings.AiFileAccess,
+                UiInvoke=_chat==null?null:_chat.UiInvoke,Navigate=SwitchView,RefreshApp=_chat==null?null:_chat.RefreshApp,
+                Confirm=detail=>ToolConfirm.Ask(this,"助手操作",detail,Palette)};
+            context.RefreshAuthorization=delegate{context.AllowedRoots=TrustedRoots.Load();context.AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList();};
+            return context;
+        }
 
         internal void ShowLiveVoice()
         {
             if (_liveVoice != null) return;
-            var voice = new LiveVoiceForm(() => _workspaces.Current);
+            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,CreateAssistantContext);
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
-            voice.Disposed += delegate
-            {
-                _liveVoice = null;
+            voice.ExitRequested += async delegate {
+                await voice.StopAsync();
+                if (IsDisposed || _closing) return;
+                if(_chat!=null && !_chat.Busy && voice.Conversation!=null)_chat.SwitchSession(voice.Conversation.Id);
+                Controls.Remove(voice);
+                voice.Dispose();
+            };
+            voice.Disposed += delegate {
+                if (_liveVoice == voice) _liveVoice = null;
                 if (_closing || IsDisposed) return;
                 if (_referenceActive && _reference != null) _reference.Show();
                 if (_chatView != null) _chatView.FocusInput();
             };
-            try { voice.EmbedIn(this); }
-            catch { voice.Dispose(); throw; }
+            voice.Dock = DockStyle.None;
+            voice.Bounds = ClientRectangle;
+            voice.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(voice);
+            voice.BringToFront();
+            voice.Focus();
+            BeginInvoke(new Action(voice.Start));
         }
 
         private void OnFormKeyDown(object sender, KeyEventArgs e)

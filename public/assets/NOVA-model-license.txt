@@ -1,0 +1,11 @@
+Silverwing illustrated avatar
+
+The character artwork is an image-generation adaptation of the five character
+references supplied by the user for this DeskBox project. It is not the former
+pixiv VRM model and is not a newly reconstructed or rigged 3D mesh.
+
+The runtime preserves the full-body illustration with alpha transparency and
+adds holographic scanning, edge light, and voice-reactive rings. The native
+WinForms application embeds this PNG and uses GDI+ layers; the optional WebGL
+preview uses shaders.
+No stock character model or creator attribution from the previous VRM is used.

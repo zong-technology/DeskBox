@@ -68,6 +68,9 @@ namespace DeskBox.Ai
         private readonly object _lock = new object();
         private readonly List<AiProvider> _providers = new List<AiProvider>();
 
+        private string dataFile = DataFile;
+        public void ChangeEnvironment() { lock(_lock) { dataFile=DataFile;LoadLocked(); } }
+
         public ProviderStore()
         {
             Load();
@@ -87,7 +90,7 @@ namespace DeskBox.Ai
 
         public static string DataFile
         {
-            get { return Path.Combine(AppPaths.DataDir, "ai-providers.json"); }
+            get { return Path.Combine(AppPaths.DataDir, "ai-providers"+AiEnvironment.Suffix+".json"); }
         }
 
         public AiProvider Get(string id)
@@ -285,10 +288,10 @@ namespace DeskBox.Ai
             try
             {
                 Directory.CreateDirectory(AppPaths.DataDir);
-                var file = DataFile;
+                var file = dataFile;
                 if (!File.Exists(file))
                 {
-                    MigrateLegacyLocked();
+                    if(!AiEnvironment.Local)MigrateLegacyLocked();
                     return;
                 }
                 string text;
@@ -327,7 +330,7 @@ namespace DeskBox.Ai
                 dto.version = FileVersion;
                 dto.providers = new List<ProviderDto>();
                 foreach (var p in _providers) dto.providers.Add(ToDto(p));
-                WriteAtomic(DataFile, Ser.Serialize(dto));
+                WriteAtomic(dataFile, Ser.Serialize(dto));
             }
             catch (Exception ex)
             {

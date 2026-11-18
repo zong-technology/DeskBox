@@ -25,6 +25,8 @@ namespace DeskBox.UI.Views
         private Label _toast;
 
         public event EventHandler ProvidersChanged;
+        public event EventHandler AIEnvironmentChanged;
+        public Func<bool> CanSwitchAIEnvironment;
         public event EventHandler FilePermissionsChanged;
         public event EventHandler TemporaryAccessRevoked;
         private void NotifyPermissionsChanged() { if (FilePermissionsChanged != null) FilePermissionsChanged(this, EventArgs.Empty); }
@@ -58,6 +60,7 @@ namespace DeskBox.UI.Views
             {
                 new NavItem { Key = "appearance", Icon = "🎨", Title = "外观" },
                 new NavItem { Key = "ai",         Icon = "◈",  Title = "AI 服务商" },
+                new NavItem { Key = "voice",      Icon = "◉",  Title = "全息语音" },
                 new NavItem { Key = "weather",    Icon = "☁",  Title = "天气" },
                 new NavItem { Key = "automation", Icon = "⚡", Title = "自动化" },
                 new NavItem { Key = "privacy",    Icon = "🔒", Title = "文件与隐私" },
@@ -125,6 +128,7 @@ namespace DeskBox.UI.Views
                 _nav[i].Btn.Invalidate();
             }
             _contentHost.SuspendLayout();
+            foreach (Control old in _contentHost.Controls.Cast<Control>().ToArray()) old.Dispose();
             _contentHost.Controls.Clear();
             var page = BuildPage(_nav[index].Key);
             _contentHost.Controls.Add(page);
@@ -138,6 +142,7 @@ namespace DeskBox.UI.Views
             {
                 case "appearance": return PageAppearance();
                 case "ai": return PageAi();
+                case "voice": return PageVoice();
                 case "weather": return PageWeather();
                 case "automation": return PageAutomation();
                 case "privacy": return PagePrivacy();
@@ -258,6 +263,79 @@ namespace DeskBox.UI.Views
 
         // ---------------- 1. 外观 ----------------
 
+        private Control PageVoice()
+        {
+            var p=NewPage();
+            var storage=new RealtimeVoiceSettingsStore();
+            var saved=storage.Load();
+            Section(p,"全息语音","在这里保存一次。进入全息 AI 通话后自动连接，画面只显示投影和实时字幕。");
+            RowLabel(p,"助手名称","角色与名称会应用于下次通话，并随会话记录保存");
+            var name=AddInput(p,"给全息助手起一个名字",saved.AssistantName,delegate(string value){});name.Name="hologram-name";name.Inner.MaxLength=24;
+            RowLabel(p,"角色设定","可以描述身份、性格、专长与说话方式；最多 2000 字");
+            var persona=new TextBox {Left=8,Top=_y,Width=620,Height=100,Multiline=true,AcceptsReturn=true,ScrollBars=ScrollBars.Vertical,
+                Text=saved.Persona,MaxLength=2000,BackColor=Palette.PanelAlt,ForeColor=Palette.Text,Name="hologram-persona",AccessibleName="全息助手角色设定"};
+            p.Controls.Add(persona);_y+=112;
+            RowLabel(p,"实时语音服务");
+            var provider=new ComboBox {Left=8,Top=_y,Width=340,DropDownStyle=ComboBoxStyle.DropDownList,
+                BackColor=Palette.PanelAlt,ForeColor=Palette.Text,Name="hologram-service"};
+            provider.Items.AddRange(new object[]{"Google · Gemini Live","千问百炼 · Omni Realtime"});
+            provider.SelectedIndex=saved.Provider=="qwen" ? 1 : 0;p.Controls.Add(provider);_y+=38;
+            RowLabel(p,"实时服务地址","百炼需要填写所属工作空间的 WSS 地址");
+            var endpoint=AddInput(p,"wss://…",saved.Endpoint,delegate(string value){});endpoint.Name="hologram-endpoint";
+            RowLabel(p,"实时语音模型","普通文本聊天模型不能替代实时语音模型");
+            var model=new ComboBox {Left=8,Top=_y,Width=340,Text=saved.Model,BackColor=Palette.PanelAlt,ForeColor=Palette.Text,Name="hologram-model"};
+            p.Controls.Add(model);_y+=38;
+            RowLabel(p,"API 密钥",string.IsNullOrEmpty(saved.ApiKey) ? "使用 Windows DPAPI 加密保存" : "已保存；留空保留当前密钥");
+            var key=AddInput(p,"输入密钥，留空保留已保存的密钥","",delegate(string value){});key.Name="hologram-key";key.Inner.UseSystemPasswordChar=true;
+            RowLabel(p,"投影外观");
+            int appearance=saved.Appearance=="silverwing" ? 1 : saved.Appearance=="photon" ? 2 : 0;
+            var style=AddSelect(p,new[]{"量子光核 · 沉浸光场","银紫龙翼 · 原画全息","星辉光粒子 · 全身投影"},appearance,delegate(int value){});style.Name="hologram-appearance";
+            var reduced=new CheckBox {Left=8,Top=_y,AutoSize=true,Text="减少动态效果",Checked=saved.ReducedMotion,ForeColor=Palette.Text,BackColor=Palette.Bg,Name="hologram-motion"};
+            p.Controls.Add(reduced);_y+=36;
+            var interruption=new CheckBox {Left=8,Top=_y,AutoSize=true,Text="允许免按键打断（建议戴耳机时启用）",Checked=saved.AllowInterruption,ForeColor=Palette.Text,BackColor=Palette.Bg,Name="hologram-interruption"};
+            p.Controls.Add(interruption);_y+=36;
+            var status=new Label {Left=8,Top=_y+46,AutoSize=true,MaximumSize=new Size(650,0),ForeColor=Palette.TextDim,Text="Esc 返回；Ctrl+M 静音；轻点投影或空格打断。默认稳定播报，减少扬声器回声干扰。",Name="hologram-setting-status"};
+            p.Controls.Add(status);
+            var save=AddButton(p,"保存全息语音",8,_y,145,delegate {
+                try {
+                    string service=provider.SelectedIndex==1 ? "qwen" : "gemini";
+                    var value=new RealtimeVoiceSettings {Provider=service,Endpoint=endpoint.Text.Trim(),Model=model.Text.Trim(),
+                        AssistantName=name.Text.Trim(),Persona=persona.Text.Trim(),
+                        ApiKey=string.IsNullOrWhiteSpace(key.Text) && service==saved.Provider ? saved.ApiKey : key.Text.Trim(),
+                        Appearance=style.SelectedIndex==1 ? "silverwing" : style.SelectedIndex==2 ? "photon" : "quantum",ReducedMotion=reduced.Checked,AllowInterruption=interruption.Checked};
+                    storage.Save(value);saved=value;key.Text="";
+                    status.Text=value.Ready ? "已加密保存。下次点击全息 AI 通话会直接进入并连接。" : "投影偏好已保存，语音尚未启用。";
+                    Toast("全息语音已保存");
+                } catch(ArgumentException error){status.Text=error.Message;Toast("请核对实时语音参数",false);}
+                  catch(Exception){status.Text="保存失败，请检查本机存储权限。";Toast("保存失败",false);}
+            },true);save.Name="hologram-save";
+            var fetch=AddButton(p,"获取实时模型",164,_y,145,delegate{});
+            CancellationTokenSource request=null;
+            fetch.Click += async delegate {
+                if(request!=null)return;
+                request=new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                fetch.Enabled=save.Enabled=provider.Enabled=false;
+                try {
+                    string service=provider.SelectedIndex==1 ? "qwen" : "gemini";
+                    string secret=string.IsNullOrWhiteSpace(key.Text) && service==saved.Provider ? saved.ApiKey : key.Text.Trim();
+                    var values=await (service=="qwen" ? QwenLiveVoiceProvider.ListModelsAsync(endpoint.Text,secret,request.Token) :
+                        VoiceModelCatalog.ListGeminiAsync(endpoint.Text,secret,request.Token));
+                    if(p.IsDisposed)return;
+                    string current=model.Text;model.Items.Clear();model.Items.AddRange(values);model.Text=current;
+                    status.Text="已读取 "+values.Length+" 个实时模型，可选择后保存。";
+                }catch(Exception){if(!p.IsDisposed)status.Text="暂时无法读取模型目录，可手动填写模型 ID。";}
+                finally {request.Dispose();request=null;if(!p.IsDisposed)fetch.Enabled=save.Enabled=provider.Enabled=true;}
+            };
+            p.Disposed+=delegate{if(request!=null)request.Cancel();};
+            provider.SelectedIndexChanged+=delegate {
+                bool qwen=provider.SelectedIndex==1;
+                endpoint.Text=qwen ? QwenLiveVoiceProvider.DefaultEndpoint : GeminiLiveVoiceProvider.DefaultEndpoint;
+                model.Text=qwen ? QwenLiveVoiceProvider.DefaultModel : "gemini-3.1-flash-live-preview";key.Text="";
+            };
+            _y+=96;
+            return p;
+        }
+
         private Control PageAppearance()
         {
             var p = NewPage();
@@ -356,6 +434,16 @@ namespace DeskBox.UI.Views
         private Control PageAi()
         {
             var p = NewPage();
+            Section(p,"全部 AI 的运行环境","本地与网络分别保存模型配置、密钥和对话；普通 AI、全息、工作流 AI 及手机中继共用执行边界。");
+            var environment=new ComboBox {Left=8,Top=_y,Width=280,DropDownStyle=ComboBoxStyle.DropDownList,Name="ai-environment",AccessibleName="AI 运行环境"};
+            environment.Items.AddRange(new object[]{"本地隔离 · 仅本机模型","网络开放 · 允许联网模型"});environment.SelectedIndex=AiEnvironment.Local?0:1;p.Controls.Add(environment);_y+=38;
+            RowLabel(p,"本地仅允许 127.0.0.1 / ::1，不跟随重定向，不开放网络共享、工作流执行或设备同步。需事先安装本机模型服务；不会自动改用云端。");
+            environment.SelectedIndexChanged+=delegate {
+                var mode=environment.SelectedIndex==0?"local":"network";if(mode==AiEnvironment.Mode)return;
+                if(CanSwitchAIEnvironment!=null&&!CanSwitchAIEnvironment()){Toast("请先结束全息通话或停止文字生成，再切换环境",false);environment.SelectedIndex=AiEnvironment.Local?0:1;return;}
+                try {AiEnvironment.Select(mode);_providers.ChangeEnvironment();_editing=null;var changed=AIEnvironmentChanged;if(changed!=null)changed(this,EventArgs.Empty);ReloadProviderList();if(_providers.Providers.Count==0)NewProvider();RaiseProviders();Toast("AI 环境已切换，原配置和记录保留");}
+                catch(Exception error){Toast(error.Message,false);environment.SelectedIndex=AiEnvironment.Local?0:1;}
+            };
             Section(p, "AI 服务商管理", "API Key 使用 Windows DPAPI 加密存储，界面与日志永不显示明文");
 
             var bar = new Panel { Left = 0, Top = _y, Height = 36, Width = Math.Max(700, Body.Width - 230), BackColor = Palette.Bg };
@@ -468,8 +556,9 @@ namespace DeskBox.UI.Views
         private void NewProvider()
         {
             if (_providers == null) { Toast("AI 服务未初始化", false); return; }
-            _fName.Text = "新服务商";
-            _fBase.Text = "https://";
+            _fName.Text = AiEnvironment.Local ? "本机模型" : "新服务商";
+            _fBase.Text = AiEnvironment.Local ? "http://127.0.0.1:11434/v1" : "https://";
+            _fProtocol.SelectedIndex=0;
             _fKey.Text = "";
             _fModel.Text = "";
             _fTimeout.Text = "60000";
@@ -478,6 +567,7 @@ namespace DeskBox.UI.Views
             _fEnabled.Checked = true;
             _fDefault.Checked = _providers.Providers.Count == 0;
             _editing = null;
+            _keyUnchanged=false;if(_testResult!=null)_testResult.Text="尚未测试";
             Toast("填写后点「保存」创建");
         }
 

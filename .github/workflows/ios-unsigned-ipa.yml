@@ -1,30 +1,148 @@
 name: DeskBox unsigned iPhone IPA
-"on":
+on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/deskbox-ios-unsigned-ipa
-    paths:
-      - mobile/DeskBoxMobile/**
-      - tools/build-ios-unsigned-ipa.sh
-      - .github/workflows/ios-unsigned-ipa.yml
+    inputs:
+      runner:
+        description: 'github-hosted 使用 GitHub 标准云端构建机；self-hosted 需事先登记专用测试机'
+        type: choice
+        options: [github-hosted, self-hosted]
+        default: github-hosted
+      publish:
+        description: '全部检查通过后发布测试安装包（需要仓库写权限）'
+        type: boolean
+        default: false
+      artifact_run_id:
+        description: '仅恢复发布：填写同工作流已通过原生检查的运行 ID，留空正常构建'
+        type: string
+        default: ''
+      audio_only:
+        description: '仅运行原生离线音频回归，不生成或发布安装包'
+        type: boolean
+        default: false
+concurrency:
+  group: local-release-macOS-${{ github.ref }}${{ inputs.audio_only && '-audio' || '' }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
-  unsigned-ipa:
-    runs-on: macos-latest
-    timeout-minutes: 25
+  audio-regression:
+    if: inputs.artifact_run_id == ''
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-      - name: Check briefing selection, scheduling and endpoint rules
+      - name: Render delayed long replies with native AVAudioEngine and test input jitter
+        run: |
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramPlayback.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramInputGate.swift tools/mobile-audio-check.swift -o "$RUNNER_TEMP/audio-check"
+          for attempt in 1 2 3; do
+            "$RUNNER_TEMP/audio-check" | tee -a "$RUNNER_TEMP/audio-check.log"
+          done
+          grep -E '^PASS [0-9]+ native audio checks' "$RUNNER_TEMP/audio-check.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBoxMobile-Audio-Regression
+          retention-days: 7
+          path: ${{ runner.temp }}/audio-check.log
+          if-no-files-found: warn
+  unsigned-ipa:
+    needs: audio-regression
+    if: inputs.artifact_run_id == '' && !inputs.audio_only
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the source version
+        id: version
+        run: |
+          python3 - <<'PYVERSION'
+          import os,re,pathlib
+          text=pathlib.Path('mobile/DeskBoxMobile/DeskBoxMobile.xcodeproj/project.pbxproj').read_text()
+          versions=set(re.findall(r'MARKETING_VERSION = ([0-9.]+);',text));assert len(versions)==1
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('version='+versions.pop()+'\n')
+          PYVERSION
+      - name: Check existing briefing, offline sync and endpoint rules
         run: |
           swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/BriefingRules.swift mobile/DeskBoxMobile/DeskBoxMobile/SyncEndpoint.swift mobile/DeskBoxMobile/DeskBoxMobile/CloudAccount.swift tools/mobile-briefing-check.swift -o "$RUNNER_TEMP/briefing-check"
           "$RUNNER_TEMP/briefing-check"
+      - name: Check live protocol, history, cached tools and speech motion
+        run: |
+          mkdir -p "$RUNNER_TEMP/mobile-qa"
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/AIToolPresentation.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramDiagnostics.swift tools/mobile-hologram-check.swift -o "$RUNNER_TEMP/hologram-check"
+          "$RUNNER_TEMP/hologram-check" | tee "$RUNNER_TEMP/mobile-qa/hologram-check.log"
+      - name: Read native PDF, image and text attachments and validate AI request limits
+        run: |
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAttachmentReader.swift tools/mobile-attachment-check.swift -o "$RUNNER_TEMP/attachment-check"
+          "$RUNNER_TEMP/attachment-check" | tee "$RUNNER_TEMP/mobile-qa/attachment-check.log"
+      - name: Check independent phone models, actual local tools and offline network rejection
+        run: |
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/AIToolPresentation.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileDirectAI.swift tools/mobile-independent-ai-check.swift -o "$RUNNER_TEMP/independent-ai-check"
+          "$RUNNER_TEMP/independent-ai-check" | tee "$RUNNER_TEMP/mobile-qa/independent-ai-check.log"
       - name: Build unsigned arm64 iPhoneOS IPA
-        run: bash tools/build-ios-unsigned-ipa.sh "$RUNNER_TEMP/DeskBoxMobile-unsigned.ipa"
+        run: |
+          VERSION='${{ steps.version.outputs.version }}'
+          mkdir -p "$RUNNER_TEMP/mobile-release"
+          bash tools/build-ios-unsigned-ipa.sh "$RUNNER_TEMP/mobile-release/DeskBoxMobile-${VERSION}-unsigned.ipa"
+          cp docs/MOBILE-HOLOGRAM-${VERSION}.md "$RUNNER_TEMP/mobile-release/RELEASE-NOTES.md"
+          cd "$RUNNER_TEMP/mobile-release"
+          shasum -a 256 DeskBoxMobile-${VERSION}-unsigned.ipa > SHA256SUMS.txt
+      - name: Launch isolated native simulator routes at two iPhone sizes
+        run: |
+          bash tools/ios-hologram-smoke.sh "$RUNNER_TEMP/mobile-qa"
+          python3 - "$RUNNER_TEMP/mobile-qa" <<'PY'
+          import sys,json,pathlib
+          p=pathlib.Path(sys.argv[1]);routes='home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics ai-empty tool-history tool-history-large ai-attachment ai-attachment-large ai-settings ai-settings-large ai-local-settings ai-local-settings-large'.split()
+          for label in ['main','small']:
+            for route in routes:
+              m=json.loads((p/(label+'-'+route+'.json')).read_text())
+              assert m['route']==route and m['active']
+              assert (p/(label+'-'+route+'.png')).stat().st_size>1000
+          print('PASS complete native UI matrix: 62 routes')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBoxMobile-Review
+          path: ${{ runner.temp }}/mobile-qa/
+          if-no-files-found: warn
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: DeskBoxMobile-unsigned-iphone-ipa
-          path: ${{ runner.temp }}/DeskBoxMobile-unsigned.ipa
-          if-no-files-found: error
           retention-days: 7
+          path: ${{ runner.temp }}/mobile-release/
+          if-no-files-found: error
+  publish:
+    if: ${{ always() && inputs.publish && !inputs.audio_only && (inputs.artifact_run_id != '' || (needs.unsigned-ipa.result == 'success' && needs.audio-regression.result == 'success')) }}
+    needs: [unsigned-ipa, audio-regression]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: DeskBoxMobile-unsigned-iphone-ipa
+          path: release
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: DeskBoxMobile-Review
+          path: review
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Publish the verified unsigned iPhone test package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.artifact_run_id || github.run_id }}
+        run: python3 tools/publish-ios-artifact.py

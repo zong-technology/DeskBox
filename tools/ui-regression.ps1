@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory=$true)]
     [ValidateSet(96,120,144)]
-    [int]$ExpectedDpi
+    [int]$ExpectedDpi,
+    [string]$SourceExe = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -14,7 +15,11 @@ Push-Location $root
 try {
     $env:TEMP = $output
     $env:TMP = $output
-    & .\build.ps1 -OutDir $relative -NoPause
+    if ($SourceExe) {
+        Copy-Item -LiteralPath (Resolve-Path -LiteralPath $SourceExe).Path -Destination (Join-Path $output 'DeskBox.exe')
+    } else {
+        & .\build.ps1 -OutDir $relative -NoPause
+    }
     $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     $render = Join-Path $PSScriptRoot 'render-v4-ui.cs'
     $smoke = Join-Path $PSScriptRoot 'smoke-ui.cs'

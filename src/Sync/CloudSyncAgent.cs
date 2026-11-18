@@ -92,6 +92,7 @@ namespace DeskBox.Sync
 
         public async Task SyncNow()
         {
+            if(AiEnvironment.Local){Connected=false;Status="本地隔离 · 已暂停设备同步";Raise();return;}
             if (_busy || _disposed || _credential == null) return;
             _busy = true; Status = "云同步中…"; Raise();
             try
@@ -134,11 +135,12 @@ namespace DeskBox.Sync
         }
         private async void PollMobileAi()
         {
+            if(AiEnvironment.Local)return;
             if(_aiBusy||_disposed||MobileAi==null||_credential==null)return;_aiBusy=true;
             try
             {
                 var response=await AiExchange(true,new List<MobileAiProgress>());if(response.Job==null)return;
-                using(var cancellation=new CancellationTokenSource())
+                using(var cancellation=CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token))
                 {
                     _aiCancellation=cancellation;var gate=new object();var state=new MobileAiProgress{Id=response.Job.id};
                     var messages=Json.FromJson<List<AiMessage>>(response.Job.messages);if(messages==null)throw new InvalidDataException();
@@ -185,7 +187,11 @@ namespace DeskBox.Sync
         }
         private void Raise() { if (_disposed) return; var changed = Changed; if (changed != null) changed(); }
         public void Dispose() { _disposed = true;if(_aiCancellation!=null)_aiCancellation.Cancel();_timer.Stop(); _timer.Dispose(); }
-        private class CloudWebClient : WebClient { protected override WebRequest GetWebRequest(Uri address) { var request = (HttpWebRequest)base.GetWebRequest(address); request.Timeout = 15000; request.ReadWriteTimeout = 15000; request.AllowAutoRedirect = false; return request; } }
+        private class CloudWebClient : WebClient {
+            private CancellationTokenRegistration environmentRegistration;
+            protected override WebRequest GetWebRequest(Uri address) { var token=AiEnvironment.Token;AiEnvironment.RequireNetwork();var request=(HttpWebRequest)base.GetWebRequest(address);request.Timeout=15000;request.ReadWriteTimeout=15000;request.AllowAutoRedirect=false;environmentRegistration.Dispose();environmentRegistration=token.Register(request.Abort);return request; }
+            protected override void Dispose(bool disposing) { if(disposing)environmentRegistration.Dispose();base.Dispose(disposing); }
+        }
         private class ExchangeResponse { public List<CloudPending> Pending = null; }
         private class CloudPending { public string Id = ""; public SyncRecord Record = null; }
         private class CloudResult { public string Id; public string Result; }

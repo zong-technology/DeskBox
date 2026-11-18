@@ -1,4 +1,12 @@
-# 当前验证版本（2026-11-02）
+# 当前验证入口（2026-11-18）
+
+0.11.1/build 13 修复源码已提交：全息通话期间保持亮屏，普通点投影不再打断，改用明确按钮；退出和进入后台恢复原锁屏设置。详见 [修复说明](MOBILE-HOLOGRAM-0.11.1.md)。当前云环境到 GitHub 构建接口返回 503，尚未完成本次 Xcode 编译和新增原生交互验收，未发布 0.11.1 IPA。下述已发布 0.11.0 不含此修复。
+
+Windows 测试版 13 与 iPhone 0.11.0（build 12）均已完成云端原生检查并发布。手机文字 AI 改为直接连接模型，无需电脑版或同步账号；普通及全息 AI 统一支持「本地隔离 / 网络开放」，分别保存配置和对话，保留折叠工具与原有资料。业务任务和项目仍共用；手机离线生成需要 iOS 26+、支持且启用 Apple Intelligence 的设备。下载、条件与证据见 [本轮验收记录](AI-ENVIRONMENT-RELEASE-REVIEW.md) 和 [设置说明](AI-ENVIRONMENTS.md)。当前开发源码在 `feat/holographic-ai-call`，尚未合入 main。
+
+下面保留 2026-11-02 的历史验证记录；其中手机 AI、冲突 UI 等状态已过期，以当前验收记录和 [后续事项](DEFERRED-DECISIONS.md) 为准。
+
+## 历史验证版本（2026-11-02）
 
 最新配对修复版本：`dist/pairing-review/DeskBox.exe`；手机包为 `dist/ios/DeskBoxMobile-0.1.1-unsigned.ipa`（需重新签名）。见 `PAIRING-0.1.1-FIX.md`。
 上一批完整功能验证版本：`dist/current-review/DeskBox.exe`。

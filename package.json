@@ -1,0 +1,63 @@
+{
+  "name": "deskbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "dev": "node --watch --env-file-if-exists=.env server.mjs",
+    "test": "node --test",
+    "build": "node scripts/build.mjs",
+    "prestart": "npm run build",
+    "predev": "npm run build",
+    "desktop": "npm run build && electron .",
+    "pack": "npm run build && electron-builder"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "three": "^0.187.0"
+  },
+  "description": "DeskBox NOVA immersive holographic AI voice chamber",
+  "author": "DeskBox",
+  "main": "desktop/main.mjs",
+  "build": {
+    "appId": "com.deskbox.nova",
+    "productName": "DeskBox",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**",
+      "public/**",
+      "server.mjs",
+      "package.json",
+      "!public/hologram.js"
+    ],
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "NOVA uses your microphone only when you start an AI voice call."
+      }
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "category": "Utility"
+    }
+  }
+}

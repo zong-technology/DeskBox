@@ -121,6 +121,7 @@ namespace DeskBox
         public string RemindAt = "";        // yyyy-MM-dd HH:mm 或空
         public string Notes = "";           // 备注
         public string Project = "";         // 关联项目/工作区
+        public string Owner = null;         // null: 旧版未保存此字段；空字符串表示明确清空负责人
         public bool Reminded = false;       // 本周期是否已提醒
         public long CreatedAt = 0;
         public long DoneAt = 0;

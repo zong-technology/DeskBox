@@ -26,16 +26,27 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
     @Published private(set) var networkEpoch = 0
     private let pathMonitor = NWPathMonitor()
     private let cloudSession = URLSession(configuration: .ephemeral, delegate: CloudRedirectBlocker(), delegateQueue: nil)
+    private var environmentObserver: NSObjectProtocol?
+    private let sessionLock = NSLock()
+    private let sessions = NSHashTable<URLSession>.weakObjects()
     override init() {
         super.init()
+        environmentObserver = NotificationCenter.default.addObserver(forName: AIEnvironment.changed, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.sessionLock.lock(); let active = self.sessions.allObjects; self.sessionLock.unlock()
+            active.forEach { $0.invalidateAndCancel() }
+            self.cloudSession.getAllTasks { $0.forEach { $0.cancel() } }
+            self.connected = false; self.retryAfter = .distantPast; self.status = AIEnvironment.current == .local ? "本地隔离 · 已暂停同步" : "网络环境已恢复，可继续同步"
+        }
         pathMonitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
             DispatchQueue.main.async { self?.retryAfter = .distantPast; self?.networkEpoch += 1 }
         }
         pathMonitor.start(queue: DispatchQueue(label: "DeskBox.NetworkMonitor"))
     }
-    deinit { pathMonitor.cancel(); cloudSession.invalidateAndCancel() }
+    deinit { if let environmentObserver { NotificationCenter.default.removeObserver(environmentObserver) }; pathMonitor.cancel(); cloudSession.invalidateAndCancel() }
     @MainActor func automaticSync(store: OfflineStore, force: Bool = false) {
+        guard AIEnvironment.current == .network else { return }
         guard automatic, credentials != nil || cloudCredential != nil, !busy, force || Date() >= retryAfter else { return }
         sync(store: store)
     }
@@ -70,12 +81,14 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
         status = "已退出云同步，离线资料与原局域网配对保留"
     }
     @MainActor private func syncCloud(store: OfflineStore) {
+        guard AIEnvironment.current == .network else { status = "本地隔离 · 已暂停同步"; return }
         guard let credential = cloudCredential else { return }
         busy = true; status = "正在同步云账号…"
         Task {
             defer { busy = false }
             do {
                 for record in store.pending {
+                    try AIEnvironment.current.requireNetwork()
                     var outgoing = record; outgoing.deviceId = credential.deviceId
                     var request = cloudRequest("push", credential); request.httpMethod = "POST"
                     request.httpBody = try JSONEncoder().encode(outgoing)
@@ -85,6 +98,7 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
                     if result.result == "Conflict" { store.noteConflict(record) }
                     if result.ok && ["Applied", "Duplicate", "Resolved"].contains(result.result) { store.acknowledge(record) }
                 }
+                try AIEnvironment.current.requireNetwork()
                 let (data, response) = try await cloudSession.data(for: cloudRequest("pull", credential))
                 try checkCloudResponse(response)
                 store.apply(try JSONDecoder().decode([SyncRecord].self, from: data))
@@ -105,6 +119,7 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
         return request
     }
     @MainActor func mobileAIRequest(_ action: String, body: Data? = nil) async throws -> Data {
+        try AIEnvironment.current.requireNetwork()
         guard let credential = cloudCredential else { throw SyncFailure.cloudUnauthorized }
         var request = cloudRequest(action, credential)
         if let body { request.httpMethod = "POST"; request.httpBody = body }
@@ -119,6 +134,7 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
     }
 
     func discover(port: UInt16 = 47830, completion: @escaping (DiscoveredDeskBox?) -> Void) {
+        guard AIEnvironment.current == .network else { completion(nil); return }
         let connection = NWConnection(host: "255.255.255.255", port: NWEndpoint.Port(rawValue: port)!, using: .udp)
         let lock = NSLock(); var completed = false
         let finish: (DiscoveredDeskBox?) -> Void = { value in lock.lock(); defer { lock.unlock() }; if completed { return }; completed = true; completion(value) }
@@ -138,6 +154,7 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
     }
 
     @MainActor private func pair(host: String, port: Int, code: String) {
+        guard AIEnvironment.current == .network else { status = "本地隔离模式不能配对联网设备"; return }
         busy = true; status = "正在建立设备信任…"
         let pinnedFingerprint = expectedFingerprint
         expectedFingerprint = expectedFingerprint.uppercased(); let url = URL(string: "https://\(host):\(port)/pair")!
@@ -156,6 +173,7 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
     }
 
     @MainActor func sync(store: OfflineStore) {
+        guard AIEnvironment.current == .network else { status = "本地隔离 · 已暂停同步"; return }
         guard !store.loadFailed else { status = "本地数据未能读取，已暂停同步以保留原文件"; return }
         guard !busy else { return }
         if cloudCredential != nil { syncCloud(store: store); return }
@@ -199,6 +217,7 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
     }
 
     @MainActor private func send(_ record: SyncRecord, credentials: Credentials, store: OfflineStore) async -> Bool {
+        guard AIEnvironment.current == .network else { return false }
         sendTransportFailed = false
         guard var request = authenticated("/sync/push", credentials) else { return false }; request.httpMethod = "POST"
         var outgoing = record; outgoing.deviceId = credentials.deviceId
@@ -220,7 +239,9 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
     private struct TrustExpiry: Decodable { var expiresAt: Int64; enum CodingKeys: String, CodingKey { case expiresAt = "ExpiresAt" } }
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral; configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 30
-        return URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        sessionLock.lock(); sessions.add(session); sessionLock.unlock()
+        return session
     }
     private func pairingFailure(error: Error?, response: URLResponse?) -> String {
         if fingerprintMismatch { return "证书指纹不匹配：请在电脑重新生成完整链接，不能手改指纹。" }
@@ -239,6 +260,7 @@ final class SyncClient: NSObject, ObservableObject, URLSessionDelegate {
         }
     }
     private func pull(credentials: Credentials) async throws -> [SyncRecord] {
+        try AIEnvironment.current.requireNetwork()
         let session = makeSession(); defer { session.finishTasksAndInvalidate() }
         guard let request = authenticated("/sync/pull?since=0", credentials) else { throw SyncFailure.protocolError }
         let (data, response) = try await session.data(for: request)

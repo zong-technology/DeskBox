@@ -23,13 +23,12 @@ $ico = Join-Path $root "assets\deskbox.ico"
 $cscArgs = @(
   "/nologo", "/target:winexe", "/optimize+", "/platform:anycpu",
   "/out:$exe",
-  "/r:System.dll", "/r:System.Core.dll", "/r:System.Drawing.dll",
+  "/r:System.dll", "/r:System.Core.dll", "/r:System.Security.dll", "/r:System.Drawing.dll",
   "/r:System.Windows.Forms.dll", "/r:System.Web.Extensions.dll", "/r:System.IO.Compression.dll", "/r:System.IO.Compression.FileSystem.dll", "/r:System.Management.dll",
   "/r:Microsoft.VisualBasic.dll",
   "/win32icon:$ico"
   "/resource:$root\assets\engineering-factory.png,DeskBox.EngineeringFactory"
-  "/resource:$root\assets\voice-presence.png,DeskBox.VoicePresence"
-  "/resource:$root\assets\voice-probe.png,DeskBox.VoiceProbe"
+  "/resource:$root\public\assets\silverwing-avatar.png,DeskBox.Silverwing"
   "/resource:$root\skills\documents\worker.py,DeskBox.DocumentWorker"
   "/resource:$root\skills\documents\SKILL.md,DeskBox.DocumentSkill"
   "/resource:$root\skills\documents\windows-ocr.ps1,DeskBox.DocumentOcr"
