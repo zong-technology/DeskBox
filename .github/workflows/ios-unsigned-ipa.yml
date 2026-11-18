@@ -11,6 +11,10 @@ on:
         description: '全部检查通过后发布测试安装包（需要仓库写权限）'
         type: boolean
         default: false
+      artifact_run_id:
+        description: '仅恢复发布：填写同工作流已通过原生检查的运行 ID，留空正常构建'
+        type: string
+        default: ''
 concurrency:
   group: local-release-macOS-${{ github.ref }}
   cancel-in-progress: false
@@ -18,6 +22,7 @@ permissions:
   contents: read
 jobs:
   audio-regression:
+    if: inputs.artifact_run_id == ''
     runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
     timeout-minutes: 10
     defaults:
@@ -38,6 +43,7 @@ jobs:
           path: ${{ runner.temp }}/audio-check.log
           if-no-files-found: warn
   unsigned-ipa:
+    if: inputs.artifact_run_id == ''
     outputs:
       version: ${{ steps.version.outputs.version }}
     runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
@@ -104,23 +110,28 @@ jobs:
           path: ${{ runner.temp }}/mobile-release/
           if-no-files-found: error
   publish:
-    if: inputs.publish
+    if: ${{ always() && inputs.publish && (inputs.artifact_run_id != '' || (needs.unsigned-ipa.result == 'success' && needs.audio-regression.result == 'success')) }}
     needs: [unsigned-ipa, audio-regression]
-    runs-on: ${{ inputs.runner == 'github-hosted' && 'macos-latest' || fromJSON('["self-hosted","macOS","deskbox-qa"]') }}
+    runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: DeskBoxMobile-unsigned-iphone-ipa
           path: release
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
           name: DeskBoxMobile-Review
           path: review
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Publish the verified unsigned iPhone test package
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.unsigned-ipa.outputs.version }}
-        run: |
-          gh release create "v${VERSION}-mobile-hologram" "release/DeskBoxMobile-${VERSION}-unsigned.ipa" release/SHA256SUMS.txt review/main-hologram.png review/small-hologram.png --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "DeskBox Mobile ${VERSION} - holographic voice preview" --notes-file release/RELEASE-NOTES.md
+          SOURCE_RUN_ID: ${{ inputs.artifact_run_id || github.run_id }}
+        run: python3 tools/publish-ios-artifact.py

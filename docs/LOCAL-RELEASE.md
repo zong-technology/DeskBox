@@ -72,6 +72,13 @@ Mac 构建目录也可在 GitHub Releases 网页创建草稿，选择本次源�
 - 同平台工作流串行，避免同一自有电脑并发改写 `dist`。Windows 测试机需交互桌面、.NET Framework、Inno Setup；Mac 需 Xcode、对应模拟器与命令行工具。发布还需 `gh`。
 - 安装包产物只保留 7 天，截图/原生预览保留 3 天。长期可下载版本放进 Releases，不依赖临时 Actions 产物链接。
 
+手机原生检查通过、但发布或上传失败时，可复用该次安装包，不重新启动 Xcode：在同一 iPhone 工作流勾选 `publish`，将 `artifact_run_id` 填为原始运行 ID。恢复入口只使用原运行的 IPA 和截图，核对两个原生任务成功、安装包校验和、iPhoneOS/arm64 身份及已有标签的源码；只补传缺失附件，拒绝覆盖不同内容。原始产物必须仍在保留期内。发布权限错误与构建额度是不同问题，恢复上传仍需仓库允许写入 Releases。
+
+```bash
+gh workflow run ios-unsigned-ipa.yml --ref feat/holographic-ai-call \
+  -f publish=true -f artifact_run_id=原始运行ID
+```
+
 自有 runner 不消耗 GitHub 托管机器的计算额度，但仍使用 Actions 调度，账号级限制可能影响调度。**直接运行上述本地脚本**完全不需要 Actions，是额度问题下的首选。当前会话没有登记构建机的管理员权限，也没有连接用户的 Windows 或 Mac，不能把工作流配置完成等同于机器已接通。
 
 这些更改在开发分支 `feat/holographic-ai-call`。本地脚本直接使用该分支即可；默认分支的 Actions 页面需合入工作流更改后才能按新设置使用。
