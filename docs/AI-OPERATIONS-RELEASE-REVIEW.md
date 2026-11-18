@@ -1,6 +1,6 @@
 # AI 操作与折叠工具结果：发布验收
 
-> 本页保留 2026-11-17 的 Windows 9 / iPhone 0.9.0 历史验收；当前 Windows 10 / iPhone 0.10.0 的下载与证据见 [本轮验收](ATTACHMENTS-SYNC-RELEASE-REVIEW.md)。
+> 本页保留 2026-11-17 的 Windows 9 / iPhone 0.9.0 历史验收；当前 Windows 13 / iPhone 0.11.0 的下载与证据见 [本轮验收](AI-ENVIRONMENT-RELEASE-REVIEW.md)。
 
 2026-11-17：Windows `2.1.0-hologram.9` 与 iPhone `0.9.0`（build 10）均已通过对应云端检查并发布测试安装包。仓库公开后，标准 GitHub Windows/macOS 构建机已实测可用，后续流程仍为手动触发。
 

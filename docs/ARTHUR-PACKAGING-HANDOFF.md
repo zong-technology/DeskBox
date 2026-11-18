@@ -1,6 +1,6 @@
 # 给本地 Arthur：DeskBox 最新 IPA 打包与上传
 
-> 2026-11-18 更新：这是一份固定 0.8.0 源码的历史本地交接。仓库现已公开，当前 Windows 2.1.0-hologram.10 与 iPhone 0.10.0/build 11 已在 GitHub 云端完成检查并发布，无需等待 Arthur。下载与证据见 [发布验收记录](ATTACHMENTS-SYNC-RELEASE-REVIEW.md)，后续构建与仅恢复上传见 [本地与云端构建](LOCAL-RELEASE.md)。
+> 2026-11-18 更新：这是一份固定 0.8.0 源码的历史本地交接。仓库现已公开，当前 Windows 2.1.0-hologram.13 与 iPhone 0.11.0/build 12 已在 GitHub 云端完成检查并发布，无需等待 Arthur。下载与证据见 [发布验收记录](AI-ENVIRONMENT-RELEASE-REVIEW.md)，后续构建与仅恢复上传见 [本地与云端构建](LOCAL-RELEASE.md)。
 
 任务：使用下面固定的功能源码，在可用的 Mac/Xcode 上生成 iPhone 0.8.0 IPA，完成检查后上传到私有 GitHub 仓库的测试 Release。用户已要求执行打包和上传。
 

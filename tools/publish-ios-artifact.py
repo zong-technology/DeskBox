@@ -69,13 +69,16 @@ else:
     if any(r["ref"] == f"refs/tags/{tag}" for r in refs):
         commit = json.loads(gh("api", f"{api}/commits/{tag}"))
         assert commit["sha"] == run["head_sha"], "Existing tag belongs to another source commit"
-        target = ["--verify-tag"]
+        target = []
     else:
-        target = ["--target", run["head_sha"]]
-    gh("release", "create", tag, "--repo", repo, *target, "--draft", "--prerelease",
-       "--title", f"DeskBox Mobile {version} - holographic voice preview", "--notes-file", "release/RELEASE-NOTES.md")
-    # The by-tag endpoint does not return draft releases; use their numeric ID.
-    release = next(r for r in json.loads(gh("api", f"{api}/releases?per_page=100")) if r["tag_name"] == tag)
+        target = ["-f", f"target_commitish={run['head_sha']}"]
+    # Creation returns the draft's ID immediately. The releases list can still
+    # contain an older cached response, and by-tag lookups omit draft releases.
+    release = json.loads(gh("api", f"{api}/releases", "--method", "POST",
+                            "-f", f"tag_name={tag}", *target,
+                            "-F", "draft=true", "-F", "prerelease=true",
+                            "-f", f"name=DeskBox Mobile {version} - holographic voice preview",
+                            "-f", "body=" + Path("release/RELEASE-NOTES.md").read_text()))
 
 assets = {a["name"]: a for a in release["assets"]}
 for path in files:

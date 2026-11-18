@@ -79,6 +79,8 @@ gh workflow run ios-unsigned-ipa.yml --ref feat/holographic-ai-call \
   -f publish=true -f artifact_run_id=原始运行ID
 ```
 
+仅检查语音缓冲改动时，可用 `-f audio_only=true -f publish=false`。它连续三轮运行原生音频检查，全部通过才成功；不编译 IPA 或启动模拟器。完整构建仍先通过这三轮，再执行 iPhoneOS 与双尺寸 UI，避免已知音频失败时消耗整轮构建。
+
 自有 runner 不消耗 GitHub 托管机器的计算额度，但仍使用 Actions 调度，账号级限制可能影响调度。**直接运行上述本地脚本**完全不需要 Actions，是额度问题下的首选。当前会话没有登记构建机的管理员权限，也没有连接用户的 Windows 或 Mac，不能把工作流配置完成等同于机器已接通。
 
 这些更改在开发分支 `feat/holographic-ai-call`。本地脚本直接使用该分支即可；默认分支的 Actions 页面需合入工作流更改后才能按新设置使用。

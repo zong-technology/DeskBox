@@ -1,5 +1,7 @@
 # 附件读取、任务同步与操作回执：本轮验收
 
+> 本页为 Windows 10 / iPhone 0.10.0 历史验收；当前 Windows 13 / iPhone 0.11.0 已增加手机独立 AI 和本地 / 网络环境，见 [本轮验收](AI-ENVIRONMENT-RELEASE-REVIEW.md)。
+
 2026-11-18：Windows `2.1.0-hologram.10` 与 iPhone `0.10.0`（build 11）均已完成原生检查并发布。上一轮的全息操作及折叠工具结果继续保留，见 [历史验收](AI-OPERATIONS-RELEASE-REVIEW.md)。
 
 | 产物 | 固定源码与下载 |

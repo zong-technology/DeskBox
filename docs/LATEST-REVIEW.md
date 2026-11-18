@@ -1,6 +1,6 @@
 # 当前验证入口（2026-11-18）
 
-Windows 测试版 10 与 iPhone 0.10.0（build 11）均已完成云端检查并发布。本轮补充手机附件提取与预览，修复任务负责人及修改时间同步、删除保存回退与电脑全息请求重发。下载及证据见 [本轮验收记录](ATTACHMENTS-SYNC-RELEASE-REVIEW.md)。手机使用 `v0.10.0-mobile-hologram-build11` 发布标签；原无附件页面已锁定，不作为下载入口。当前开发源码在 `feat/holographic-ai-call`，尚未合入 main。
+Windows 测试版 13 与 iPhone 0.11.0（build 12）均已完成云端原生检查并发布。手机文字 AI 改为直接连接模型，无需电脑版或同步账号；普通及全息 AI 统一支持「本地隔离 / 网络开放」，分别保存配置和对话，保留折叠工具与原有资料。业务任务和项目仍共用；手机离线生成需要 iOS 26+、支持且启用 Apple Intelligence 的设备。下载、条件与证据见 [本轮验收记录](AI-ENVIRONMENT-RELEASE-REVIEW.md) 和 [设置说明](AI-ENVIRONMENTS.md)。当前开发源码在 `feat/holographic-ai-call`，尚未合入 main。
 
 下面保留 2026-11-02 的历史验证记录；其中手机 AI、冲突 UI 等状态已过期，以当前验收记录和 [后续事项](DEFERRED-DECISIONS.md) 为准。
 
