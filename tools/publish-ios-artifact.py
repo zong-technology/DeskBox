@@ -57,8 +57,13 @@ if release and release.get("immutable"):
         release = next((r for r in existing if r["tag_name"] == tag), None)
 if release:
     # A previous failed upload may already have created the release. Never retag it.
-    commit = json.loads(gh("api", f"{api}/commits/{tag}"))
-    assert commit["sha"] == run["head_sha"], "Release tag belongs to another source commit"
+    refs = json.loads(gh("api", f"{api}/git/matching-refs/tags/{tag}"))
+    if any(r["ref"] == f"refs/tags/{tag}" for r in refs):
+        commit = json.loads(gh("api", f"{api}/commits/{tag}"))
+        assert commit["sha"] == run["head_sha"], "Release tag belongs to another source commit"
+    else:
+        # GitHub may defer creating a draft's tag until it is published.
+        assert release["draft"] and release["target_commitish"] == run["head_sha"], "Draft belongs to another source commit"
 else:
     refs = json.loads(gh("api", f"{api}/git/matching-refs/tags/{tag}"))
     if any(r["ref"] == f"refs/tags/{tag}" for r in refs):

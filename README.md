@@ -53,7 +53,7 @@ AI&SI 的「全息 AI 通话」现在直接在软件内进入沉浸投影，只�
 
 本地一键更新打包：Windows 双击 `build-update.cmd`；iPhone 在 Mac 运行 `bash tools/release-ios.sh`。日常更新不依赖 Actions 云端额度，见[本地构建与低成本更新](docs/LOCAL-RELEASE.md)。
 
-最新全息 AI 操作测试版：下载 [Windows 测试版 9 安装包](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.9)，配套手机 [0.9.0 IPA](https://github.com/zong-technology/DeskBox/releases/tag/v0.9.0-mobile-hologram) 已发布。工具结果默认折叠，支持项目任务与现场问题的实际保存，以及授权文件、文档和工作流操作。电脑操作需在线电脑与原有授权。两端构建、实际操作和界面验证见 [本次验收记录](docs/AI-OPERATIONS-RELEASE-REVIEW.md)。
+最新全息 AI 操作测试版：[Windows 测试版 10 安装包](https://github.com/zong-technology/DeskBox/releases/tag/v2.1.0-hologram.10) 和 [iPhone 0.10.0 IPA（build 11）](https://github.com/zong-technology/DeskBox/releases/tag/v0.10.0-mobile-hologram-build11) 均已发布。工具结果默认折叠，支持项目任务与现场问题的实际保存，以及授权文件、文档和工作流操作。本轮补齐手机 PDF、图片文字及文本附件读取，修复负责人同步、删除保存回退与全息请求重发。电脑操作需在线电脑与原有授权。两端构建、操作与界面验证见 [本轮验收记录](docs/ATTACHMENTS-SYNC-RELEASE-REVIEW.md)。
 
 Windows 10/11 x64 需 .NET Framework 4.8+；先从托盘退出旧版，升级时选择原目录。安装包保留数据、备份旧 EXE 并提供回退入口。详见 [Windows 安装升级说明](docs/WINDOWS-INSTALL.md)。当前安装包未签名。
 

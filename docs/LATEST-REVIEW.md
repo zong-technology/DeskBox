@@ -1,6 +1,6 @@
 # 当前验证入口（2026-11-18）
 
-Windows 已发布测试版 10，iPhone 0.9.0 为上一轮已发布版本。本轮手机 0.10.0 候选补充附件提取与预览、任务负责人及删除保存修复，尚在云端验证，不能把候选写成已发布版本。上一轮证据与下载见 [AI 操作发布验收](AI-OPERATIONS-RELEASE-REVIEW.md)，当前开发源码在 `feat/holographic-ai-call`，尚未合入 main。
+Windows 测试版 10 与 iPhone 0.10.0（build 11）均已完成云端检查并发布。本轮补充手机附件提取与预览，修复任务负责人及修改时间同步、删除保存回退与电脑全息请求重发。下载及证据见 [本轮验收记录](ATTACHMENTS-SYNC-RELEASE-REVIEW.md)。手机使用 `v0.10.0-mobile-hologram-build11` 发布标签；原无附件页面已锁定，不作为下载入口。当前开发源码在 `feat/holographic-ai-call`，尚未合入 main。
 
 下面保留 2026-11-02 的历史验证记录；其中手机 AI、冲突 UI 等状态已过期，以当前验收记录和 [后续事项](DEFERRED-DECISIONS.md) 为准。
 
