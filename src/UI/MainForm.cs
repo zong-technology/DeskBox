@@ -2050,7 +2050,7 @@ namespace DeskBox.UI
             var context=new DeskBox.Ai.ToolContext{Store=_store,Projects=_workspaces,Sync=_localSync,Cloud=_cloudSync,Workflows=_workflows,Files=_ops,
                 Ai=DeskBox.Ai.AiService.Instance,AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList(),
                 AllowedRoots=TrustedRoots.Load(),FileAccessEnabled=()=>_store.Settings.AiFileAccess,
-                UiInvoke=_chat==null?null:_chat.UiInvoke,Navigate=SwitchView,TiaRead=ReadTiaContext,RefreshApp=_chat==null?null:_chat.RefreshApp,
+                UiInvoke=_chat==null?null:_chat.UiInvoke,Navigate=SwitchView,RefreshApp=_chat==null?null:_chat.RefreshApp,
                 Confirm=detail=>ToolConfirm.Ask(this,"助手操作",detail,Palette)};
             context.RefreshAuthorization=delegate{context.AllowedRoots=TrustedRoots.Load();context.AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList();};
             return context;
@@ -2062,10 +2062,17 @@ namespace DeskBox.UI
             return _tiaView.ReadForVoice(name);
         }
 
+        private DeskBox.Ai.ToolContext CreateVoiceAssistantContext()
+        {
+            var context = CreateAssistantContext();
+            context.TiaRead = ReadTiaContext;
+            return context;
+        }
+
         internal void ShowLiveVoice()
         {
             if (_liveVoice != null) return;
-            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,CreateAssistantContext);
+            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,CreateVoiceAssistantContext);
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
             voice.ExitRequested += async delegate {

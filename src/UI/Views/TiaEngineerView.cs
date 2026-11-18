@@ -26,7 +26,7 @@ namespace DeskBox.UI.Views
         private readonly TextBox catalogQuery = new TextBox { Width = 140, AccessibleName = "硬件目录型号或订货号" };
         private readonly NumericUpDown inputStart = new NumericUpDown { Maximum = 65535, Width = 70, AccessibleName = "输入起始字节" };
         private readonly NumericUpDown outputStart = new NumericUpDown { Maximum = 65535, Width = 70, AccessibleName = "输出起始字节" };
-        private readonly CheckBox voiceAccess = new CheckBox { Text = "允许语音查询所选对象", AutoSize = true };
+        private readonly CheckBox voiceAccess = new CheckBox { Text = "授权桌面 AI 查阅已加载工程", AutoSize = true };
         private readonly List<DarkButton> actions = new List<DarkButton>();
         private readonly DarkButton cancel;
         private readonly Panel side;
@@ -147,7 +147,12 @@ namespace DeskBox.UI.Views
             HintLabel.Text = Convert.ToString(mode.SelectedItem) + " · " + (snapshot == null ? "未加载工程" : snapshot.Name + " / " + snapshot.Origin) + " · " +
                 (provider == null || !provider.Enabled ? "AI 未配置" : "AI " + provider.Name + " / " + provider.Model);
         }
-        protected override void OnActivated() { base.OnActivated(); RefreshHeading(); }
+        protected override void OnActivated()
+        {
+            base.OnActivated();
+            if (voiceScope.IsCancellationRequested) voiceAccess.Checked = false;
+            RefreshHeading();
+        }
         public override void ApplyPalette(Palette palette)
         {
             base.ApplyPalette(palette);
