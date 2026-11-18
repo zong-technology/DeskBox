@@ -1,4 +1,10 @@
-# 当前验证版本（2026-11-02）
+# 当前验证入口（2026-11-18）
+
+Windows 已发布测试版 10，iPhone 0.9.0 为上一轮已发布版本。本轮手机 0.10.0 候选补充附件提取与预览、任务负责人及删除保存修复，尚在云端验证，不能把候选写成已发布版本。上一轮证据与下载见 [AI 操作发布验收](AI-OPERATIONS-RELEASE-REVIEW.md)，当前开发源码在 `feat/holographic-ai-call`，尚未合入 main。
+
+下面保留 2026-11-02 的历史验证记录；其中手机 AI、冲突 UI 等状态已过期，以当前验收记录和 [后续事项](DEFERRED-DECISIONS.md) 为准。
+
+## 历史验证版本（2026-11-02）
 
 最新配对修复版本：`dist/pairing-review/DeskBox.exe`；手机包为 `dist/ios/DeskBoxMobile-0.1.1-unsigned.ipa`（需重新签名）。见 `PAIRING-0.1.1-FIX.md`。
 上一批完整功能验证版本：`dist/current-review/DeskBox.exe`。

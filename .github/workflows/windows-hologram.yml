@@ -58,6 +58,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Task synchronization acceptance compile failed' }
           & .\dist\task-sync-fidelity-accept.exe | Tee-Object dist\hologram-qa\task-sync-fidelity-accept.log
           if ($LASTEXITCODE -ne 0) { throw 'Task synchronization fidelity failed' }
+      - name: Recheck existing sync bridge, conflicts and cloud credentials with synthetic data
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          foreach ($suite in @('mobile-bridge-accept','sync-conflicts-accept','cloud-sync-accept')) {
+            & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe ("/out:dist\"+$suite+'.exe') ("tools\"+$suite+'.cs')
+            if ($LASTEXITCODE -ne 0) { throw ($suite+' failed to compile') }
+            & (".\dist\"+$suite+'.exe') | Tee-Object ("dist\hologram-qa\"+$suite+'.log')
+            if ($LASTEXITCODE -ne 0) { throw ($suite+' failed') }
+          }
       - name: Check text AI project lookup and creation with a local model fixture
         timeout-minutes: 3
         shell: powershell
