@@ -36,6 +36,7 @@ import QuartzCore
     private var pending: [HologramFunction] = []
     private var userCaption = "", assistantCaption = "", captionFinished = true
     private var historyDirty = false
+    private var previousIdleTimerDisabled: Bool?
     init(profile: HologramProfile, store: OfflineStore, history: HologramHistory, lastSync: @escaping () -> Date?, computer: (([String: Any]) async -> [String: Any])? = nil, preview: Bool = false) {
         self.profile = profile; self.history = history; self.preview = preview; self.computer = computer
         recorder = HologramRecorder(profile: profile); tools = HologramLocalTools(store: store, lastSync: lastSync)
@@ -53,7 +54,10 @@ import QuartzCore
         if let timer, abs(timer.timeInterval - desired) > 0.01 { timer.invalidate(); self.timer = nil; animate(); return }
         let now = CACurrentMediaTime(), dt = now - lastFrame; lastFrame = now
         var target = 0.0
-        if preview { mode = .speaking; target = 0.3 + 0.55 * pow(sin(now * 5), 2); caption = "模拟预览：已为你整理今天的任务。" }
+        if preview && active {
+            mode = discardOutput ? .listening : .speaking
+            if !discardOutput { target = 0.3 + 0.55 * pow(sin(now * 5), 2); caption = "模拟预览：已为你整理今天的任务。" }
+        }
         else if environment == .local && active {
             mode = localVoice.speaking ? .speaking : waiting ? .thinking : muted ? .muted : .listening
             target = localLevel; localLevel *= exp(-dt / 0.15)
@@ -74,10 +78,12 @@ import QuartzCore
         if historyDirty && Date().timeIntervalSince(lastSave) > 1 && !recorder.session.messages.isEmpty { history.upsert(recorder.session); lastSave = Date(); historyDirty = false }
     }
     func start() {
-        animate(); guard !active, !preview else { return }
+        animate(); guard !active else { return }
         guard environment == AIEnvironment.current else { mode = .paused; caption = "运行环境已切换，请返回后重新进入。"; return }
+        if preview { active = true; ready = true; discardOutput = false; keepScreenAwake(); return }
         if environment == .local { startLocal(); return }
         guard profile.ready else { mode = .idle; caption = "语音尚未连接。"; return }
+        keepScreenAwake()
         active = true; ready = false; mode = .connecting; caption = "正在与你连接…"; muted = false
         notice = ""; observedLoss = 0; outputCapacityReached = false
         diagnostics.note("call.start", ["provider": profile.service.rawValue])
@@ -88,7 +94,7 @@ import QuartzCore
             guard await HologramAudio.permission() else { if generation == id { stop(message: "麦克风未获授权。", mode: .failed) }; return }
             for _ in 0..<10 where UIApplication.shared.applicationState != .active { try? await Task.sleep(nanoseconds: 100_000_000); if generation != id { return } }
             guard generation == id, active else { return }
-            guard UIApplication.shared.applicationState == .active else { stop(message: "通话已暂停，轻点投影继续。", mode: .paused); return }
+            guard UIApplication.shared.applicationState == .active else { stop(message: "通话已暂停，点击下方“重新连接”继续。", mode: .paused); return }
             var phase = "connect"
             do {
                 let config = URLSessionConfiguration.ephemeral; config.httpShouldSetCookies = false
@@ -98,7 +104,7 @@ import QuartzCore
                 timeout = Task { [weak self] in
                     try? await Task.sleep(nanoseconds: 20_000_000_000)
                     guard !Task.isCancelled, let self, generation == id, !ready else { return }
-                    stop(message: "连接超时，轻点投影可重试。", mode: .failed)
+                    stop(message: "连接超时，点击下方“重新连接”重试。", mode: .failed)
                 }
                 while !Task.isCancelled {
                     phase = "receive"
@@ -112,7 +118,7 @@ import QuartzCore
                 }
             } catch { if generation == id && active {
                 diagnostics.note("call.failure", ["reason": phase, "code": String((error as NSError).code), "queuedMs": String(Int(audio.queuedSeconds * 1000))])
-                let message = (error as? HologramError)?.errorDescription ?? "网络连接中断，轻点投影可重试。"
+                let message = (error as? HologramError)?.errorDescription ?? "网络连接中断，点击下方“重新连接”重试。"
                 stop(message: message, mode: .failed)
             } }
         }
@@ -149,7 +155,7 @@ import QuartzCore
     private func uploadFailed(id: UUID, code: Int) {
         guard generation == id, active else { return }
         diagnostics.note("input.failure", ["code": String(code)])
-        stop(message: "网络未能继续发送声音，轻点投影可重试。", mode: .failed)
+        stop(message: "网络未能继续发送声音，点击下方“重新连接”重试。", mode: .failed)
     }
     private func consume(_ incoming: HologramPacket, id: UUID) async throws {
         var packet = incoming
@@ -211,7 +217,7 @@ import QuartzCore
             defer { toolTasks.removeAll { $0.0 == ticket } }
             guard !Task.isCancelled, generation == id, active else { return }
             do { try await complete(calls, id: id) }
-            catch { if !Task.isCancelled, generation == id, active { stop(message: "工具结果发送失败，轻点投影可重试。", mode: .failed) } }
+            catch { if !Task.isCancelled, generation == id, active { stop(message: "工具结果发送失败，点击下方“重新连接”重试。", mode: .failed) } }
         }
         // Retain the chain until interruption/stop so all queued work can be cancelled together.
         toolTasks.append((ticket, task))
@@ -246,11 +252,11 @@ import QuartzCore
         guard ready else { return }; muted.toggle()
         if environment == .local { if muted { localVoice.stopRecording() } else { Task { await localVoice.start() } }; return }
         do { inputGate.setMuted(muted); try audio.setMuted(muted); diagnostics.note("input.mute", ["muted": String(muted)]) }
-        catch { stop(message: "麦克风暂不可用，轻点投影可重试。", mode: .failed); return }
+        catch { stop(message: "麦克风暂不可用，点击下方“重新连接”重试。", mode: .failed); return }
         let id = generation
         if muted { Task { try? await send(HologramWire.endInput(profile.service), id: id) } }
     }
-    func tapProjection() {
+    func interruptOrReconnect() {
         if mode == .failed || mode == .paused || mode == .idle { start(); return }
         if environment == .local {
             localOperation?.cancel(); localVoice.stop(); waiting = false; motion.interrupt(); recorder.close(); history.upsert(recorder.session)
@@ -262,8 +268,16 @@ import QuartzCore
         recorder.close(); historyDirty = true; pending.removeAll(); information = nil; tools.clear()
         if profile.service == .qwen && responseActive { let id = generation; Task { try? await send(["type": "response.cancel"], id: id) } }
     }
-    func suspend(reason: String = "background") { diagnostics.note("call.pause", ["reason": reason]); stop(message: "通话已暂停，轻点投影继续。", mode: .paused); timer?.invalidate(); timer = nil }
+    func suspend(reason: String = "background") { diagnostics.note("call.pause", ["reason": reason]); stop(message: "通话已暂停，点击下方“重新连接”继续。", mode: .paused); timer?.invalidate(); timer = nil }
+    private func keepScreenAwake() {
+        if previousIdleTimerDisabled == nil { previousIdleTimerDisabled = UIApplication.shared.isIdleTimerDisabled }
+        UIApplication.shared.isIdleTimerDisabled = true
+    }
     func stop(message: String = "通话已结束。", mode: HologramMode = .idle) {
+        if let previousIdleTimerDisabled {
+            UIApplication.shared.isIdleTimerDisabled = previousIdleTimerDisabled
+            self.previousIdleTimerDisabled = nil
+        }
         localOperation?.cancel(); localVoice.stop(); localLevel = 0
         diagnostics.note("call.stop", ["reason": mode.rawValue]); diagnostics.save()
         cancelTools(); inputGate.stop(); generation = UUID(); active = false; ready = false
@@ -276,6 +290,7 @@ import QuartzCore
 
     private func startLocal() {
         guard MobileLocalAI.available else { mode = .failed; caption = MobileLocalAI.status; return }
+        keepScreenAwake()
         active = true; ready = true; muted = false; waiting = false; caption = "本地隔离 · 我在听。"; notice = ""
         generation = UUID(); localVoice.continuous = true
         Task { await localVoice.start() }
@@ -300,7 +315,7 @@ import QuartzCore
                 waiting = false; localVoice.speak(text)
             } catch {
                 guard !Task.isCancelled, generation == id, active else { return }
-                waiting = false; caption = (error as? HologramError)?.errorDescription ?? "本机模型未完成回复，请轻点投影后继续。"; notice = "本地隔离保持开启，未切换云端。"
+                waiting = false; caption = (error as? HologramError)?.errorDescription ?? "本机模型未完成回复，请使用下方按钮后继续。"; notice = "本地隔离保持开启，未切换云端。"
             }
         }
     }

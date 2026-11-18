@@ -99,11 +99,11 @@ struct MobileHologramView: View {
                     Button { call.toggleMute() } label: { Image(systemName: call.muted ? "mic.slash.fill" : "mic.fill").frame(width: 44, height: 44) }.accessibilityLabel(call.muted ? "打开麦克风" : "静音麦克风")
                     Spacer()
                     Button { call.close(); dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("退出全息通话")
+                        #if DEBUG
+                        .accessibilityValue(ProcessInfo.processInfo.arguments.contains("--qa-screen-state") ? (UIApplication.shared.isIdleTimerDisabled ? "awake" : "automatic") : "")
+                        #endif
                 }.foregroundStyle(.white.opacity(0.75)).padding(.horizontal, 12)
                 HologramCanvas(motion: call.motion, reduced: reduceMotion || call.profile.reducedMotion)
-                    .contentShape(Rectangle()).onTapGesture { call.tapProjection() }
-                    .accessibilityElement().accessibilityLabel("全息投影，轻点打断或恢复通话").accessibilityAddTraits(.isButton)
-                    .accessibilityAction { call.tapProjection() }
                 if let info = call.information {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) { Text(info.title).font(.headline).foregroundStyle(.cyan); Text(info.content).font(.callout).textSelection(.enabled).foregroundStyle(.white.opacity(0.92)) }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
@@ -113,10 +113,10 @@ struct MobileHologramView: View {
                 VStack(spacing: 8) {
                     Text(call.caption).font(.body).foregroundStyle(.white.opacity(0.93)).multilineTextAlignment(.center).lineLimit(4).frame(maxWidth: .infinity, minHeight: 76, alignment: .top)
                     if !call.notice.isEmpty { Text(call.notice).font(.caption).foregroundStyle(.orange).multilineTextAlignment(.center) }
-                    Button { call.tapProjection() } label: {
+                    Button { call.interruptOrReconnect() } label: {
                         Label(call.mode == .failed || call.mode == .paused || call.mode == .idle ? "重新连接" : "打断后提问", systemImage: call.mode == .failed || call.mode == .paused || call.mode == .idle ? "arrow.clockwise" : "waveform")
                             .font(.caption.weight(.semibold)).frame(minWidth: 150, minHeight: 44)
-                    }.buttonStyle(.plain).foregroundStyle(.cyan).opacity(call.mode == .speaking || call.mode == .thinking || call.mode == .failed || call.mode == .paused ? 1 : 0).disabled(call.mode != .speaking && call.mode != .thinking && call.mode != .failed && call.mode != .paused)
+                    }.buttonStyle(.plain).foregroundStyle(.cyan).opacity(call.mode == .speaking || call.mode == .thinking || call.mode == .failed || call.mode == .paused || call.mode == .idle ? 1 : 0).disabled(call.mode != .speaking && call.mode != .thinking && call.mode != .failed && call.mode != .paused && call.mode != .idle)
                 }.padding(.horizontal, 22).padding(.bottom, 8)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }

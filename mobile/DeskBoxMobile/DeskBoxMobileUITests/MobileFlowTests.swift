@@ -20,6 +20,45 @@ final class MobileFlowTests: XCTestCase {
         app.buttons["退出全息通话"].tap()
         XCTAssertTrue(app.buttons["ai.hologram"].waitForExistence(timeout: 5))
     }
+    func testHologramScreenAndExplicitInterruption() {
+        let app = XCUIApplication()
+        for initiallyAwake in [false, true] {
+            app.launchArguments = ["--hologram-preview", "ai", "--qa-screen-state"] + (initiallyAwake ? ["--qa-idle-disabled"] : [])
+            app.launch()
+            let screen = app.staticTexts["qa.screen-state"]
+            XCTAssertTrue(screen.waitForExistence(timeout: 10))
+            XCTAssertEqual(screen.label, initiallyAwake ? "awake" : "automatic")
+            app.buttons["ai.hologram"].tap()
+            let close = app.buttons["退出全息通话"]
+            XCTAssertTrue(close.waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue("awake"))
+            let caption = app.staticTexts["模拟预览：已为你整理今天的任务。"]
+            XCTAssertTrue(caption.waitForExistence(timeout: 5))
+            for point in [CGVector(dx: 0.5, dy: 0.25), CGVector(dx: 0.4, dy: 0.45), CGVector(dx: 0.6, dy: 0.6)] {
+                app.coordinate(withNormalizedOffset: point).tap()
+            }
+            XCTAssertTrue(caption.exists)
+            XCTAssertTrue(close.waitForValue("awake"))
+            app.buttons["打断后提问"].tap()
+            XCTAssertTrue(app.staticTexts["我在听。"].waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue("awake"))
+            XCUIDevice.shared.press(.home); app.activate()
+            XCTAssertTrue(app.buttons["重新连接"].waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue(initiallyAwake ? "awake" : "automatic"))
+            app.buttons["重新连接"].tap()
+            XCTAssertTrue(caption.waitForExistence(timeout: 5))
+            XCTAssertTrue(close.waitForValue("awake"))
+            let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Hologram awake, ordinary taps safe, explicit reconnect"; shot.lifetime = .keepAlways; add(shot)
+            close.tap()
+            XCTAssertTrue(screen.waitForExistence(timeout: 5))
+            XCTAssertEqual(screen.label, initiallyAwake ? "awake" : "automatic")
+            // A second entry and exit must not overwrite the original auto-lock setting.
+            app.buttons["ai.hologram"].tap(); XCTAssertTrue(close.waitForExistence(timeout: 5)); XCTAssertTrue(close.waitForValue("awake")); close.tap()
+            XCTAssertTrue(screen.waitForExistence(timeout: 5))
+            XCTAssertEqual(screen.label, initiallyAwake ? "awake" : "automatic")
+            app.terminate()
+        }
+    }
     func testToolCardsCollapseAndExpand() {
         let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "tool-history"]; app.launch()
         let card = app.buttons["ai.tool.toggle.deskbox_tasks"]
@@ -88,5 +127,12 @@ final class MobileFlowTests: XCTestCase {
         XCTAssertTrue(app.textFields["文字模型"].waitForExistence(timeout: 5))
         app.terminate(); app.launch()
         XCTAssertTrue(app.textFields["文字模型"].waitForExistence(timeout: 10))
+    }
+}
+
+private extension XCUIElement {
+    func waitForValue(_ expected: String) -> Bool {
+        let condition = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: self)
+        return XCTWaiter.wait(for: [condition], timeout: 5) == .completed
     }
 }

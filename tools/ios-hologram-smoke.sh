@@ -60,6 +60,7 @@ for label in main small; do
     python3 - "$OUT/$label-$route.json" "$OUT/$label-$route.png" "$route" <<'PY'
 import sys,json,struct
 m=json.load(open(sys.argv[1]));assert m['route']==sys.argv[3] and m['active'] and m['simulatedVoice']
+if m['route']=='hologram':assert m['idleTimerDisabled'],'Active hologram must disable automatic screen locking'
 with open(sys.argv[2],'rb') as f:b=f.read(24)
 assert b[:8]==b'\x89PNG\r\n\x1a\n';w,h=struct.unpack('>II',b[16:24])
 assert abs(w-m['width']*m['scale'])<2 and abs(h-m['height']*m['scale'])<2,(w,h,m)

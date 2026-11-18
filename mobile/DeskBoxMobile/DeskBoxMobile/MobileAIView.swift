@@ -7,7 +7,9 @@ struct MobileAIView: View {
     @EnvironmentObject var briefing: DailyBriefing
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var ai: MobileAIService
+    private let preview: Bool
     init(preview: Bool = false, attachmentPreview: Bool = false) {
+        self.preview = preview
         _ai = StateObject(wrappedValue: MobileAIService(preview: preview))
         #if DEBUG
         if attachmentPreview { _attachment = State(initialValue: MobileAIAttachment(id: "qa-attachment", name: "超滤SIP步骤.pdf", text: "第1页\nSIP的FS需更新供应商操作步骤。\n复核压力与温度联锁，核对修订版本和验证证据。", note: "模拟附件预览 · PDF共2页，已提取文字")) }
@@ -48,7 +50,7 @@ struct MobileAIView: View {
                     switch result { case .success(let url): readAttachment(url); case .failure(let error): if (error as NSError).code != NSUserCancelledError { localError = "附件选择失败：" + error.localizedDescription } }
                 }
                 .fullScreenCover(isPresented: $hologram, onDismiss: { briefing.voiceSessionActive = false }) {
-                    MobileHologramView(profile: callProfile, store: store, history: history, sync: sync)
+                    MobileHologramView(profile: callProfile, store: store, history: history, sync: sync, preview: preview)
                 }
                 .sheet(item: $sheet) { value in sheetContent(value) }
                 .task {

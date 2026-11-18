@@ -8,9 +8,13 @@ struct HologramDebugRoute: View {
     @EnvironmentObject var sync: SyncClient
     @StateObject private var history = HologramHistory(url: FileManager.default.temporaryDirectory.appendingPathComponent("hologram-preview-" + UUID().uuidString + ".json"))
     var route: String
+    private static let prepareScreenState: Void = {
+        if ProcessInfo.processInfo.arguments.contains("--qa-screen-state") { UIApplication.shared.isIdleTimerDisabled = ProcessInfo.processInfo.arguments.contains("--qa-idle-disabled") }
+    }()
     init(route: String) {
         self.route = route
         if !ProcessInfo.processInfo.arguments.contains("--qa-preserve-environment") { AIEnvironment.select(.network) }
+        _ = Self.prepareScreenState
     }
     var body: some View {
         Group {
@@ -38,6 +42,14 @@ struct HologramDebugRoute: View {
             default: MobileHologramView(profile: HologramProfile(), store: store, history: history, sync: sync, preview: true)
             }
         }.environment(\.dynamicTypeSize, route.hasSuffix("-large") ? .accessibility2 : .large)
+        .overlay(alignment: .topLeading) {
+            if ProcessInfo.processInfo.arguments.contains("--qa-screen-state") {
+                TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                    Text(UIApplication.shared.isIdleTimerDisabled ? "awake" : "automatic")
+                        .font(.caption2).accessibilityIdentifier("qa.screen-state").allowsHitTesting(false)
+                }
+            }
+        }
         .task {
             store.pending = []
             store.projects = [MobileProject(id: "qa-project", name: "冻干机自动化控制系统与计算机化验证项目", number: "DB-2026-016", customer: "制药设备项目客户", equipment: "冻干机 / CIP清洗设备", owner: "项目工程师", deadline: "2026-12-30", progress: 68)]
@@ -55,7 +67,7 @@ struct HologramDebugRoute: View {
             guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows).first(where: \.isKeyWindow), !window.isHidden else { return }
             let marker: [String: Any] = ["route": route, "active": UIApplication.shared.applicationState == .active,
                 "width": window.bounds.width, "height": window.bounds.height, "scale": window.screen.scale,
-                "simulatedVoice": true]
+                "simulatedVoice": true, "idleTimerDisabled": UIApplication.shared.isIdleTimerDisabled]
             let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-qa-" + route + ".json")
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if let data = try? JSONSerialization.data(withJSONObject: marker) { try? data.write(to: url, options: .atomic) }
