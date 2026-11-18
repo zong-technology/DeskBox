@@ -72,7 +72,7 @@ Mac 构建目录也可在 GitHub Releases 网页创建草稿，选择本次源�
 - 同平台工作流串行，避免同一自有电脑并发改写 `dist`。Windows 测试机需交互桌面、.NET Framework、Inno Setup；Mac 需 Xcode、对应模拟器与命令行工具。发布还需 `gh`。
 - 安装包产物只保留 7 天，截图/原生预览保留 3 天。长期可下载版本放进 Releases，不依赖临时 Actions 产物链接。
 
-手机原生检查通过、但发布或上传失败时，可复用该次安装包，不重新启动 Xcode：在同一 iPhone 工作流勾选 `publish`，将 `artifact_run_id` 填为原始运行 ID。恢复入口只使用原运行的 IPA 和截图，核对两个原生任务成功、安装包校验和、iPhoneOS/arm64 身份及已有标签的源码；只补传缺失附件，拒绝覆盖不同内容。原始产物必须仍在保留期内。发布权限错误与构建额度是不同问题，恢复上传仍需仓库允许写入 Releases。
+手机原生检查通过、但发布或上传失败时，可复用该次安装包，不重新启动 Xcode：在同一 iPhone 工作流勾选 `publish`，将 `artifact_run_id` 填为原始运行 ID。恢复入口只使用原运行的 IPA 和截图，核对两个原生任务成功、安装包校验和、iPhoneOS/arm64 身份及已有标签的源码；只补传缺失附件，拒绝覆盖不同内容。先创建草稿，全部附件哈希核对后才公开，兼容 GitHub 不可变发布。若旧发布已锁定却缺少附件，使用同版本的 `-build构建号` 新标签，保留旧发布。原始产物必须仍在保留期内。发布权限错误与构建额度是不同问题，恢复上传仍需仓库允许写入 Releases。
 
 ```bash
 gh workflow run ios-unsigned-ipa.yml --ref feat/holographic-ai-call \

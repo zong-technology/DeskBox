@@ -44,19 +44,36 @@ assert filename == package.name and hashlib.sha256(package.read_bytes()).hexdige
 tag = f"v{version}-mobile-hologram"
 existing = json.loads(gh("api", f"{api}/releases?per_page=100"))
 release = next((r for r in existing if r["tag_name"] == tag), None)
+files = [package, checksums, Path("review/main-hologram.png"), Path("review/small-hologram.png")]
+digests = {p.name: "sha256:" + hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+if release and release.get("immutable"):
+    assets = {a["name"]: a for a in release["assets"]}
+    if any(name not in assets for name in digests):
+        # An already published immutable release cannot accept missing assets.
+        # Keep it intact and publish this exact verified build under a new tag.
+        build = info["CFBundleVersion"]
+        assert re.fullmatch(r"[0-9]+", build)
+        tag += f"-build{build}"
+        release = next((r for r in existing if r["tag_name"] == tag), None)
 if release:
     # A previous failed upload may already have created the release. Never retag it.
     commit = json.loads(gh("api", f"{api}/commits/{tag}"))
     assert commit["sha"] == run["head_sha"], "Release tag belongs to another source commit"
 else:
-    gh("release", "create", tag, "--repo", repo, "--target", run["head_sha"], "--prerelease",
+    refs = json.loads(gh("api", f"{api}/git/matching-refs/tags/{tag}"))
+    if any(r["ref"] == f"refs/tags/{tag}" for r in refs):
+        commit = json.loads(gh("api", f"{api}/commits/{tag}"))
+        assert commit["sha"] == run["head_sha"], "Existing tag belongs to another source commit"
+        target = ["--verify-tag"]
+    else:
+        target = ["--target", run["head_sha"]]
+    gh("release", "create", tag, "--repo", repo, *target, "--draft", "--prerelease",
        "--title", f"DeskBox Mobile {version} - holographic voice preview", "--notes-file", "release/RELEASE-NOTES.md")
     release = json.loads(gh("api", f"{api}/releases/tags/{tag}"))
 
-files = [package, checksums, Path("review/main-hologram.png"), Path("review/small-hologram.png")]
 assets = {a["name"]: a for a in release["assets"]}
 for path in files:
-    digest = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = digests[path.name]
     if path.name in assets:
         assert assets[path.name].get("digest") == digest, f"Existing asset differs: {path.name}"
     else:
@@ -64,5 +81,7 @@ for path in files:
 verified = json.loads(gh("api", f"{api}/releases/tags/{tag}"))
 assets = {a["name"]: a for a in verified["assets"]}
 for path in files:
-    assert assets[path.name]["digest"] == "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    assert assets[path.name]["digest"] == digests[path.name]
+if verified["draft"]:
+    gh("release", "edit", tag, "--repo", repo, "--draft=false")
 print(f"PASS published {tag} from {run['head_sha']}; all four asset hashes match")
