@@ -52,10 +52,11 @@ import Foundation
         _ = tools.execute(HologramFunction(id: "c", name: "hologram_clear", arguments: [:])); check(tools.information == nil, "The AI can clear temporary information")
         store.projects = [MobileProject(id: "UF", name: "超滤项目"), MobileProject(id: "PAS", name: "PAS平台")]
         store.tasks.append(MobileTask(id: "pas-task", projectId: "PAS", title: "其他项目记录"))
-        let created = tools.execute(HologramFunction(id: "create", name: "deskbox_task_create", arguments: ["project": "超滤", "title": "SIP的FS需要更新步骤", "notes": "请供应商补充最新操作步骤"]))
+        let created = tools.execute(HologramFunction(id: "create", name: "deskbox_task_create", arguments: ["project": "超滤", "title": "SIP的FS需要更新步骤", "notes": "请供应商补充最新操作步骤", "owner": "王工"]))
         check(created["saved"] as? Bool == true && created["synced"] as? Bool == false && store.tasks.last?.projectId == "UF" && store.pending.count == 1, "A spoken project issue is actually saved to the right project and queued, never falsely reported as synced")
-        _ = tools.execute(HologramFunction(id: "create", name: "deskbox_task_create", arguments: ["project": "超滤", "title": "SIP的FS需要更新步骤", "notes": "请供应商补充最新操作步骤"]))
+        _ = tools.execute(HologramFunction(id: "create", name: "deskbox_task_create", arguments: ["project": "超滤", "title": "SIP的FS需要更新步骤", "notes": "请供应商补充最新操作步骤", "owner": "王工"]))
         check(store.pending.count == 1 && store.tasks.count == 3, "Replayed provider function IDs cannot create duplicate tasks")
+        check(tools.execute(HologramFunction(id: "owner-query", name: "deskbox_tasks", arguments: ["query": "王工"]))["total"] as? Int == 1, "Hologram task queries can find the actual assigned owner")
         let scoped = tools.execute(HologramFunction(id: "scoped", name: "deskbox_tasks", arguments: ["project_id": "UF"]))
         let ufTasks = scoped["tasks"] as! [[String: Any]]
         check(ufTasks.count == 1 && ufTasks[0]["ProjectId"] as? String == "UF", "Task queries stay within the requested project")
@@ -109,6 +110,10 @@ import Foundation
         check(failedRecorder.session.messages.last?.partial == true, "A failed Qwen turn preserves its partial transcript rather than marking it complete")
         do { _ = try packet("{\"type\":\"error\",\"error\":{\"code\":\"invalid_api_key\"}}", .qwen); preconditionFailure() }
         catch { check(true, "Qwen authentication failures still require explicit configuration recovery") }
+        var attachmentSession = recorder.session
+        attachmentSession.messages.append(HologramMessage(role: "user", text: "分析附件", attachment: MobileAIAttachment(name: "SIP步骤.pdf", text: "供应商需更新步骤", note: "第1页")))
+        history.upsert(attachmentSession)
+        check(HologramHistory(url: path).sessions.first?.messages.last?.attachment?.text == "供应商需更新步骤", "Archived conversations retain the actual attachment content and its source")
         var textSession = recorder.session; textSession.kind = "text"; history.upsert(textSession)
         check(HologramHistory(url: path).sessions.first?.kind == "text", "Archived text conversations survive relaunch beside voice history")
         var motion = HologramMotion(); for _ in 0..<30 { motion.advance(1.0 / 30, mode: .listening, target: 0, reduced: false) }

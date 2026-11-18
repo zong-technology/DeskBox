@@ -27,6 +27,9 @@ public class MobileAiAccept
         Console.WriteLine("Fixture create: "+result.Status+" / "+result.Stage+" / "+result.Error+" / "+result.Text);
         Check("文字AI完成项目查询到真实创建的多轮闭环",result.Status=="completed"&&store.Tasks.Count==2&&store.Tasks.Last().Project==projects.Items.Last().Id&&store.Tasks.Last().Notes.Contains("供应商"));
         Check("文字AI结果携带可折叠操作证据",result.Text.StartsWith("```deskbox-results")&&result.Text.Contains("task.create")&&result.Text.Contains("已保存超滤"));
+        provider.Model="mock-mobile-attachment";providers.Update(provider);
+        result=runner.Run("J-attachment",new List<AiMessage>{new AiMessage{Role="user",Content="请分析这份文件。\n[用户附件：超滤SIP步骤.pdf]\n第1页\nSIP的FS需要供应商更新步骤。"}},CancellationToken.None,p=>{}).GetAwaiter().GetResult();
+        Check("手机附件文字和来源通过现有中继交给模型",result.Status=="completed"&&result.Text.Contains("超滤SIP步骤.pdf")&&result.Text.Contains("供应商需更新"));
         using(var cancelled=new CancellationTokenSource()){cancelled.Cancel();result=runner.Run("J3",messages,cancelled.Token,p=>{}).GetAwaiter().GetResult();Check("取消请求不继续调用模型",result.Status=="cancelled");}
         provider.Enabled=false;providers.Update(provider);result=runner.Run("J4",messages,CancellationToken.None,p=>{}).GetAwaiter().GetResult();Check("已禁用服务商不会被手机调用",result.Status=="error"&&result.Error.Contains("已启用"));
         var project=new EngineerWorkspace{ValidationSteps=ValidationProgress.Create()};foreach(var step in project.ValidationSteps)step.Percent=null;project.ValidationSteps[0].Percent=100;project.ValidationSteps[1].Percent=50;project.ValidationSteps[1].Weight=3;Check("验证进度按自定义权重计算",ValidationProgress.Overall(project)==62.5);project.ValidationSteps[0].Weight=0;Check("零权重不计入进度",ValidationProgress.Overall(project)==50);

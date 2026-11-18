@@ -40,7 +40,7 @@ for label in main small; do
     -destination "platform=iOS Simulator,id=$device" -derivedDataPath "$WORK/derived" \
     -parallel-testing-enabled NO -resultBundlePath "$OUT/$label-flows.xcresult" CODE_SIGNING_ALLOWED=NO test-without-building > "$OUT/$label-flows.log" 2>&1 || { tail -100 "$OUT/$label-flows.log"; exit 1; }
   container="$(xcrun simctl get_app_container "$device" com.deskbox.mobile data)"
-  for route in home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics ai-empty tool-history tool-history-large; do
+  for route in home tasks task-editor projects incidents incident-editor ai ai-keyboard ai-large connection briefing conflicts hologram history settings settings-large home-large tasks-large projects-large incidents-large project-detail diagnostics ai-empty tool-history tool-history-large ai-attachment ai-attachment-large; do
     marker="$container/Documents/hologram-qa-$route.json"
     rm -f "$marker"
     if [[ "$route" == *-keyboard ]]; then

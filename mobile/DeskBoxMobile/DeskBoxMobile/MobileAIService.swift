@@ -6,6 +6,8 @@ struct MobileAIMessage: Codable, Identifiable {
     var role: String
     var content: String
     var error = ""
+    var attachment: MobileAIAttachment? = nil
+    var requestContent: String { content + (attachment.map { "\n\n" + $0.prompt } ?? "") }
 }
 struct CloudAIResult: Decodable {
     var id: String
@@ -46,16 +48,18 @@ struct CloudAIResult: Decodable {
         catch { loadFailed = true; self.error = "文字记录读取失败，原文件已保留，暂停覆盖。" }
     }
     private func save() { guard !loadFailed else { return }; do { try JSONEncoder().encode(Array(messages.suffix(60))).write(to: historyURL, options: .atomic); savedAt = Date() } catch { self.error = "AI历史保存失败，当前内容仍保留在内存" } }
-    func send(_ text: String, sync: SyncClient) {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    func send(_ text: String, sync: SyncClient, attachment: MobileAIAttachment? = nil) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = trimmed.isEmpty && attachment != nil ? "请分析这份附件，说明依据和需要核实的地方。" : trimmed
         guard !value.isEmpty, !busy, !loadFailed else { return }
         guard jobId == nil else { error = "还有尚未确认的请求，请先恢复查看或取消"; return }
         guard sync.cloudCredential != nil else { error = "请先在连接设置登录云账号；手机AI通过已授权电脑处理"; return }
-        guard value.count <= 16000 else { error = "内容超过16000字符，请缩小范围"; return }
-        error = ""; messages.append(MobileAIMessage(role: "user", content: value))
-        var budget = 50000
-        var history: [[String: String]] = []
-        for message in messages.suffix(12).reversed() where !message.content.isEmpty && message.error.isEmpty { let content = String(AIToolPresentation.conversation(message.content).text.prefix(min(16000, budget))); if !content.isEmpty { history.insert(["Role": message.role, "Content": content], at: 0); budget -= content.count } }
+        let user = MobileAIMessage(role: "user", content: value, attachment: attachment)
+        guard user.requestContent.utf16.count <= 16000 else { error = "问题与附件超过单条内容限制，请缩短问题或分段发送附件。"; return }
+        let history: [[String: String]]
+        do { history = try MobileAIRequest.history((messages + [user]).filter { !$0.content.isEmpty && $0.error.isEmpty }.map { ($0.role, AIToolPresentation.conversation($0.requestContent).text) }) }
+        catch { self.error = error.localizedDescription; return }
+        error = ""; messages.append(user)
         let assistant = MobileAIMessage(role: "assistant", content: ""); messages.append(assistant); assistantId = assistant.id
         let id = UUID().uuidString.lowercased(); jobId = id; save(); busy = true; stage = "提交请求 · 等待电脑接入"
         let token = UUID(); operationId = token

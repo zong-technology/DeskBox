@@ -20,6 +20,7 @@ struct HologramDebugRoute: View {
             case "projects": ProjectsView()
             case "incidents": IncidentView()
             case "incident-editor": IncidentEditor(incident: Incident(equipment: "PT-101 冻干机压力变送器", description: "现场压力读数偏差，复核联锁及趋势记录。"), isNew: true)
+            case "ai-attachment": MobileAIView(preview: true, attachmentPreview: true)
             case "ai": MobileAIView(preview: true)
             case "ai-empty": MobileAIView()
             case "connection": ConnectionSettingsView()

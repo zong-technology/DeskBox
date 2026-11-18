@@ -122,13 +122,19 @@ import Combine
         if !storageError.isEmpty { incidents = previousIncidents; pending = previousPending; conflicts = previousConflicts }
         return storageError.isEmpty ? nil : storageError
     }
-    func deleteTask(_ id: String) {
-        guard !loadFailed else { return }
+    @discardableResult func deleteTask(_ id: String, expected: MobileTask? = nil) -> String? {
+        guard !loadFailed else { return storageError }
+        guard let current = tasks.first(where: { $0.id == id }) else { return "任务已删除或不存在，请刷新列表。" }
+        if let expected, current != expected { return "任务已被更新，请重新查看后再删除；当前记录已保留。" }
+        let previousTasks = tasks, previousPending = pending, previousConflicts = conflicts
         let old = pending.first { $0.entityType == "task" && $0.id == id }
         let base = old?.baseVersion ?? versions["task:" + id] ?? 0
         tasks.removeAll { $0.id == id }; pending.removeAll { $0.entityType == "task" && $0.id == id }
         conflicts.removeAll { $0.id == "task:" + id }
-        pending.append(SyncRecord(entityType: "task", id: id, version: base + 1, baseVersion: base, updatedAt: max(Int64(Date().timeIntervalSince1970 * 1000), (old?.updatedAt ?? 0) + 1), deviceId: "", deleted: true, json: "")); save()
+        let timestamp = max(Int64(Date().timeIntervalSince1970 * 1000), max(old?.updatedAt ?? 0, current.updatedAt ?? 0) + 1)
+        pending.append(SyncRecord(entityType: "task", id: id, version: base + 1, baseVersion: base, updatedAt: timestamp, deviceId: "", deleted: true, json: "")); save()
+        if !storageError.isEmpty { tasks = previousTasks; pending = previousPending; conflicts = previousConflicts }
+        return storageError.isEmpty ? nil : storageError
     }
     private struct Snapshot: Codable { var projects: [MobileProject]; var tasks: [MobileTask]; var incidents: [Incident]; var pending: [SyncRecord]; var versions: [String: Int64]?; var conflicts: [MobileConflict]? }
 }

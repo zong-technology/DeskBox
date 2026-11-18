@@ -37,7 +37,7 @@ import Foundation
             switch call.name {
             case "deskbox_tasks":
                 let status = args["status"] as? String ?? "all"
-                let items = store.tasks.filter { (project.isEmpty || $0.projectId == project) && (query.isEmpty || ($0.title + $0.notes + projectText($0.projectId)).localizedCaseInsensitiveContains(query)) && (status != "open" || $0.status != "done") && (status != "done" || $0.status == "done") }
+                let items = store.tasks.filter { (project.isEmpty || $0.projectId == project) && (query.isEmpty || ($0.title + " " + $0.notes + " " + $0.owner + " " + projectText($0.projectId)).localizedCaseInsensitiveContains(query)) && (status != "open" || $0.status != "done") && (status != "done" || $0.status == "done") }
                 result["total"] = items.count; result["tasks"] = try items.dropFirst(offset).prefix(limit).map { try stamped($0) }
             case "deskbox_projects":
                 let items = store.projects.filter { query.isEmpty || ($0.name + $0.number + $0.equipment).localizedCaseInsensitiveContains(query) }

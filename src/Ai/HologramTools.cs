@@ -26,6 +26,10 @@ namespace DeskBox.Ai
     internal sealed class HologramTools
     {
         private readonly Func<ToolContext> context;
+        private sealed class Receipt { internal string Signature; internal object Response; }
+        // ponytail: one call keeps the latest 128 mutation receipts; use a durable journal for cross-process retries.
+        private readonly Dictionary<string,Receipt> receipts=new Dictionary<string,Receipt>();
+        private readonly Queue<string> receiptOrder=new Queue<string>();
         internal HologramInformation Information { get; private set; }
         internal HologramTools(Func<ToolContext> context) { this.context=context; }
         internal void Clear() { Information=null; }
@@ -33,17 +37,60 @@ namespace DeskBox.Ai
 
         internal VoiceToolResult Execute(VoiceToolCall call,CancellationToken cancellation=default(CancellationToken))
         {
+            if(call==null)return new VoiceToolResult {Id="",Name="",Response=new {ok=false,error="工具请求为空。"}};
             object response;
-            try { response=Run(call,cancellation); }
+            try {
+                cancellation.ThrowIfCancellationRequested();
+                if(!string.IsNullOrEmpty(call.Id) && Mutates(call)){
+                    var signature=Signature(call);
+                    lock(receipts){
+                        Receipt previous;
+                        if(receipts.TryGetValue(call.Id,out previous))response=previous.Signature==signature?previous.Response:new {ok=false,error="相同工具ID的参数已改变，已拒绝重复执行；请查询结果后发起新请求。"};
+                        else {
+                            response=Outcome(call,cancellation);
+                            if(receipts.Count>=128)receipts.Remove(receiptOrder.Dequeue());
+                            receipts[call.Id]=new Receipt{Signature=signature,Response=response};receiptOrder.Enqueue(call.Id);
+                        }
+                    }
+                }else response=Outcome(call,cancellation);
+            } catch(OperationCanceledException){response=new {ok=false,error="操作已取消；已完成的修改不会撤销，请先核实状态。"};}
             catch(ArgumentException error){response=new {ok=false,error=error.Message};}
-            catch(Exception){response=new {ok=false,error="未能读取或展示信息，请稍后重试。"};}
+            catch(Exception){response=new {ok=false,error="未能执行工具，请先核实结果再重试。"};}
             return new VoiceToolResult {Id=call.Id,Name=call.Name,Response=response};
+        }
+        private object Outcome(VoiceToolCall call,CancellationToken cancellation)
+        {
+            try{return Run(call,cancellation);}
+            catch(OperationCanceledException){return new {ok=false,error="操作已取消；请先核实状态，不要重复写入。"};}
+            catch(ArgumentException error){return new {ok=false,error=error.Message};}
+            catch(Exception){return new {ok=false,error="操作结果未能确认，请先查询目标状态，不要重复写入。"};}
+        }
+        private static bool Mutates(VoiceToolCall call)
+        {
+            string name=call.Name;
+            if(name=="deskbox_execute")name=Text(call.Arguments??new Dictionary<string,object>(),"tool");
+            if(name=="deskbox_task_create"||name=="deskbox_task_update"||name=="deskbox_incident_create"||name=="deskbox_incident_update")return true;
+            var tool=ToolRegistry.Instance.Get(name);
+            return tool!=null&&(tool.RequiresConfirm||tool.Name=="task.create"||tool.Name=="incident.create");
+        }
+        private static string Signature(VoiceToolCall call)
+        {
+            var values=new SortedDictionary<string,string>(StringComparer.Ordinal);
+            foreach(var pair in call.Arguments??new Dictionary<string,object>()){
+                if(call.Name=="deskbox_execute" && pair.Key=="arguments"){
+                    var args=DeskBox.Core.Json.FromJson<Dictionary<string,object>>(Convert.ToString(pair.Value))??new Dictionary<string,object>();
+                    var sorted=new SortedDictionary<string,string>(StringComparer.Ordinal);
+                    foreach(var arg in args)sorted[arg.Key]=Convert.ToString(arg.Value,CultureInfo.InvariantCulture);
+                    values[pair.Key]=DeskBox.Core.Json.ToJson(sorted);
+                }else values[pair.Key]=Text(call.Arguments,pair.Key);
+            }
+            return call.Name+"\n"+DeskBox.Core.Json.ToJson(values);
         }
 
         private object Run(VoiceToolCall call,CancellationToken cancellation)
         {
             cancellation.ThrowIfCancellationRequested();
-            var args=call.Arguments ?? new Dictionary<string,object>();
+            var args=call.Arguments==null?new Dictionary<string,object>():new Dictionary<string,object>(call.Arguments);
             if(call.Name=="hologram_clear"){Clear();return new {ok=true,message="临时投影已收起"};}
             if(call.Name=="hologram_show"){
                 string title=Text(args,"title"),content=Text(args,"content");int duration=30;

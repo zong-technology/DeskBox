@@ -239,7 +239,7 @@ struct TasksView: View {
     private var visible: [MobileTask] {
         store.tasks.filter { task in
             (filter == 0 || (filter == 1 ? task.status != "done" : task.status == "done")) &&
-            (query.isEmpty || (task.title + " " + task.notes).localizedCaseInsensitiveContains(query))
+            (query.isEmpty || (task.title + " " + task.notes + " " + task.owner).localizedCaseInsensitiveContains(query))
         }.sorted { a, b in let doneA = a.status == "done", doneB = b.status == "done"; return doneA == doneB ? a.title < b.title : !doneA }
     }
     var body: some View {
@@ -273,11 +273,11 @@ struct TasksView: View {
                     }
                 }
             }.workspacePage().scrollDismissesKeyboard(.interactively)
-            .searchable(text: $query, prompt: "搜索任务标题与备注").navigationTitle("工程任务")
+            .searchable(text: $query, prompt: "搜索任务标题、备注或负责人").navigationTitle("工程任务")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { editing = MobileTask() } label: { Image(systemName: "plus").frame(width: 44, height: 44) }.accessibilityLabel("新建任务") } }
             .sheet(item: $editing) { task in TaskEditor(task: task, isNew: !store.tasks.contains(where: { $0.id == task.id })) }
             .confirmationDialog("删除后将在下次同步时提交删除标记，是否继续？", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("删除任务", role: .destructive) { if let task = deleting { store.deleteTask(task.id) }; deleting = nil }
+                Button("删除任务", role: .destructive) { if let task = deleting { error = store.deleteTask(task.id, expected: task) ?? "" }; deleting = nil }
                 Button("取消", role: .cancel) { deleting = nil }
             }
         }

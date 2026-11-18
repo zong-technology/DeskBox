@@ -21,7 +21,7 @@ namespace DeskBox.Ai
                 switch(_name)
                 {
                     case "task.list":return "读取软件真实任务，含ID、备注、项目及expected校验值。args:{query,project_id,status=all|open|done,offset=0,limit=100}";
-                    case "task.update":return "修改真实任务或完成状态，需确认并使用task.list的expected。args:{id,expected,title,due=yyyy-MM-dd,priority=low|normal|high,notes,project_id,done=true|false}；仅修改提供字段。";
+                    case "task.update":return "修改真实任务或完成状态，需确认并使用task.list的expected。args:{id,expected,title,due=yyyy-MM-dd,priority=low|normal|high,notes,owner,project_id,done=true|false}；仅修改提供字段。";
                     case "project.list":return "读取软件真实项目和目录、进度。args:{query,offset,limit,include_steps=true|false}，需要验证节点时启用include_steps。";
                     case "incident.list":return "读取真实现场事件及处理措施，含expected_version。args:{query,project_id,offset,limit}";
                     case "incident.create":return "新建现场问题并同步手机；args:{project_id,description,equipment,owner,severity=S1..S4,cause,solution}。先project.list获取真实项目ID。";
@@ -43,8 +43,8 @@ namespace DeskBox.Ai
             if(Name=="task.list")
             {
                 string status=Get(args,"status"),project=Get(args,"project_id");
-                var tasks=ctx.Store.Tasks.Where(t=>(status!="open"||!t.Done)&&(status!="done"||t.Done)&&(project.Length==0||t.Project==project)&&(query.Length==0||(t.Title+" "+t.Notes).IndexOf(query,StringComparison.OrdinalIgnoreCase)>=0)).ToList();
-                return ToolResult.Success(Json.ToJson(new{Total=tasks.Count,Offset=offset,Tasks=tasks.Skip(offset).Take(limit).Select(t=>new{t.Id,t.Title,t.Done,t.Priority,t.Due,t.Notes,t.Project,t.RemindAt,Expected=TaskStamp(t)}).ToArray()}));
+                var tasks=ctx.Store.Tasks.Where(t=>(status!="open"||!t.Done)&&(status!="done"||t.Done)&&(project.Length==0||t.Project==project)&&(query.Length==0||(t.Title+" "+t.Notes+" "+(t.Owner??"")).IndexOf(query,StringComparison.OrdinalIgnoreCase)>=0)).ToList();
+                return ToolResult.Success(Json.ToJson(new{Total=tasks.Count,Offset=offset,Tasks=tasks.Skip(offset).Take(limit).Select(t=>new{t.Id,t.Title,t.Done,t.Priority,t.Due,t.Notes,Owner=t.Owner??"",t.Project,t.RemindAt,Expected=TaskStamp(t)}).ToArray()}));
             }
             if(Name=="task.update")
             {
@@ -53,7 +53,7 @@ namespace DeskBox.Ai
                 var index=ctx.Store.Tasks.FindIndex(t=>t.Id==Get(args,"id"));if(index<0)return ToolResult.Fail("未找到任务ID，请先task.list");
                 var original=ctx.Store.Tasks[index];if(!string.Equals(TaskStamp(original),Get(args,"expected"),StringComparison.OrdinalIgnoreCase))return ToolResult.Fail("任务已经变化或缺少expected，请重新task.list后再修改");
                 var task=Json.FromJson<TaskItem>(Json.ToJson(original));
-                if(args.ContainsKey("title"))task.Title=Get(args,"title").Trim();if(args.ContainsKey("notes"))task.Notes=Get(args,"notes");if(args.ContainsKey("project_id"))task.Project=Get(args,"project_id");
+                if(args.ContainsKey("title"))task.Title=Get(args,"title").Trim();if(args.ContainsKey("notes"))task.Notes=Get(args,"notes");if(args.ContainsKey("owner"))task.Owner=Get(args,"owner");if(args.ContainsKey("project_id"))task.Project=Get(args,"project_id");
                 if(!ValidProject(ctx,task.Project))return ToolResult.Fail("项目ID无效，请先project.list");
                 if(args.ContainsKey("due"))task.Due=Get(args,"due");if(args.ContainsKey("priority"))task.Priority=Get(args,"priority");
                 DateTime due;if(string.IsNullOrWhiteSpace(task.Title)||!new[]{"low","normal","high"}.Contains(task.Priority)||(!string.IsNullOrEmpty(task.Due)&&!DateTime.TryParseExact(task.Due,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out due)))return ToolResult.Fail("标题、优先级或截止日期无效");

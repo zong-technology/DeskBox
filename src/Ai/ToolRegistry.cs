@@ -275,7 +275,7 @@ namespace DeskBox.Ai
         private class CreateTaskTool : IAiTool
         {
             public string Name { get { return "task.create"; } }
-            public string Description { get { return "创建并保存真实项目任务；args: {title, due=yyyy-MM-dd, priority=low|normal|high, project_id, notes}；先project.list定位项目，返回真实ID与expected。"; } }
+            public string Description { get { return "创建并保存真实项目任务；args: {title, due=yyyy-MM-dd, priority=low|normal|high, project_id, notes, owner}；先project.list定位项目，返回真实ID与expected。"; } }
             public bool RequiresConfirm { get { return false; } }
 
             public ToolResult Invoke(ToolContext ctx, Dictionary<string, string> a)
@@ -285,7 +285,7 @@ namespace DeskBox.Ai
                 string title, due, prio;
                 a.TryGetValue("title", out title); a.TryGetValue("due", out due); a.TryGetValue("priority", out prio);
                 if (string.IsNullOrWhiteSpace(title)) return ToolResult.Fail("缺少 title");
-                string project,notes;a.TryGetValue("project_id",out project);a.TryGetValue("notes",out notes);
+                string project,notes,owner;a.TryGetValue("project_id",out project);a.TryGetValue("notes",out notes);a.TryGetValue("owner",out owner);
                 if(!ApplicationTool.ValidProject(ctx,project))return ToolResult.Fail("项目ID无效，请先project.list确定项目");
                 DateTime date;
                 if(!string.IsNullOrEmpty(due)&&!DateTime.TryParseExact(due,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out date))return ToolResult.Fail("日期需要yyyy-MM-dd");
@@ -293,7 +293,7 @@ namespace DeskBox.Ai
                 var t = new TaskItem
                 {
                     Id = "t_" + Guid.NewGuid().ToString("N").Substring(0, 10),
-                    Title = title.Trim(), Project=project??"", Notes=notes??"",
+                    Title = title.Trim(), Project=project??"", Notes=notes??"", Owner=owner??"",
                     Due = due ?? "",
                     Priority = string.IsNullOrEmpty(prio) ? "normal" : prio,
                     CreatedAt = DateTimeOffset.Now.ToUnixTimeMilliseconds()

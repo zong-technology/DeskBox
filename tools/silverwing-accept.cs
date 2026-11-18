@@ -334,6 +334,11 @@ internal static class SilverwingAccept
         Check(new JavaScriptSerializer().Serialize(read.Response).Contains("隔离测试任务"),"Live AI reads real synthetic application tasks through the existing tool registry");
         var operation=tools.Execute(new VoiceToolCall {Id="create",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","task.create"},{"arguments","{\"title\":\"全息创建任务\",\"notes\":\"真实保存\"}"}}});
         Check(new JavaScriptSerializer().Serialize(operation.Response).Contains("\"ok\":true") && store.Tasks.Any(t=>t.Title=="全息创建任务"),"Hologram operations really create application tasks using the shared registry");
+        int createdCount=store.Tasks.Count;
+        var replay=tools.Execute(new VoiceToolCall {Id="create",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"arguments","{ \"notes\": \"真实保存\", \"title\": \"全息创建任务\" }"},{"tool","task.create"}}});
+        Check(new JavaScriptSerializer().Serialize(replay.Response)==new JavaScriptSerializer().Serialize(operation.Response) && store.Tasks.Count==createdCount,"Replayed voice writes return the same receipt without creating duplicate tasks");
+        var changed=tools.Execute(new VoiceToolCall {Id="create",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","task.create"},{"arguments","{\"title\":\"不得重复创建\"}"}}});
+        Check(new JavaScriptSerializer().Serialize(changed.Response).Contains("\"ok\":false") && store.Tasks.Count==createdCount,"Reusing a voice operation ID with different data cannot cause a second write");
         var large=new HologramTools(()=>new ToolContext {Store=store,AllowedRoots=new List<string>{new string('x',22000)}});
         var capped=large.Execute(new VoiceToolCall {Id="bounded",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","app.context"},{"arguments","{}"}}});
         var bounded=new JavaScriptSerializer().Serialize(capped.Response);

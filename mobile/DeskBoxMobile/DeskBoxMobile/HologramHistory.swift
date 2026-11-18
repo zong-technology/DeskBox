@@ -8,6 +8,7 @@ struct HologramMessage: Codable, Identifiable {
     var date = Date()
     var partial = false
     var streaming: Bool? = nil
+    var attachment: MobileAIAttachment? = nil
 }
 struct HologramSession: Codable, Identifiable {
     var id = UUID().uuidString

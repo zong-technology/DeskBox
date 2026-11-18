@@ -50,6 +50,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Operation acceptance compile failed' }
           & .\dist\ai-operation-accept.exe | Tee-Object dist\hologram-qa\ai-operation-accept.log
           if ($LASTEXITCODE -ne 0) { throw 'Real operation acceptance failed' }
+      - name: Verify phone task metadata and restart deletion synchronization
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\task-sync-fidelity-accept.exe tools\task-sync-fidelity-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Task synchronization acceptance compile failed' }
+          & .\dist\task-sync-fidelity-accept.exe | Tee-Object dist\hologram-qa\task-sync-fidelity-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Task synchronization fidelity failed' }
       - name: Check text AI project lookup and creation with a local model fixture
         timeout-minutes: 3
         shell: powershell

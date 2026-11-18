@@ -55,6 +55,11 @@ const server = http.createServer(async (req, res) => {
   try { payload = JSON.parse(body || '{}'); } catch {}
   const model = payload.model || '';
   console.log(req.method + ' ' + url + ' model=' + model + ' bodyBytes=' + Buffer.byteLength(body));
+  if (model === 'mock-mobile-attachment') {
+    const content=(payload.messages||[]).filter(m=>m.role==='user').at(-1)?.content||'';
+    const valid=content.includes('超滤SIP步骤.pdf')&&content.includes('第1页')&&content.includes('供应商更新步骤');
+    sse(res,[valid?'根据《超滤SIP步骤.pdf》第1页，供应商需更新FS步骤。':'附件内容未送达'],20);return;
+  }
   if (model === 'mock-mobile-create') {
     const results=(payload.messages||[]).filter(m=>(m.content||'').startsWith('[工具'));
     const project=results.find(m=>m.content.startsWith('[工具project.list'));

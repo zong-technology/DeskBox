@@ -41,6 +41,28 @@ final class MobileFlowTests: XCTestCase {
         XCTAssertTrue((card.value as? String)?.contains("已收起") == true)
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "• 超滤SIP")).firstMatch.waitForNonExistence(timeout: 5))
     }
+    func testAttachmentPreviewAndRemove() {
+        let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "ai-attachment"]; app.launch()
+        let preview = app.buttons["ai.attachment.preview.qa-attachment"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["ai.attach"].isHittable)
+        preview.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.text.qa-attachment"].waitForExistence(timeout: 5))
+        preview.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.text.qa-attachment"].waitForNonExistence(timeout: 5))
+        let composer = app.descendants(matching: .any)["ai.composer"].firstMatch
+        composer.tap()
+        let tutorial = app.buttons["Continue"]
+        if tutorial.waitForExistence(timeout: 2) { tutorial.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        composer.typeText("Review attachment")
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.compact"].firstMatch.exists)
+        XCTAssertLessThanOrEqual(app.buttons["发送问题"].frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
+        let screenshot = XCTAttachment(screenshot: app.screenshot()); screenshot.name = "Attachment preview and remove"; screenshot.lifetime = .keepAlways; add(screenshot)
+        app.buttons["ai.attachment.remove"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["ai.attachment.compact"].firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["ai.composer"].isHittable)
+    }
     func testWorkspaceTabsAndTaskSave() {
         let app = XCUIApplication(); app.launchArguments = ["--hologram-preview", "workspace"]; app.launch()
         XCTAssertTrue(app.tabBars.buttons["任务"].waitForExistence(timeout: 10)); app.tabBars.buttons["任务"].tap()

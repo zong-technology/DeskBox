@@ -95,6 +95,7 @@ struct HologramTranscriptView: View {
                         if message.role == "tool" { AIToolCard(tool: .history(message.text)) }
                         else {
                             Text((message.role == "user" ? "我" : session.name) + (message.partial ? " · 已打断" : "")).font(.caption.bold()).foregroundStyle(.cyan)
+                            if let attachment = message.attachment { MobileAttachmentCard(attachment: attachment) }
                             let presentation = AIToolPresentation.conversation(message.text)
                             ForEach(presentation.tools) { tool in AIToolCard(tool: tool) }
                             Text(presentation.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -103,6 +104,6 @@ struct HologramTranscriptView: View {
                 }
             }.padding()
         }.workspacePage().navigationTitle(session.name)
-        .toolbar { ShareLink(item: session.messages.map { ($0.role == "user" ? "我" : $0.role == "tool" ? "工具" : session.name) + "：" + $0.text }.joined(separator: "\n\n")) { Image(systemName: "square.and.arrow.up") } }
+        .toolbar { ShareLink(item: session.messages.map { ($0.role == "user" ? "我" : $0.role == "tool" ? "工具" : session.name) + "：" + $0.text + ($0.attachment.map { "\n\n" + $0.prompt } ?? "") }.joined(separator: "\n\n")) { Image(systemName: "square.and.arrow.up") } }
     }
 }
