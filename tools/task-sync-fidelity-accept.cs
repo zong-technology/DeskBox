@@ -22,6 +22,7 @@ public class TaskSyncFidelityAccept
             Check("手机任务真实合入电脑",sync.MergeFromCloud(incoming)==SyncApplyResult.Applied);
             Check("电脑保留手机负责人和备注",store.Tasks.Single().Owner=="王工"&&store.Tasks.Single().Notes.Contains("FS"));
             sync.PublishWindowsSnapshot();var record=sync.Sync.Records.Single(r=>r.Id==incoming.Id);
+            Console.WriteLine("Projection diagnostic: incoming="+Json.ToJson(Json.FromJson<MobileTaskDto>(json))+"; native="+Json.ToJson(store.Tasks.Single())+"; outgoing="+record.Json+"; version="+record.Version);
             Check("仅JSON字段顺序不同不制造新版本或假冲突",record.Version==1&&record.Json==json&&!sync.Sync.Conflicts.Any());
             Check("同步快照仍含完整负责人及原时间",Json.FromJson<MobileTaskDto>(record.Json).Owner=="王工"&&Json.FromJson<MobileTaskDto>(record.Json).UpdatedAt==100);
             var ctx=new ToolContext{Store=store,Projects=projects,Sync=sync,Confirm=detail=>true,UiInvoke=action=>action()};
