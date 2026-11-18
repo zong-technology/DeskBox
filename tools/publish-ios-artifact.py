@@ -69,7 +69,8 @@ else:
         target = ["--target", run["head_sha"]]
     gh("release", "create", tag, "--repo", repo, *target, "--draft", "--prerelease",
        "--title", f"DeskBox Mobile {version} - holographic voice preview", "--notes-file", "release/RELEASE-NOTES.md")
-    release = json.loads(gh("api", f"{api}/releases/tags/{tag}"))
+    # The by-tag endpoint does not return draft releases; use their numeric ID.
+    release = next(r for r in json.loads(gh("api", f"{api}/releases?per_page=100")) if r["tag_name"] == tag)
 
 assets = {a["name"]: a for a in release["assets"]}
 for path in files:
@@ -78,7 +79,7 @@ for path in files:
         assert assets[path.name].get("digest") == digest, f"Existing asset differs: {path.name}"
     else:
         gh("release", "upload", tag, str(path), "--repo", repo)
-verified = json.loads(gh("api", f"{api}/releases/tags/{tag}"))
+verified = json.loads(gh("api", f"{api}/releases/{release['id']}"))
 assets = {a["name"]: a for a in verified["assets"]}
 for path in files:
     assert assets[path.name]["digest"] == digests[path.name]
