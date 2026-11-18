@@ -28,6 +28,8 @@ final class ModelFixture: URLProtocol {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ModelFixture.self]; config.timeoutIntervalForResource = 5
         var profile = MobileAIProfile(); profile.endpoint = "https://model.fixture.invalid/v1/chat/completions"; profile.key = "fixture-key-never-send-to-PC"; profile.useVoiceKey = false
         let history = [["Role": "user", "Content": "请记录一条任务：SIP的FS需要供应商更新步骤。"]]
+        let fresh = MobileAIRequest.independentContext([("old-user", "user", "unresolved old PC write"), ("old-assistant", "assistant", ""), ("new-user", "user", "new phone question")], pendingAssistantID: "old-assistant")
+        check(fresh.count == 1 && fresh[0].content == "new phone question", "Unresolved legacy PC instructions cannot block or be replayed through the new phone model")
         var requests = 0, progress = ""
         ModelFixture.handler = { request in
             requests += 1

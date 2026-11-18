@@ -9,6 +9,12 @@ struct MobileAIAttachment: Codable, Identifiable, Sendable {
 }
 
 enum MobileAIRequest {
+    static func independentContext(_ values: [(id: String, role: String, content: String)], pendingAssistantID: String?) -> [(role: String, content: String)] {
+        guard let pendingAssistantID else { return values.map { ($0.role, $0.content) } }
+        // An unresolved old PC instruction must not be submitted again to the phone model.
+        guard let boundary = values.firstIndex(where: { $0.id == pendingAssistantID }) else { return [] }
+        return values.dropFirst(boundary + 1).map { ($0.role, $0.content) }
+    }
     static func prefix(_ text: String, units: Int) -> String {
         var result = "", count = 0
         for character in text {

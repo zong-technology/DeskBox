@@ -54,10 +54,13 @@ struct CloudAIResult: Decodable {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = trimmed.isEmpty && attachment != nil ? "请分析这份附件，说明依据和需要核实的地方。" : trimmed
         guard !value.isEmpty, !busy, !loadFailed else { return }
-        guard jobId == nil else { error = "旧版电脑请求尚未确认，请先恢复查看或取消"; return }
         let user = MobileAIMessage(role: "user", content: value, attachment: attachment)
         let request: [[String: String]]
-        do { request = try MobileAIRequest.history((messages + [user]).filter { !$0.content.isEmpty && $0.error.isEmpty }.map { ($0.role, AIToolPresentation.conversation($0.requestContent).text) }) }
+        do {
+            let values = messages.map { ($0.id, $0.role, $0.error.isEmpty ? AIToolPresentation.conversation($0.requestContent).text : "") }
+            let previous = MobileAIRequest.independentContext(values, pendingAssistantID: jobId == nil ? nil : assistantId ?? "missing-legacy-boundary")
+            request = try MobileAIRequest.history(previous + [(user.role, user.requestContent)])
+        }
         catch { self.error = error.localizedDescription; return }
         let profile = MobileAISettings.resolved(), scope = environment
         let assistant = MobileAIMessage(role: "assistant", content: "")

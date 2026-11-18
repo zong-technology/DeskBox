@@ -47,12 +47,12 @@ struct MobileAIView: View {
                 .fileImporter(isPresented: $importFile, allowedContentTypes: [.pdf, .image, .plainText, .commaSeparatedText, .json]) { result in
                     switch result { case .success(let url): readAttachment(url); case .failure(let error): if (error as NSError).code != NSUserCancelledError { localError = "附件选择失败：" + error.localizedDescription } }
                 }
-                .fullScreenCover(isPresented: $hologram, onDismiss: { briefing.voiceSessionActive = false; ai.resume(sync: sync) }) {
+                .fullScreenCover(isPresented: $hologram, onDismiss: { briefing.voiceSessionActive = false }) {
                     MobileHologramView(profile: callProfile, store: store, history: history, sync: sync)
                 }
                 .sheet(item: $sheet) { value in sheetContent(value) }
                 .task {
-                    ai.resume(sync: sync); voice.onFinal = { text in draft = text; if voiceMode { send() } }
+                    voice.onFinal = { text in draft = text; if voiceMode { send() } }
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--qa-keyboard") { try? await Task.sleep(nanoseconds: 300_000_000); composerFocused = true }
                     #endif
@@ -64,8 +64,7 @@ struct MobileAIView: View {
                 }
                 .onChange(of: ai.completedReply) { _, value in readCompletedReply(value) }
                 .onChange(of: scenePhase) { _, value in
-                    if value == .active && !hologram { ai.resume(sync: sync) }
-                    else if value == .background { ai.suspend(); voiceMode = false; voice.stop() }
+                    if value == .background { ai.suspend(); voiceMode = false; voice.stop() }
                 }
                 .onDisappear { cancelAttachmentRead(); ai.suspend(); if !hologram { voice.stop() }; voice.onFinal = nil }
         }.tint(MobileStyle.accent)
