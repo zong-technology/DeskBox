@@ -22,7 +22,7 @@ internal static class AiEnvironmentAccept
         var home=Path.Combine(Path.GetTempPath(),"deskbox-environment-"+Guid.NewGuid().ToString("N"));Environment.SetEnvironmentVariable("DESKBOX_HOME",home);Directory.CreateDirectory(home);
         try {
             AiEnvironment.Select("network");var providers=new ProviderStore();providers.Add(new AiProvider{Name="Network fixture",BaseUrl="https://fixture.invalid/v1",Model="fixture",ApiKey="fixture-network-key"});
-            var networkRoot=Path.Combine(home,"network-root"),localRoot=Path.Combine(home,"local-root");DeskBox.UI.TrustedRoots.Save(new List<string>{networkRoot});
+            string networkRoot=Path.Combine(home,"network-root"),localRoot=Path.Combine(home,"local-root");DeskBox.UI.TrustedRoots.Save(new List<string>{networkRoot});
             var store=new Store();store.Tasks.Clear();var chat=new ChatService(store,providers);chat.Current.Messages.Add(new ChatMessage{Role="user",Content="network-only-context"});chat.Save();var token=AiEnvironment.Token;
             AiEnvironment.Select("local");providers.ChangeEnvironment();chat.ChangeEnvironment();
             Check(token.IsCancellationRequested&&!AiEnvironment.Token.IsCancellationRequested,"Switching cancels old requests and creates a fresh lifetime");
