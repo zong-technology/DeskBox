@@ -31,7 +31,7 @@ swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/Desk
 "$OUT/independent-ai-check" | tee "$OUT/review/independent-ai-check.log"
 
 "$OUT/attachment-check" | tee "$OUT/review/attachment-check.log"
-rm "$OUT/audio-check" "$OUT/offline-check" "$OUT/hologram-check" "$OUT/attachment-check"
+rm "$OUT/audio-check" "$OUT/offline-check" "$OUT/hologram-check" "$OUT/attachment-check" "$OUT/independent-ai-check"
 bash tools/build-ios-unsigned-ipa.sh "$OUT/DeskBoxMobile-$VERSION-unsigned.ipa" > "$OUT/review/device-build.log" 2>&1 || { tail -80 "$OUT/review/device-build.log"; exit 1; }
 if "$VERIFY_UI"; then bash tools/ios-hologram-smoke.sh "$OUT/review"; fi
 cp "docs/MOBILE-HOLOGRAM-$VERSION.md" "$OUT/RELEASE-NOTES.md"

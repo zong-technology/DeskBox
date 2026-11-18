@@ -28,7 +28,7 @@ import UIKit
         guard !listening, starting == nil else { return }
         let attempt = UUID(); starting = attempt
         defer { if starting == attempt { starting = nil } }
-        speaker.stopSpeaking(at: .immediate); spokenID = nil; releaseSession()
+        speaker.stopSpeaking(at: .immediate); speaking = false; spokenID = nil; releaseSession()
         let speech = await withCheckedContinuation { continuation in SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) } }
         guard starting == attempt else { return }
         let microphone = await withCheckedContinuation { continuation in AVAudioSession.sharedInstance().requestRecordPermission { continuation.resume(returning: $0) } }

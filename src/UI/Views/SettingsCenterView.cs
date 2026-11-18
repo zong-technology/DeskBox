@@ -441,7 +441,7 @@ namespace DeskBox.UI.Views
             environment.SelectedIndexChanged+=delegate {
                 var mode=environment.SelectedIndex==0?"local":"network";if(mode==AiEnvironment.Mode)return;
                 if(CanSwitchAIEnvironment!=null&&!CanSwitchAIEnvironment()){Toast("请先停止正在生成的对话，再切换环境",false);environment.SelectedIndex=AiEnvironment.Local?0:1;return;}
-                try {AiEnvironment.Select(mode);_providers.ChangeEnvironment();_editing=null;var changed=AIEnvironmentChanged;if(changed!=null)changed(this,EventArgs.Empty);ReloadProviderList();RaiseProviders();Toast("AI 环境已切换，原配置和记录保留");}
+                try {AiEnvironment.Select(mode);_providers.ChangeEnvironment();_editing=null;var changed=AIEnvironmentChanged;if(changed!=null)changed(this,EventArgs.Empty);ReloadProviderList();if(_providers.Providers.Count==0)NewProvider();RaiseProviders();Toast("AI 环境已切换，原配置和记录保留");}
                 catch(Exception error){Toast(error.Message,false);environment.SelectedIndex=AiEnvironment.Local?0:1;}
             };
             Section(p, "AI 服务商管理", "API Key 使用 Windows DPAPI 加密存储，界面与日志永不显示明文");
@@ -556,8 +556,9 @@ namespace DeskBox.UI.Views
         private void NewProvider()
         {
             if (_providers == null) { Toast("AI 服务未初始化", false); return; }
-            _fName.Text = "新服务商";
-            _fBase.Text = "https://";
+            _fName.Text = AiEnvironment.Local ? "本机模型" : "新服务商";
+            _fBase.Text = AiEnvironment.Local ? "http://127.0.0.1:11434/v1" : "https://";
+            _fProtocol.SelectedIndex=0;
             _fKey.Text = "";
             _fModel.Text = "";
             _fTimeout.Text = "60000";
@@ -566,6 +567,7 @@ namespace DeskBox.UI.Views
             _fEnabled.Checked = true;
             _fDefault.Checked = _providers.Providers.Count == 0;
             _editing = null;
+            _keyUnchanged=false;if(_testResult!=null)_testResult.Text="尚未测试";
             Toast("填写后点「保存」创建");
         }
 

@@ -7,7 +7,8 @@ enum MobileAISettings {
         var profile = load()
         if profile.useVoiceKey {
             let voice = HologramSettings.load()
-            if (profile.provider == .gemini && voice.service == .gemini) || (profile.provider == .compatible && voice.service == .qwen && URL(string: profile.endpoint)?.host == "dashscope.aliyuncs.com") { profile.key = voice.key }
+            let host = URL(string: profile.endpoint)?.host
+            if (profile.provider == .gemini && voice.service == .gemini && host == "generativelanguage.googleapis.com") || (profile.provider == .compatible && voice.service == .qwen && host == "dashscope.aliyuncs.com") { profile.key = voice.key }
         }
         return profile
     }
@@ -32,6 +33,7 @@ struct MobileAISettingsView: View {
                 Section("手机独立文字模型") {
                     Picker("协议", selection: $profile.provider) { Text("千问 / OpenAI 兼容").tag(MobileAIProvider.compatible); Text("Gemini").tag(MobileAIProvider.gemini) }
                     TextField("HTTPS 模型地址", text: $profile.endpoint).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Text(profile.provider == .gemini ? "Gemini 填写 API 根地址，例如 https://generativelanguage.googleapis.com/v1beta。" : "填写完整的 chat/completions 接口地址。千问默认地址已填入。").font(.caption).foregroundStyle(.secondary)
                     TextField("文字模型", text: $profile.model).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Toggle("沿用匹配的全息服务密钥", isOn: $profile.useVoiceKey)
                     if !profile.useVoiceKey { SecureField(saved.key.isEmpty ? "模型 API 密钥" : "已保存，留空保留", text: $secret).textInputAutocapitalization(.never).autocorrectionDisabled() }

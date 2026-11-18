@@ -7,6 +7,9 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Reflection;
+using System.Windows.Forms;
+using DeskBox;
 using DeskBox.Ai;
 using DeskBox.Core;
 
@@ -14,7 +17,7 @@ internal static class AiEnvironmentAccept
 {
     private static int checks;
     private static void Check(bool value,string label){if(!value)throw new Exception(label);checks++;Console.WriteLine("PASS "+label);}
-    public static int Main()
+    [STAThread] public static int Main()
     {
         var home=Path.Combine(Path.GetTempPath(),"deskbox-environment-"+Guid.NewGuid().ToString("N"));Environment.SetEnvironmentVariable("DESKBOX_HOME",home);Directory.CreateDirectory(home);
         try {
@@ -45,6 +48,21 @@ internal static class AiEnvironmentAccept
             AiEnvironment.Select("network");providers.ChangeEnvironment();chat.ChangeEnvironment();
             Check(providers.Providers.Count==1&&providers.DefaultProvider.Name=="Network fixture"&&chat.Current.Messages.Any(m=>m.Content=="network-only-context")&&!chat.Current.Messages.Any(m=>m.Content=="local-only-context"),"Returning online restores only the original network configuration and history");
             Check(File.Exists(Path.Combine(AppPaths.DataDir,"chats-local.json"))&&File.Exists(Path.Combine(AppPaths.DataDir,"ai-providers-local.json")),"Local history and encrypted provider configuration remain separate on disk");
+            using(var host=new Form{Width=1180,Height=860})
+            using(var settings=new DeskBox.UI.Views.SettingsCenterView(store,providers)) {
+                settings.Dock=DockStyle.Fill;host.Controls.Add(settings);host.Show();Application.DoEvents();
+                typeof(DeskBox.UI.Views.SettingsCenterView).GetMethod("Switch",BindingFlags.NonPublic|BindingFlags.Instance).Invoke(settings,new object[]{1});
+                settings.AIEnvironmentChanged+=delegate{chat.ChangeEnvironment();};
+                var picker=settings.Controls.Find("ai-environment",true).OfType<ComboBox>().Single();picker.SelectedIndex=0;Application.DoEvents();
+                var field=(Control)typeof(DeskBox.UI.Views.SettingsCenterView).GetField("_fBase",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(settings);
+                Check(field.Text=="http://127.0.0.1:1/v1","Settings restores the existing local profile instead of leaving network credentials in its editor");
+                picker.SelectedIndex=1;Application.DoEvents();Check(field.Text=="https://fixture.invalid/v1","Settings restores the network profile when returning online");
+                picker.SelectedIndex=0;providers.Remove(providers.DefaultProvider.Id);picker.SelectedIndex=1;picker.SelectedIndex=0;Application.DoEvents();
+                var headers=(Control)typeof(DeskBox.UI.Views.SettingsCenterView).GetField("_fHeaders",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(settings);
+                Check(field.Text=="http://127.0.0.1:11434/v1"&&headers.Text=="","Entering an empty local profile clears the previous network editor and offers a loopback model");
+                picker.SelectedIndex=1;Application.DoEvents();
+                host.Close();
+            }
             Console.WriteLine("PASS "+checks+" AI environment checks; synthetic data and loopback HTTP only");return 0;
         }catch(Exception error){Console.Error.WriteLine(error);return 1;}
         finally{try{AiEnvironment.Select("network");Directory.Delete(home,true);}catch{}}
