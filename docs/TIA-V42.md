@@ -1,5 +1,7 @@
 # DeskBox V4.2 · 博图 AI 工程师
 
+Windows 测试版 `4.2.0-tia.2` 已发布。先从托盘退出旧版，再安装到原目录保留数据。[Windows 安装包](https://github.com/zong-technology/DeskBox/releases/tag/v4.2.0-tia.2)
+
 在左侧打开「博图 AI 工程师」。默认只读。可从文件中心选中 `.xml`、`.scl`、`.udt`、`.db` 或 `.csv` 后点击「在博图工作台分析」，也可从工作台一次选择多个导出文件。打开程序块查看来源、接口和引用。LAD/FBD 展示 SimaticML 中可读取的网络部件和符号，图形连线和执行条件需对照 TIA 原工程复核。只读分析也可以调用已配置模型解释所选对象，网络环境会先确认向服务商发送资料。
 
 选择「辅助设计」可生成结构化计划、SCL 草稿和测试用例，或使用确定性的「缩放模板」。草稿编辑器支持关键词高亮和另存源文件。IO CSV 最少含 `name`，可附 `address,type,device,order,signal`。`signal` 取 `DI`、`DO`、`AI`、`AO`。地址建议按用户填写的 I/Q 起始字节及已填地址避让，需按 CPU、现场模块和槽位复核。设备订货号未知时显示待确认。工程对比可将当前资料设为基线，再选择另一批导出文件。报告的缺口、冲突及证据均保留来源。
@@ -21,3 +23,11 @@ V20 原生功能需 Windows x64、实际同版本 Siemens Openness 程序集和�
 生产 PLC 的下载、RUN/STOP、在线变量、强制 IO、现场通信参数及安全联锁变更需在人工工程流程中处理。DeskBox 博图模块提供的操作类型仅限离线。编译、仿真、审核及现场确认应分别记录。
 
 安装条件和官方接口见 [环境调查及矩阵](TIA-V42-ENVIRONMENT.md)。
+
+## 发布验收
+
+发布版源码 `6488f8d0e8ba4a6f3ffc3a43f6c29adf9361fd5d`。Linux 上的 .NET Framework 4.8 SDK 编译成功，19 项可移植检查通过。Windows 原生构建通过 27 项 TIA 工作台检查，包括两种窗口宽度、工程对象加载、IO 建议、SCL 引用、差异、隔离副本以及语音资料授权。工程输入为合成导出资料。真实窗口截图已核对文本、树和助手区。[宽窗口](https://github.com/zong-technology/DeskBox/releases/download/v4.2.0-tia.2/tia-workbench-1600.png) · [窄窗口](https://github.com/zong-technology/DeskBox/releases/download/v4.2.0-tia.2/tia-workbench-1024.png)
+
+安装、启动、升级、回退和卸载共 65 项通过。安装后原有全息 128 项回归通过，原有 12 页在三种窗口尺寸均通过导航检查，实际 96 DPI。前一轮在提前改变测试分辨率后卡在安装后的全息检查，恢复先执行原有安装验收的顺序后完整通过。已重新下载公开安装包，SHA-256 为 `51de43981cf65500a1a496da1d275f15d224dd76b8ab7eb1e26ed6b4ece82e8b`。[构建日志](https://github.com/zong-technology/DeskBox/actions/runs/44316789916) · [安装验收报告](https://github.com/zong-technology/DeskBox/releases/download/v4.2.0-tia.2/INSTALL-TEST-REPORT.md)
+
+实际 S7-1200 `.ap20` 读取、V20 源导入和编译、设备目录、PLCSIM、其他 TIA 版本和真实模型语音待目标机测试。工作台能在无 TIA 时运行，无法连接时显示具体缺失的环境条件。持证 Windows 样本验收脚本及条件见 [环境说明](TIA-V42-ENVIRONMENT.md)。
