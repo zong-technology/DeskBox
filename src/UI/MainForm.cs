@@ -461,6 +461,7 @@ namespace DeskBox.UI
                 { "desktop", "▦", "智能桌面" },
                 { "projects", "◆", "项目舱" },
                 { "engineering", "⌁", "工程工具" },
+                { "tia", "▣", "博图 AI 工程师" },
                 { "ai", "◈", "AI&SI" },
                 { "automation", "⚡", "自动化" },
                 { "search", "🔍", "文件管理" },
@@ -589,7 +590,7 @@ namespace DeskBox.UI
                 _providers = new DeskBox.Ai.ProviderStore();
                 _chat = new DeskBox.Ai.ChatService(_store, _providers);
                 _chat.Workflows = _workflows;
-                _chat.Projects=_workspaces;_chat.Sync=_localSync;_chat.Cloud=_cloudSync;_chat.Files=_ops;_chat.Navigate=SwitchView;
+                _chat.Projects=_workspaces;_chat.Sync=_localSync;_chat.Cloud=_cloudSync;_chat.Files=_ops;_chat.Navigate=SwitchView;_chat.TiaRead=ReadTiaContext;
                 _chat.UiInvoke=delegate(Func<DeskBox.Ai.ToolResult> action){if(IsDisposed||_closing)return DeskBox.Ai.ToolResult.Fail("界面已关闭");return InvokeRequired?(DeskBox.Ai.ToolResult)Invoke(action):action();};
                 _chat.RefreshApp=delegate{OnGlobalContextChanged();if(_referenceActive)_reference.RefreshData();else{var view=_views.ContainsKey(_currentView)?_views[_currentView] as DeskBox.UI.Views.ViewBase:null;if(view!=null&&_currentView!="ai")view.Activate();}};
                 _cloudSync.MobileAi=new DeskBox.Ai.MobileAiRunner(_providers,CreateAssistantContext);
@@ -916,6 +917,7 @@ namespace DeskBox.UI
             {
                 _reference=new ReferenceWorkspace(_store,_workspaces,_localSync,_cloudSync,_chat,_providers,_workflows,_library,CreateView);
                 _reference.FileAiRequested += path => AskAiForPaths(new[] { path });
+                _reference.TiaFileRequested += path => { SwitchView("tia"); if (_tiaView != null) _tiaView.LoadExports(new[] { path }); };
                 _reference.PageChanged += id => { if (id == "desktop") RefreshReferenceDesktop(); };
                 _reference.ClassicRequested+=delegate{SetReferenceWorkspace(false);};_reference.PageChanged+=id=>{_currentView=id;};Controls.Add(_reference);
             }
@@ -1023,6 +1025,7 @@ namespace DeskBox.UI
                         workspaceView.SearchRequested += SearchProject;
                         return workspaceView;
                     case "engineering": return new DeskBox.UI.Views.EngineeringToolkitView(_store);
+                    case "tia": return _tiaView = new DeskBox.UI.Views.TiaEngineerView(_store, _providers, _workspaces);
                     case "search": return BuildSearchView();
                     case "library": return BuildLibraryView();
                     case "disk": return BuildDiskView();
@@ -1047,6 +1050,7 @@ namespace DeskBox.UI
             return null;
         }
 
+        private DeskBox.UI.Views.TiaEngineerView _tiaView;
         private DeskBox.UI.Views.SearchView _searchView;
         private void SearchProject(EngineerWorkspace project)
         {
@@ -1204,6 +1208,7 @@ namespace DeskBox.UI
                 new CommandItem { Icon="◫", Name="工程驾驶舱", Hint="系统、任务、通知与项目总览", Execute=delegate { SwitchView("home"); } },
                 new CommandItem { Icon="▦", Name="智能桌面", Hint="桌面文件、分类与快速启动", Execute=delegate { SwitchView("desktop"); } },
                 new CommandItem { Icon="◆", Name="工程项目舱", Hint="PLC / DCS / CSV 项目根目录", Execute=delegate { SwitchView("projects"); } },
+                new CommandItem { Icon="▣", Name="博图 AI 工程师", Hint="TIA 工程读取、SCL 草稿和副本验证", Execute=delegate { SwitchView("tia"); } },
                 new CommandItem { Icon="⌁", Name="工程工具矩阵", Hint="4–20mA、Pt100、S7、Modbus、网络与验证", Execute=delegate { SwitchView("engineering"); } },
                 new CommandItem { Icon="◈", Name="AI&SI 工程助手", Hint="PLC、DCS、GAMP 5、故障分析与文档审查", Execute=delegate { SwitchView("ai"); if (_chatView != null) BeginInvoke(new Action(_chatView.FocusInput)); } },
                 new CommandItem { Icon="⚡", Name="自动化工作流", Hint="预演、执行、取消与运行记录", Execute=delegate { SwitchView("automation"); } },
@@ -2045,10 +2050,16 @@ namespace DeskBox.UI
             var context=new DeskBox.Ai.ToolContext{Store=_store,Projects=_workspaces,Sync=_localSync,Cloud=_cloudSync,Workflows=_workflows,Files=_ops,
                 Ai=DeskBox.Ai.AiService.Instance,AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList(),
                 AllowedRoots=TrustedRoots.Load(),FileAccessEnabled=()=>_store.Settings.AiFileAccess,
-                UiInvoke=_chat==null?null:_chat.UiInvoke,Navigate=SwitchView,RefreshApp=_chat==null?null:_chat.RefreshApp,
+                UiInvoke=_chat==null?null:_chat.UiInvoke,Navigate=SwitchView,TiaRead=ReadTiaContext,RefreshApp=_chat==null?null:_chat.RefreshApp,
                 Confirm=detail=>ToolConfirm.Ask(this,"助手操作",detail,Palette)};
             context.RefreshAuthorization=delegate{context.AllowedRoots=TrustedRoots.Load();context.AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList();};
             return context;
+        }
+
+        private string ReadTiaContext(string name)
+        {
+            if (_tiaView == null || _tiaView.IsDisposed) throw new InvalidOperationException("请先在博图工作台加载工程并授权会话查询。");
+            return _tiaView.ReadForVoice(name);
         }
 
         internal void ShowLiveVoice()

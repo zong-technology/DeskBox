@@ -25,7 +25,7 @@ $cscArgs = @(
   "/out:$exe",
   "/r:System.dll", "/r:System.Core.dll", "/r:System.Security.dll", "/r:System.Drawing.dll",
   "/r:System.Windows.Forms.dll", "/r:System.Web.Extensions.dll", "/r:System.IO.Compression.dll", "/r:System.IO.Compression.FileSystem.dll", "/r:System.Management.dll",
-  "/r:Microsoft.VisualBasic.dll",
+  "/r:Microsoft.VisualBasic.dll", "/r:System.Xml.dll", "/r:System.Xml.Linq.dll",
   "/win32icon:$ico"
   "/resource:$root\assets\engineering-factory.png,DeskBox.EngineeringFactory"
   "/resource:$root\public\assets\silverwing-avatar.png,DeskBox.Silverwing"

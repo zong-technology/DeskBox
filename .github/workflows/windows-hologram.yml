@@ -98,6 +98,16 @@ jobs:
             & .\dist\mobile-ai-accept.exe | Tee-Object dist\hologram-qa\mobile-ai-accept.log
             if ($LASTEXITCODE -ne 0) { throw 'Text AI operation checks failed' }
           } finally { if (-not $mock.HasExited) { Stop-Process -Id $mock.Id -Force } }
+      - name: Validate the TIA workbench with offline export fixtures and capture native UI
+        shell: powershell
+        timeout-minutes: 3
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /define:TIA_WINFORMS /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:dist\DeskBox.exe /out:dist\tia-engineer-accept.exe tools\tia-engineer-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'TIA acceptance host compile failed' }
+          .\tools\prepare-ci-display.ps1
+          & .\dist\tia-engineer-accept.exe .\dist\hologram-qa\tia | Tee-Object dist\hologram-qa\tia-engineer.log
+          if ($LASTEXITCODE -ne 0) { throw 'TIA workbench acceptance failed' }
       - name: Assemble the native animated preview
         shell: powershell
         run: .\tools\render-hologram-preview.ps1
@@ -171,5 +181,5 @@ jobs:
           RELEASE_VERSION: ${{ needs.native.outputs.version }}
         shell: powershell
         run: |
-          gh release create ('v'+$env:RELEASE_VERSION) ('.\installer\DeskBox-'+$env:RELEASE_VERSION+'-Setup.exe') .\installer\SHA256SUMS.txt .\installer\INSTALL-TEST-REPORT.md .\native-preview\hologram-qa\hologram-motion.gif --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title 'DeskBox 2.1 hologram preview - Windows setup and upgrade' --notes-file .\source\packaging\RELEASE-NOTES.md
+          gh release create ('v'+$env:RELEASE_VERSION) ('.\installer\DeskBox-'+$env:RELEASE_VERSION+'-Setup.exe') .\installer\SHA256SUMS.txt .\installer\INSTALL-TEST-REPORT.md .\native-preview\hologram-qa\hologram-motion.gif .\native-preview\hologram-qa\tia\tia-workbench-1600.png .\native-preview\hologram-qa\tia\tia-workbench-1024.png --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

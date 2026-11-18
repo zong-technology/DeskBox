@@ -27,7 +27,8 @@ namespace DeskBox.Ai
                     case "incident.create":return "新建现场问题并同步手机；args:{project_id,description,equipment,owner,severity=S1..S4,cause,solution}。先project.list获取真实项目ID。";
                     case "incident.update":return "更新事件并同步手机，需确认及版本检查。args:{id,expected_version,description,project_id,equipment,owner,severity=S1..S4,status=open|investigating|resolved|closed,cause,solution}";
                     case "workflow.list":return "读取已配置工作流的ID、名称、启用状态和触发方式；args:{}。执行使用workflow.run。";
-                    case "app.navigate":return "打开软件功能页面。args:{view=home|desktop|projects|engineering|ai|automation|search|tasks|incidents|weather|monitor|mobile|history|notifications|filehistory|library|disk|clipboard|settings}";
+                    case "tia.read":return "只读查询在博图工作台手动加载并授权的工程概况或唯一对象。args:{name}，留空返回概况。只提供导出证据，不操作PLC。";
+                    case "app.navigate":return "打开软件功能页面。args:{view=home|desktop|projects|engineering|tia|ai|automation|search|tasks|incidents|weather|monitor|mobile|history|notifications|filehistory|library|disk|clipboard|settings}";
                     default:return "读取软件当前项目、任务/事件数量、文件授权和可用工具范围。args:{}；无需文件访问开关。";
                 }
             }
@@ -94,9 +95,11 @@ namespace DeskBox.Ai
                 ctx.Sync.SaveIncident(item,version);Refresh(ctx);return ToolResult.Success("事件已更新，将通过现有同步服务回传手机");
             }
             if(Name=="workflow.list")return ctx.Workflows==null?ToolResult.Fail("工作流服务未就绪"):ToolResult.Success(Json.ToJson(ctx.Workflows.Workflows.Select(w=>new{w.Id,w.Name,w.Enabled,w.Trigger,w.IntervalMinutes}).ToArray()));
+            if (Name == "tia.read")
+                return ctx.TiaRead == null ? ToolResult.Fail("当前入口未提供博图上下文") : ToolResult.Success(ctx.TiaRead(Get(args, "name")));
             if(Name=="app.navigate")
             {
-                var view=Get(args,"view");if(!new[]{"home","desktop","projects","engineering","ai","automation","search","tasks","incidents","weather","monitor","mobile","history","notifications","filehistory","library","disk","clipboard","settings"}.Contains(view)||ctx.Navigate==null)return ToolResult.Fail("页面不存在或界面服务不可用");
+                var view=Get(args,"view");if(!new[]{"home","desktop","projects","engineering","tia","ai","automation","search","tasks","incidents","weather","monitor","mobile","history","notifications","filehistory","library","disk","clipboard","settings"}.Contains(view)||ctx.Navigate==null)return ToolResult.Fail("页面不存在或界面服务不可用");
                 ctx.Navigate(view);return ToolResult.Success("已打开页面："+view);
             }
             return ToolResult.Success(Json.ToJson(new{Tasks=ctx.Store.Tasks.Count,OpenTasks=ctx.Store.Tasks.Count(t=>!t.Done),Projects=ctx.Projects==null?0:ctx.Projects.Items.Count,Incidents=ctx.Sync==null?0:ctx.Sync.Incidents.Count,CloudStatus=ctx.Cloud==null?"服务未就绪":ctx.Cloud.Status,FileAccess=ctx.FileAccessEnabled==null||ctx.FileAccessEnabled(),AllowedRoots=ctx.AllowedRoots,Tools=ToolRegistry.Instance.Tools.Select(t=>new{t.Name,t.Description,t.RequiresConfirm}).ToArray()}));

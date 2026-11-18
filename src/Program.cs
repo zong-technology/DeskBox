@@ -21,6 +21,11 @@ namespace DeskBox
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args.Length == 3 && args[0] == "--tia-worker")
+            {
+                Environment.ExitCode = Engineering.Tia.TiaOpenness.RunWorker(args[1], args[2]);
+                return;
+            }
             bool bridge = args.Length == 1 && args[0] == "--bridge";
             bool first;
             _mutex = new Mutex(true, "DeskBox.SingleInstance.7F3A", out first);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -274,6 +274,7 @@ namespace DeskBox.Ai
         public Sync.LocalSyncCoordinator Sync;
         public Sync.CloudSyncAgent Cloud;
         public Fs.FileOps Files;
+        public Func<string, string> TiaRead;
         public Action<string> Navigate;
         public Action RefreshApp;
         public Func<Func<ToolResult>,ToolResult> UiInvoke;
@@ -463,7 +464,7 @@ namespace DeskBox.Ai
                 FileAccessEnabled = FileAccessEnabled,
                 Ai = AiService.Instance,
                 Workflows = Workflows,
-                Projects=Projects,Sync=Sync,Cloud=Cloud,Files=Files,Navigate=Navigate,RefreshApp=RefreshApp,UiInvoke=UiInvoke,
+                Projects=Projects,Sync=Sync,Cloud=Cloud,Files=Files,Navigate=Navigate,TiaRead=TiaRead,RefreshApp=RefreshApp,UiInvoke=UiInvoke,
                 Confirm = delegate(string text) { return true; }   // 高危操作的确认在下面单独处理
             };
             ctx.RefreshAuthorization = delegate { ctx.AllowedRoots = EffectiveRoots(); ctx.AllowedFiles = AllowedFiles.ToList(); };
