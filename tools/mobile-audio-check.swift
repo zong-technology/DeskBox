@@ -8,13 +8,6 @@ import AVFoundation
         func check(_ ok: Bool, _ message: String) { precondition(ok, message); checks += 1; print("PASS " + message) }
         let engine = AVAudioEngine(), format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
         let player = HologramPlayback(engine: engine)
-        let nativePlayer = Mirror(reflecting: player).children.first(where: { $0.label == "player" })!.value as! AVAudioPlayerNode
-        func clock(_ label: String) {
-            let time = nativePlayer.lastRenderTime
-            let position = time.flatMap { nativePlayer.playerTime(forNodeTime: $0) }
-            let end = Mirror(reflecting: player).children.first(where: { $0.label == "end" })!.value as! Int64
-            print("CLOCK \(label): engine=\(engine.manualRenderingSampleTime) node=\(time?.sampleTime ?? -1) player=\(position?.sampleTime ?? -1) scheduledEnd=\(end) hostValid=\(time?.isHostTimeValid ?? false)")
-        }
         try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 480); try engine.start(); defer { engine.stop() }
         let rendered = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
         func render(_ frames: Int) throws -> Int {
@@ -32,13 +25,16 @@ import AVFoundation
         check(try render(5 * 24000) == 0, "Waiting for a tool result renders silence without moving a buffer origin")
         for _ in 0..<30 { check(try player.enqueue(pcm), "Queue long task reply PCM") }
         check(player.queuedSeconds > 29.9, "A 30-second reply is retained instead of closing at the old 12-second threshold")
+        // AVAudioPlayerNode installs scheduled buffers asynchronously. Give it one normal
+        // 20ms dispatch quantum before fast-forwarding many seconds of offline sample time.
+        // The complete PCM sample count below remains the acceptance criterion.
+        try await Task.sleep(nanoseconds: 20_000_000)
         let first = try render(30 * 24000)
         check(first >= 30 * 24000 - 480, "Actual offline AVAudioEngine renders the complete long reply")
         check(player.queuedSeconds < 0.03, "Completed playback drains its queue")
         _ = try render(5 * 24000)
-        clock("after gap")
         check(try player.enqueue(pcm), "A new packet is accepted after an idle gap")
-        clock("enqueued after gap")
+        try await Task.sleep(nanoseconds: 20_000_000)
         check(player.queuedSeconds > 0.95, "A packet after silence retains its full playback duration")
         let onset = try render(1920)
         check(player.level() != nil, "The speech meter follows actual playback after its bounded startup lead")
@@ -47,7 +43,7 @@ import AVFoundation
         check(onset + tail >= 23900, "Speech after a gap is not lost or scheduled in the past")
         for gap in [2400, 12000, 120000] {
             _ = try render(gap); _ = try player.enqueue(pcm)
-            clock("repeated gap enqueued \(gap)")
+            try await Task.sleep(nanoseconds: 20_000_000)
             let audible = try render(25920)
             print("Repeated gap \(gap): \(audible) / 24000 audible samples")
             check(audible >= 23900, "Complete speech survives repeated gaps of \(gap) samples")
