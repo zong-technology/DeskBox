@@ -131,7 +131,7 @@ $oldHash = (Get-FileHash -LiteralPath $installed).Hash
 $userData = Join-Path $target 'data'
 New-Item -ItemType Directory -Path $userData -Force | Out-Null
 $markers = @{}
-foreach ($name in @('state.json', 'tasks.json', 'ai-providers.json', 'chats.json', 'realtime-voice.json', 'ai-environment.json', 'ai-providers-local.json', 'chats-local.json', 'realtime-voice-local.json')) {
+foreach ($name in @('state.json', 'tasks.json', 'ai-providers.json', 'chats.json', 'realtime-voice.json', 'ai-environment.json', 'ai-providers-local.json', 'chats-local.json', 'realtime-voice-local.json', 'trusted-roots.json', 'trusted-roots-local.json')) {
     $path = Join-Path $userData $name
     $(if ($name -eq 'ai-environment.json') { '"network"' } else { '{"fixture":"preserve-' + $name + '"}' }) | Set-Content -LiteralPath $path -Encoding UTF8
     $markers[$path] = (Get-FileHash -LiteralPath $path).Hash

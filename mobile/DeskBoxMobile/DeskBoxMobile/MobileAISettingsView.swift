@@ -31,7 +31,7 @@ struct MobileAISettingsView: View {
         Form {
             Section("所有 AI 的运行环境") {
                 Picker("环境", selection: $environment) { ForEach(AIEnvironment.allCases, id: \.self) { Text($0.title).tag($0) } }.accessibilityIdentifier("ai.environment")
-                Text(environment == .local ? "禁止外部模型、网络工具及电脑操作；停止 AI 请求并暂停同步。本地和网络对话分别保存，切换不会带出原对话。" : "手机直接连接已保存模型，不需要电脑版或同步账号。只有开启的网络能力可执行，工具结果默认折叠。").font(.caption).foregroundStyle(.secondary)
+                Text(environment == .local ? "禁止外部模型、网络工具及电脑操作；停止 AI 请求并暂停同步。两边对话分别保存；任务与问题共用，恢复网络后按原同步设置上传。" : "手机直接连接已保存模型，不需要电脑版或同步账号。只有开启的网络能力可执行；业务资料按原设置同步，对话记录不会从本地环境自动带入。").font(.caption).foregroundStyle(.secondary)
                 if environment == .local { Text(MobileLocalAI.status).font(.caption) }
             }
             if environment == .network {

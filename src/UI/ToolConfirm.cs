@@ -15,7 +15,7 @@ namespace DeskBox.UI
     public static class TrustedRoots
     {
         private static string Normalize(string value) { value = value.Trim(); if (value.Length == 2 && value[1] == ':') value += "\\"; var full = Path.GetFullPath(value); return full.Length > Path.GetPathRoot(full).Length ? full.TrimEnd('\\', '/') : full; }
-        private static string FilePath { get { return Path.Combine(AppPaths.DataDir, "trusted-roots.json"); } }
+        private static string FilePath { get { return Path.Combine(AppPaths.DataDir, "trusted-roots"+DeskBox.Ai.AiEnvironment.Suffix+".json"); } }
 
         public static List<string> Load()
         {

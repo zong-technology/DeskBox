@@ -22,10 +22,12 @@ internal static class AiEnvironmentAccept
         var home=Path.Combine(Path.GetTempPath(),"deskbox-environment-"+Guid.NewGuid().ToString("N"));Environment.SetEnvironmentVariable("DESKBOX_HOME",home);Directory.CreateDirectory(home);
         try {
             AiEnvironment.Select("network");var providers=new ProviderStore();providers.Add(new AiProvider{Name="Network fixture",BaseUrl="https://fixture.invalid/v1",Model="fixture",ApiKey="fixture-network-key"});
+            var networkRoot=Path.Combine(home,"network-root"),localRoot=Path.Combine(home,"local-root");DeskBox.UI.TrustedRoots.Save(new List<string>{networkRoot});
             var store=new Store();store.Tasks.Clear();var chat=new ChatService(store,providers);chat.Current.Messages.Add(new ChatMessage{Role="user",Content="network-only-context"});chat.Save();var token=AiEnvironment.Token;
             AiEnvironment.Select("local");providers.ChangeEnvironment();chat.ChangeEnvironment();
             Check(token.IsCancellationRequested&&!AiEnvironment.Token.IsCancellationRequested,"Switching cancels old requests and creates a fresh lifetime");
             Check(providers.Providers.Count==0&&chat.Current.Messages.Count==0,"Local mode never imports network credentials or conversation context");
+            Check(DeskBox.UI.TrustedRoots.Load().Count==0,"Permanent network folder permissions do not enter the local environment");DeskBox.UI.TrustedRoots.Add(localRoot);
             providers.Add(new AiProvider{Name="Local fixture",BaseUrl="http://127.0.0.1:1/v1",Model="local"});chat.Current.Messages.Add(new ChatMessage{Role="user",Content="local-only-context"});chat.Save();
             foreach(var url in new[]{"https://fixture.invalid/v1","http://localhost:11434/v1","http://10.0.0.1/v1","https://127.0.0.1.example.com/v1"}) {
                 bool denied=false;try{AiEnvironment.RequireEndpoint(url);}catch(InvalidOperationException){denied=true;}Check(denied,"Local isolation rejects "+url);
@@ -51,6 +53,7 @@ internal static class AiEnvironmentAccept
             }finally{listener.Stop();recipient.Stop();}
             AiEnvironment.Select("network");providers.ChangeEnvironment();chat.ChangeEnvironment();
             Check(providers.Providers.Count==1&&providers.DefaultProvider.Name=="Network fixture"&&chat.Current.Messages.Any(m=>m.Content=="network-only-context")&&!chat.Current.Messages.Any(m=>m.Content=="local-only-context"),"Returning online restores only the original network configuration and history");
+            Check(DeskBox.UI.TrustedRoots.Load().SequenceEqual(new[]{networkRoot}),"Local folder authorizations cannot silently grant access to network AI");
             Check(File.Exists(Path.Combine(AppPaths.DataDir,"chats-local.json"))&&File.Exists(Path.Combine(AppPaths.DataDir,"ai-providers-local.json")),"Local history and encrypted provider configuration remain separate on disk");
             using(var host=new Form{Width=1180,Height=860})
             using(var settings=new DeskBox.UI.Views.SettingsCenterView(store,providers)) {
