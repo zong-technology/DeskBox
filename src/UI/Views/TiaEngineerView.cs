@@ -73,7 +73,7 @@ namespace DeskBox.UI.Views
             center.Controls.Add(tabs); center.Controls.Add(side); center.Controls.Add(left);
             center.Resize += delegate { left.Width = Dpi.D(this, center.Width > 1130 ? 260 : 180); side.Width = Dpi.D(this, center.Width > 1130 ? 340 : 205); side.Visible = center.Width >= Dpi.D(this, 850); };
             Body.Controls.Add(center); Body.Controls.Add(top);
-            tree.AfterSelect += delegate { ShowObject(tree.SelectedNode.Tag as PlcObject); };
+            tree.AfterSelect += delegate(object sender, TreeViewEventArgs e) { ShowObject(e.Node == null ? null : e.Node.Tag as PlcObject); };
             assistant.Text = "选择已导出的 SimaticML、SCL 或 IO CSV，或读取本机 .ap20 工程副本。\r\n\r\n默认只读。工程写入需要明确审批及本机 V20。";
             output.Text = "当前没有编译回执。";
             ApplyPalette(Palette);
@@ -108,6 +108,7 @@ namespace DeskBox.UI.Views
                     (b.Text != "批准新增模板并编译" || mode.SelectedIndex == 2 && template != null && SameSource(template, editor.Text));
             cancel.Enabled = operation != null;
             mode.Enabled = operation == null; cpu.Enabled = operation == null;
+            editor.ReadOnly = operation != null || mode.SelectedIndex == 0;
         }
         private void RefreshHeading()
         {

@@ -100,7 +100,8 @@ public static class TiaEngineerAcceptance
             Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode hides write path behind approval mode");
             view.LoadExports(files);
             var until = DateTime.UtcNow.AddSeconds(12);
-            while (tree.Nodes.Count == 0 && DateTime.UtcNow < until) { Application.DoEvents(); Thread.Sleep(25); }
+            while ((!mode.Enabled || tree.Nodes.Count < 3) && DateTime.UtcNow < until) { Application.DoEvents(); Thread.Sleep(25); }
+            Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
             Console.WriteLine("TIA view visible=" + view.Visible + " tabs=" + tabs.TabPages.Count + " roots=" + string.Join(" | ", tree.Nodes.Cast<TreeNode>().Select(n => n.Text)));
             Console.WriteLine("TIA text panes: " + string.Join(" | ", Children(view).OfType<RichTextBox>().Where(box => box.TextLength > 0).Select(box => box.AccessibleName + ":" + box.Text.Substring(0, Math.Min(100, box.TextLength)))));
             Capture(form, evidence, "tia-workbench-1600.png");
