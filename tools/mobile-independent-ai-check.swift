@@ -51,8 +51,12 @@ final class ModelFixture: URLProtocol {
         }
         let gemini = try await MobileDirectAI.run(profile: profile, history: history, instructions: "查询任务", configuration: config, execute: { tools.execute($0) }, progress: { _ in })
         check(requests == 2 && gemini.contains("已读取"), "Gemini uses the same actual phone tools without a computer")
+        let records = HologramHistory(directory: directory)
+        var late = HologramSession(name: "Network fixture", persona: "", model: "fixture"); late.environment = "network"; late.messages = [HologramMessage(role: "assistant", text: "late-network-reply")]
         let generation = AIEnvironment.generation; AIEnvironment.select(.local)
         check(generation != AIEnvironment.generation && AIEnvironment.current.historySuffix == "-local", "Switching environment changes the lifetime and separates history files")
+        records.changeEnvironment(); records.upsert(late)
+        check(records.sessions.isEmpty && HologramHistory(url: directory.appendingPathComponent("hologram-history.json")).sessions.first?.messages.first?.text == "late-network-reply", "A late voice reply is saved only to its original environment after a switch")
         let count = requests
         do { _ = try await MobileDirectAI.run(profile: profile, history: history, instructions: "must not send", configuration: config, execute: { _ in preconditionFailure("Offline request executed a network tool") }, progress: { _ in }); preconditionFailure("Offline request reached a network model") }
         catch { check(requests == count, "Local isolation refuses requests before invoking any network transport") }

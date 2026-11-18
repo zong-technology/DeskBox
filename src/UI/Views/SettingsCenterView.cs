@@ -440,7 +440,7 @@ namespace DeskBox.UI.Views
             RowLabel(p,"本地仅允许 127.0.0.1 / ::1，不跟随重定向，不开放网络共享、工作流执行或设备同步。需事先安装本机模型服务；不会自动改用云端。");
             environment.SelectedIndexChanged+=delegate {
                 var mode=environment.SelectedIndex==0?"local":"network";if(mode==AiEnvironment.Mode)return;
-                if(CanSwitchAIEnvironment!=null&&!CanSwitchAIEnvironment()){Toast("请先停止正在生成的对话，再切换环境",false);environment.SelectedIndex=AiEnvironment.Local?0:1;return;}
+                if(CanSwitchAIEnvironment!=null&&!CanSwitchAIEnvironment()){Toast("请先结束全息通话或停止文字生成，再切换环境",false);environment.SelectedIndex=AiEnvironment.Local?0:1;return;}
                 try {AiEnvironment.Select(mode);_providers.ChangeEnvironment();_editing=null;var changed=AIEnvironmentChanged;if(changed!=null)changed(this,EventArgs.Empty);ReloadProviderList();if(_providers.Providers.Count==0)NewProvider();RaiseProviders();Toast("AI 环境已切换，原配置和记录保留");}
                 catch(Exception error){Toast(error.Message,false);environment.SelectedIndex=AiEnvironment.Local?0:1;}
             };

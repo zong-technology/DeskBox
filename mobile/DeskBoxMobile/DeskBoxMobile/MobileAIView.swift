@@ -176,7 +176,7 @@ struct MobileAIView: View {
     private func archiveAndStart() {
         guard ai.canStartNewConversation else { return }; voiceMode = false; voice.stop()
         if !ai.messages.isEmpty {
-            var archived = HologramSession(name: "文字对话", persona: "", model: ai.model); archived.kind = "text"
+            var archived = HologramSession(name: "文字对话", persona: "", model: ai.model); archived.kind = "text"; archived.environment = AIEnvironment.current.rawValue
             archived.messages = ai.messages.map { HologramMessage(id: $0.id, role: $0.role, text: $0.content, partial: !$0.error.isEmpty, attachment: $0.attachment) }
             history.upsert(archived)
             guard history.error.isEmpty else { localError = "旧对话尚未保存，新对话未创建。"; return }

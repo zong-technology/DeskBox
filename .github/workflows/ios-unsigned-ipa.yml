@@ -77,7 +77,7 @@ jobs:
           "$RUNNER_TEMP/attachment-check" | tee "$RUNNER_TEMP/mobile-qa/attachment-check.log"
       - name: Check independent phone models, actual local tools and offline network rejection
         run: |
-          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/AIToolPresentation.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileDirectAI.swift tools/mobile-independent-ai-check.swift -o "$RUNNER_TEMP/independent-ai-check"
+          swiftc mobile/DeskBoxMobile/DeskBoxMobile/Models.swift mobile/DeskBoxMobile/DeskBoxMobile/OfflineStore.swift mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileAIAttachment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramHistory.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramLocalTools.swift mobile/DeskBoxMobile/DeskBoxMobile/AIToolPresentation.swift mobile/DeskBoxMobile/DeskBoxMobile/MobileDirectAI.swift tools/mobile-independent-ai-check.swift -o "$RUNNER_TEMP/independent-ai-check"
           "$RUNNER_TEMP/independent-ai-check" | tee "$RUNNER_TEMP/mobile-qa/independent-ai-check.log"
       - name: Build unsigned arm64 iPhoneOS IPA
         run: |

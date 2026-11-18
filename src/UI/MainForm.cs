@@ -1124,7 +1124,7 @@ namespace DeskBox.UI
             try
             {
                 _settingsCenter = new DeskBox.UI.Views.SettingsCenterView(_store, _providers);
-                _settingsCenter.CanSwitchAIEnvironment=delegate{return _chat==null||!_chat.Busy;};
+                _settingsCenter.CanSwitchAIEnvironment=delegate{return _liveVoice==null&&(_chat==null||!_chat.Busy);};
                 _settingsCenter.AIEnvironmentChanged+=delegate{if(_chat!=null)_chat.ChangeEnvironment();};
                 _settingsCenter.FilePermissionsChanged += delegate { if (_chat != null) _chat.RefreshPermissions(); };
                 _settingsCenter.TemporaryAccessRevoked += delegate { if (_chat != null) { if (_chat.Busy) _chat.Cancel(); _chat.AllowedFiles.Clear(); _chat.AllowedRoots.Clear(); } };

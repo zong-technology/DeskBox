@@ -16,20 +16,24 @@ struct HologramSession: Codable, Identifiable {
     var date = Date()
     var messages: [HologramMessage] = []
     var kind: String? = nil
+    var environment: String? = nil
 }
 @MainActor final class HologramHistory: ObservableObject {
     @Published private(set) var sessions: [HologramSession] = []
     @Published private(set) var error = ""
     private var url: URL
     private let customURL: Bool
+    private let directory: URL
+    private var environment = AIEnvironment.current
     private var loadFailed = false
-    init(url: URL? = nil) {
+    init(url: URL? = nil, directory: URL? = nil) {
+        self.directory = directory ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         customURL = url != nil
-        self.url = url ?? Self.environmentURL()
+        self.url = url ?? Self.environmentURL(directory: self.directory, environment: AIEnvironment.current)
         load()
     }
-    private static func environmentURL() -> URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("hologram-history" + AIEnvironment.current.historySuffix + ".json") }
-    func changeEnvironment() { guard !customURL else { return }; url = Self.environmentURL(); sessions = []; error = ""; loadFailed = false; load() }
+    private static func environmentURL(directory: URL, environment: AIEnvironment) -> URL { directory.appendingPathComponent("hologram-history" + environment.historySuffix + ".json") }
+    func changeEnvironment() { guard !customURL else { return }; environment = AIEnvironment.current; url = Self.environmentURL(directory: directory, environment: environment); sessions = []; error = ""; loadFailed = false; load() }
     private func load() {
         guard FileManager.default.fileExists(atPath: self.url.path) else { return }
         do {
@@ -41,6 +45,10 @@ struct HologramSession: Codable, Identifiable {
         catch { loadFailed = true; self.error = "全息记录读取失败，原文件已保留，暂停覆盖。" }
     }
     func upsert(_ session: HologramSession) {
+        if !customURL, let value = session.environment, let scope = AIEnvironment(rawValue: value), scope != environment {
+            let original = HologramHistory(url: Self.environmentURL(directory: directory, environment: scope)); original.upsert(session)
+            if !original.error.isEmpty { error = "原环境记录未能保存，已有文件保留。" }; return
+        }
         guard !session.messages.isEmpty, !loadFailed else { return }
         var value = session; value.messages = Array(value.messages.suffix(200))
         sessions.removeAll { $0.id == value.id }; sessions.insert(value, at: 0); sessions = Array(sessions.prefix(50)); save()
@@ -55,7 +63,7 @@ struct HologramRecorder {
     private(set) var session: HologramSession
     private var userID: String?, assistantID: String?
     private var started: [String: Date] = [:]
-    init(profile: HologramProfile) { session = HologramSession(name: profile.name, persona: profile.persona, model: AIEnvironment.current == .local ? "Apple 本机模型" : profile.model) }
+    init(profile: HologramProfile) { session = HologramSession(name: profile.name, persona: profile.persona, model: AIEnvironment.current == .local ? "Apple 本机模型" : profile.model); session.environment = AIEnvironment.current.rawValue }
     mutating func accept(_ packet: HologramPacket) {
         if packet.interrupted || packet.responseFailed { markAssistantPartial(); userID = nil }
         if packet.inputStarted { userID = packet.userID ?? UUID().uuidString; started[userID!] = Date() }
