@@ -51,7 +51,7 @@ AI&SI 的「全息 AI 通话」现在直接在软件内进入沉浸投影，只�
 
 ## 安装与运行
 
-博图 AI 工程师 Windows 测试版已发布，可在左侧独立打开。支持 Siemens 导出文件分析、SCL 草稿、IO 地址建议和工程差异，实际 V20 Openness 读取和编译待持证 Windows 验证。[安装包](https://github.com/zong-technology/DeskBox/releases/tag/v4.2.0-tia.2) · [使用与验收](docs/TIA-V42.md)
+博图 AI 工程师 Windows 测试版已发布，可在左侧独立打开。支持 Siemens 导出文件分析、SCL 草稿、IO 地址建议和工程差异，实际 V20 Openness 读取和编译待持证 Windows 验证。[安装包](https://github.com/zong-technology/DeskBox/releases/tag/v4.2.0-tia.3) · [使用说明](docs/TIA-V42.md) · [八项验收](docs/TIA-V42-ACCEPTANCE.md)
 
 本地一键更新打包：Windows 双击 `build-update.cmd`；iPhone 在 Mac 运行 `bash tools/release-ios.sh`。日常更新不依赖 Actions 云端额度，见[本地构建与低成本更新](docs/LOCAL-RELEASE.md)。
 

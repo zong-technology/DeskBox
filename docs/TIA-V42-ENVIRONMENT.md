@@ -28,7 +28,7 @@
 
 ## 持证机器原生验收
 
-用关闭后的独立 S7-1200 或 S7-1500 V20 样本和已加入 Openness 用户组的 Windows 测试账户运行。脚本生成独立证据目录，记录枚举出的精确 PLC 路径。首次仅指定源文件和证据目录。检查输出与 TIA 中的设备、块、类型和变量数量一致后，可用新证据目录、`-TargetCpu` 和 `-Compile` 验证离线编译。要单独验证新增缩放模板，使用 `-ApprovedNewScaleBlock` 指定新块名并检查回执、差异、源 SHA-256 清单和工作副本。脚本使用真实连接器，没有替代的模拟成功结果。
+用关闭后的独立 S7-1200 或 S7-1500 V20 样本和已加入 Openness 用户组的 Windows 测试账户运行。脚本生成独立证据目录，记录枚举出的精确 PLC 路径。首次指定源文件和证据目录，可同时用 ExpectedDevice、ExpectedBlock 和 ExpectedTag 核对从原 TIA 工程抄录的唯一对象名。检查输出与 TIA 中的设备、块、类型和变量数量一致后，可用新证据目录、`-TargetCpu` 和 `-Compile` 验证离线编译。要单独验证新增缩放模板，使用 `-ApprovedNewScaleBlock` 指定新块名并检查回执、差异、源 SHA-256 清单和工作副本。脚本通过真实连接器重新打开保存后的副本，检查差异文件并核对源目录的 SHA-256 清单。
 
 ```powershell
 powershell -NoProfile -File tools\tia-v20-smoke.ps1 `
