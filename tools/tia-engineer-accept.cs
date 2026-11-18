@@ -101,18 +101,24 @@ public static class TiaEngineerAcceptance
             view.LoadExports(files);
             var until = DateTime.UtcNow.AddSeconds(12);
             while (tree.Nodes.Count == 0 && DateTime.UtcNow < until) { Application.DoEvents(); Thread.Sleep(25); }
-            Check(tree.Nodes.Count == 3 && tabs.TabPages.Count == 7 && view.Visible, "Native workbench loads real fixture objects and all seven work tabs");
+            Console.WriteLine("TIA view visible=" + view.Visible + " tabs=" + tabs.TabPages.Count + " roots=" + string.Join(" | ", tree.Nodes.Cast<TreeNode>().Select(n => n.Text)));
+            Console.WriteLine("TIA text panes: " + string.Join(" | ", Children(view).OfType<RichTextBox>().Where(box => box.TextLength > 0).Select(box => box.AccessibleName + ":" + box.Text.Substring(0, Math.Min(100, box.TextLength)))));
+            Capture(form, evidence, "tia-workbench-1600.png");
+            Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
+            Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
             Reject(() => view.ReadForVoice("CheckValve"), "Voice path requires explicit project authorization");
             Children(view).OfType<CheckBox>().Single().Checked = true;
             Check(view.ReadForVoice("CheckValve").Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab");
-            var capture = new Bitmap(form.Width, form.Height);
-            using (capture) { form.DrawToBitmap(capture, new Rectangle(Point.Empty, form.Size)); capture.Save(Path.Combine(evidence, "tia-workbench-1600.png"), ImageFormat.Png); }
             form.Size = new Size(1024, 768); Application.DoEvents();
-            using (var small = new Bitmap(form.Width, form.Height))
-            { form.DrawToBitmap(small, new Rectangle(Point.Empty, form.Size)); small.Save(Path.Combine(evidence, "tia-workbench-1024.png"), ImageFormat.Png); }
+            Capture(form, evidence, "tia-workbench-1024.png");
             Check(tabs.Width > 350, "Main work area retains room at narrow width");
             form.Close();
         }
+    }
+    private static void Capture(Form form, string directory, string file)
+    {
+        using (var image = new Bitmap(form.Width, form.Height))
+        { form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size)); image.Save(Path.Combine(directory, file), ImageFormat.Png); }
     }
     private static System.Collections.Generic.IEnumerable<Control> Children(Control control)
     {
