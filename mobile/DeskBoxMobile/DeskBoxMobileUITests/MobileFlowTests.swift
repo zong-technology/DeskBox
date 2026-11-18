@@ -78,6 +78,7 @@ final class MobileFlowTests: XCTestCase {
         let picker = app.buttons["ai.environment"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap(); app.buttons["本地隔离"].tap()
         app.buttons["ai.settings.save"].tap()
+        XCTAssertTrue(app.staticTexts["已保存 · 本地隔离"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.textFields["文字模型"].exists)
         app.terminate(); app.launch()
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
@@ -85,5 +86,7 @@ final class MobileFlowTests: XCTestCase {
         let local = XCTAttachment(screenshot: app.screenshot()); local.name = "Local environment survives reopening"; local.lifetime = .keepAlways; add(local)
         picker.tap(); app.buttons["网络开放"].tap(); app.buttons["ai.settings.save"].tap()
         XCTAssertTrue(app.textFields["文字模型"].waitForExistence(timeout: 5))
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.textFields["文字模型"].waitForExistence(timeout: 10))
     }
 }

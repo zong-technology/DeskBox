@@ -22,7 +22,7 @@ enum AIEnvironment: String, CaseIterable, Codable, Sendable {
 }
 
 enum MobileAIProvider: String, Codable, CaseIterable { case compatible, gemini }
-struct MobileAIProfile: Codable {
+struct MobileAIProfile: Codable, Equatable {
     var provider = MobileAIProvider.compatible
     var endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
     var model = "qwen-plus"

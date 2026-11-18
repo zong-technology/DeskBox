@@ -2,7 +2,12 @@ import SwiftUI
 
 enum MobileAISettings {
     private static let account = "DeskBoxMobileDirectAIProfile"
-    static func load() -> MobileAIProfile { Keychain.load(account: account) ?? MobileAIProfile() }
+    static func load() -> MobileAIProfile {
+        var profile: MobileAIProfile = Keychain.load(account: account) ?? MobileAIProfile()
+        profile.allowComputer = UserDefaults.standard.object(forKey: "aiAllowComputer") as? Bool ?? profile.allowComputer
+        profile.allowWeb = UserDefaults.standard.object(forKey: "aiAllowWeb") as? Bool ?? profile.allowWeb
+        return profile
+    }
     static func resolved() -> MobileAIProfile {
         var profile = load()
         if profile.useVoiceKey {
@@ -45,7 +50,7 @@ struct MobileAISettingsView: View {
                     Text("默认关闭。手机任务、问题、附件分析与对话可独立运行；电脑文件和工作流仅在主动开启、电脑在线且已有授权时使用。").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Section { if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.cyan) }; NavigationLink("全息名称、角色和实时语音") { HologramSettingsView() } }
+            Section { if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.cyan).accessibilityIdentifier("ai.settings.status") }; NavigationLink("全息名称、角色和实时语音") { HologramSettingsView() } }
         }.workspacePage().navigationTitle("AI 环境与模型").scrollDismissesKeyboard(.interactively)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("保存") { save() }.accessibilityIdentifier("ai.settings.save") } }
         .onChange(of: profile.provider) { _, provider in
@@ -57,8 +62,11 @@ struct MobileAISettingsView: View {
         var value = profile
         value.key = secret.isEmpty && profile.provider == saved.provider && profile.endpoint == saved.endpoint ? saved.key : secret.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
+            // Turning networking off must not depend on an available credential store.
+            if environment == .local { AIEnvironment.select(.local); status = "已保存 · 本地隔离"; return }
             if environment == .network { _ = try value.url() }
-            guard MobileAISettings.save(value) else { status = "钥匙串保存失败，原环境保持不变。"; return }
+            var credentials = value; credentials.allowComputer = saved.allowComputer; credentials.allowWeb = saved.allowWeb
+            guard credentials == saved || MobileAISettings.save(value) else { status = "钥匙串保存失败，原环境保持不变。"; return }
             UserDefaults.standard.set(value.allowComputer, forKey: "aiAllowComputer")
             UserDefaults.standard.set(value.allowWeb, forKey: "aiAllowWeb")
             AIEnvironment.select(environment); profile = value; saved = value; secret = ""; status = "已保存 · " + environment.title

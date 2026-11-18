@@ -37,7 +37,9 @@ jobs:
       - name: Render delayed long replies with native AVAudioEngine and test input jitter
         run: |
           swiftc mobile/DeskBoxMobile/DeskBoxMobile/AIEnvironment.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramProtocol.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramPlayback.swift mobile/DeskBoxMobile/DeskBoxMobile/HologramInputGate.swift tools/mobile-audio-check.swift -o "$RUNNER_TEMP/audio-check"
-          "$RUNNER_TEMP/audio-check" | tee "$RUNNER_TEMP/audio-check.log"
+          for attempt in 1 2 3; do
+            "$RUNNER_TEMP/audio-check" | tee -a "$RUNNER_TEMP/audio-check.log"
+          done
           grep -E '^PASS [0-9]+ native audio checks' "$RUNNER_TEMP/audio-check.log"
       - uses: actions/upload-artifact@v4
         if: always()

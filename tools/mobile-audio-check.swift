@@ -12,7 +12,8 @@ import AVFoundation
         func clock(_ label: String) {
             let time = nativePlayer.lastRenderTime
             let position = time.flatMap { nativePlayer.playerTime(forNodeTime: $0) }
-            print("CLOCK \(label): engine=\(engine.manualRenderingSampleTime) node=\(time?.sampleTime ?? -1) player=\(position?.sampleTime ?? -1) hostValid=\(time?.isHostTimeValid ?? false)")
+            let end = Mirror(reflecting: player).children.first(where: { $0.label == "end" })!.value as! Int64
+            print("CLOCK \(label): engine=\(engine.manualRenderingSampleTime) node=\(time?.sampleTime ?? -1) player=\(position?.sampleTime ?? -1) scheduledEnd=\(end) hostValid=\(time?.isHostTimeValid ?? false)")
         }
         try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 480); try engine.start(); defer { engine.stop() }
         let rendered = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 480)!
