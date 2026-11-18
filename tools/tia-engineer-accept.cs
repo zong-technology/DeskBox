@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -9,6 +10,7 @@ using System.Drawing.Imaging;
 using System.Windows.Forms;
 using System.Threading.Tasks;
 using DeskBox;
+using DeskBox.Ai;
 using DeskBox.Core;
 using DeskBox.UI;
 using DeskBox.UI.Views;
@@ -46,15 +48,31 @@ public static class TiaEngineerAcceptance
             var ladder = data.Objects.Single(x => x.Name == "CheckValve");
             Check(ladder.Language == "LAD" && ladder.References.Contains("Feedback") && ladder.Content.Contains("Contact") && ladder.Interface.Contains("Bool"), "LAD network elements, interface and references");
             Check(ladder.Source.StartsWith("export.xml:"), "Report retains object provenance");
+            var graph = Path.Combine(temp, "network.xml");
+            File.WriteAllText(graph, "<Document><SW.Blocks.FB><AttributeList><Name>Caller</Name><ProgrammingLanguage>FBD</ProgrammingLanguage></AttributeList><ObjectList><SW.Blocks.CompileUnit><FlgNet><Parts><Call UId='21'><CallInfo Name='Worker'/></Call></Parts><Wires><Wire UId='23'><IdentCon UId='20'/><NameCon UId='21' Name='EN'/></Wire></Wires></FlgNet></SW.Blocks.CompileUnit></ObjectList></SW.Blocks.FB><SW.Blocks.FC><AttributeList><Name>Worker</Name></AttributeList></SW.Blocks.FC></Document>");
+            var network = PlcEngineering.ReadExports(new[] { graph }, CancellationToken.None);
+            var caller = network.Objects.Single(x => x.Name == "Caller");
+            var callee = network.Objects.Single(x => x.Name == "Worker");
+            Check(caller.Content.Contains("NameCon 21 EN") && caller.References.Contains("Worker"), "FBD reports exported wire endpoints and called block");
+            Check(PlcEngineering.Related(network, caller).Contains(callee.Source) && PlcEngineering.Related(network, callee).Contains(caller.Source), "Project cross references include source evidence in both directions");
             var checks = PlcEngineering.Check(data);
             Check(checks.Any(x => x.Contains("地址重叠")) && checks.Any(x => x.Contains("宽度不一致")) && checks.Any(x => x.Contains("地址待确认")), "IO overlap, width mismatch and unresolved address");
-            Check(PlcEngineering.PlanIo(data, 0, 0).Contains("Spare · BOOL · I2.0"), "Propose free IO bit after occupied input word");
+            var ioPlan = PlcEngineering.PlanIo(data, 0, 0);
+            Check(ioPlan.Contains("Spare · BOOL · I2.0") && ioPlan.Contains("订货号 待确认") && ioPlan.Contains("DI · 3 点"), "IO recommendations avoid occupied inputs and report channel demand and unknown part numbers");
+            var controller = new PlcSnapshot { Objects = new List<PlcObject> {
+                new PlcObject { Kind = "PlcTag", Name = "In1", Controller = "CPU-A", Scope = "CPU-A/Tags/One", Address = "%I0.0", DataType = "BOOL" },
+                new PlcObject { Kind = "PlcTag", Name = "In2", Controller = "CPU-A", Scope = "CPU-A/Tags/Two", Signal = "DI", DataType = "BOOL" }
+            }};
+            Check(PlcEngineering.PlanIo(controller, 0, 0).Contains("In2 · BOOL · I0.1"), "Tags in different tables share the address space of their controller");
             Check(data.Objects.Single(x => x.Kind == "FB" && x.Language == "SCL").References.Contains("#Raw"), "SCL variables extracted from source");
             Check(data.Notes.Count == 0, "SCL template boundaries and scoped references are complete");
             var invalidScl = Path.Combine(temp, "invalid.scl");
             File.WriteAllText(invalidScl, "FUNCTION_BLOCK FB_Review\nVAR_OUTPUT\n Result : Real;\n Spare : Bool;\n Spare : Bool;\nEND_VAR\nBEGIN\n #Result := #Unknown;\nEND_FUNCTION_BLOCK\n");
             var invalidNotes = PlcEngineering.ReadExports(new[] { invalidScl }, CancellationToken.None).Notes;
             Check(invalidNotes.Any(x => x.Contains("重复局部变量 Spare")) && invalidNotes.Any(x => x.Contains("#Unknown")) && invalidNotes.Any(x => x.Contains("#Spare")), "Static SCL detects duplicate, unresolved and unused locals");
+            var draft = PlcEngineering.ReviewScl("// fixture\n\n" + PlcEngineering.AnalogScale("FB_AnalogScale"), "editor");
+            Check(draft.Objects.Single().Source == "editor:3" && draft.Notes.Count == 0, "Editor checks actual line numbers using the source parser");
+            Check(PlcEngineering.ScaleTests.Contains("12 → 50") && draft.Objects.Single().Interface.Contains("OutOfRange"), "Scaling template includes interface and expected test results");
             string previous = File.ReadAllText(csv);
             File.WriteAllText(csv, previous.Replace("%IW0", "%IW4"));
             var changed = PlcEngineering.ReadExports(new[] { xml, csv, scl }, CancellationToken.None);
@@ -75,10 +93,24 @@ public static class TiaEngineerAcceptance
             Reject(() => TiaOpenness.CopyTree(source, Path.Combine(source, "nested"), CancellationToken.None), "Nested destination rejected");
             Reject(() => TiaOpenness.CopyTree(source, backup, CancellationToken.None), "An existing destination is never overwritten");
             Reject(() => TiaOpenness.CopyTree(source, Path.Combine(temp, "cancel"), new CancellationToken(true)), "Copy respects cancellation");
+            var originalBlock = new PlcObject { Name = "Original", Kind = "FC", Scope = "CPU/Blocks", Fingerprint = "before" };
+            var newBlock = new PlcObject { Name = "Approved", Kind = "FB", Scope = "CPU/Blocks", Interface = "Raw : Real", Fingerprint = "new" };
+            var before = new PlcSnapshot { Objects = new List<PlcObject> { originalBlock } };
+            var after = new PlcSnapshot { Objects = new List<PlcObject> { originalBlock, newBlock } };
+            TiaOpenness.VerifyNewScaleBlock(before, after, "CPU", "Approved");
+            Check(true, "Copy save permits one re-read approved FB");
+            after.Objects[0] = new PlcObject { Name = "Original", Kind = "FC", Scope = "CPU/Blocks", Fingerprint = "changed" };
+            Reject(() => TiaOpenness.VerifyNewScaleBlock(before, after, "CPU", "Approved"), "Unapproved modification of an existing object blocks save");
+            after.Objects[0] = originalBlock;
+            Reject(() => TiaOpenness.VerifyNewScaleBlock(before, after, "OtherCPU", "Approved"), "FB in another controller cannot satisfy the approval");
+            Reject(() => TiaOpenness.Run(new TiaJob { Operation = "download", ProjectFile = project }, CancellationToken.None), "Online write request rejected before native environment detection");
             var env = TiaEnvironmentInspector.Inspect(); Console.WriteLine(env.Describe());
             if (!env.Installations.Any(x => x.Version == 20 && x.AssemblyPath != null))
                 Reject(() => TiaOpenness.Run(new TiaJob { ProjectFile = project }, CancellationToken.None), "Missing V20 prevents all native transactions");
 #if NETFRAMEWORK || TIA_WINFORMS
+            var jsonDraft = Json.ToJson(new PlcDraft { Kind = "FB", Name = "FB_AnalogScale", Purpose = "Scale", Scl = PlcEngineering.AnalogScale("FB_AnalogScale") });
+            Check(TiaPlanning.ParseDraft(jsonDraft).Name == "FB_AnalogScale", "Model JSON accepts one matching SCL draft");
+            Reject(() => TiaPlanning.ParseDraft(jsonDraft.Replace("END_FUNCTION_BLOCK", "// END_FUNCTION_BLOCK")), "A commented closing marker cannot validate an incomplete draft");
             Native(temp, evidence, new[] { xml, csv, scl });
 #endif
             Console.WriteLine("PASS " + passed + " DeskBox TIA checks. Synthetic inputs; no TIA Portal or PLC connection used.");
@@ -127,9 +159,13 @@ public static class TiaEngineerAcceptance
         Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
         Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
         Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
-        Reject(() => view.ReadForVoice("CheckValve"), "Voice path requires explicit project authorization");
+        var voice = new ToolContext { TiaRead = view.ReadForVoice };
+        var call = new Dictionary<string, string> { { "name", "CheckValve" } };
+        Check(!ToolRegistry.Instance.Invoke("tia.read", call, voice).Ok, "Voice tool requires explicit project authorization");
+        Check(!ToolRegistry.Instance.Invoke("tia.write", call, voice).Ok, "No TIA write tool is exposed to an assistant");
         Children(view).OfType<CheckBox>().Single().Checked = true;
-        Check(view.ReadForVoice("CheckValve").Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab");
+        var lookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
+        Check(lookup.Ok && lookup.Output.Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab");
         form.Size = new Size(1024, 768);
         await Task.Yield();
         await Capture(form, evidence, "tia-workbench-1024.png");

@@ -44,6 +44,7 @@ namespace DeskBox.UI.Views
             mode.Items.AddRange(new object[] { "只读分析", "辅助设计", "自动离线工程" }); mode.SelectedIndex = 0;
             mode.SelectedIndexChanged += delegate { RefreshHeading(); UpdateButtons(); };
             cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0;
+            cpu.SelectedIndexChanged += delegate { RefreshHeading(); };
             var top = Bar();
             top.Controls.AddRange(new Control[] { mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
             cancel = new DarkButton("取消当前任务") { Width = 116, Height = 32, Enabled = false, Palette = Palette };
@@ -53,7 +54,7 @@ namespace DeskBox.UI.Views
             editor = TextArea("SCL 草稿", false); editor.WordWrap = false; editor.TextChanged += delegate { UpdateButtons(); };
             analysis = TextArea("程序分析"); hardware = TextArea("硬件目录及建议"); topology = TextArea("网络与设备");
             tags = TextArea("变量与 IO"); diff = TextArea("工程差异"); output = TextArea("编译和操作日志"); assistant = TextArea("AI 工程助手");
-            var programming = Page("AI 编程", editor, Button("AI 任务计划", Generate), scaleName, Button("缩放模板", Scale), Button("高亮", Highlight), Button("保存 SCL", ExportScl));
+            var programming = Page("AI 编程", editor, Button("AI 任务计划", Generate), scaleName, Button("缩放模板", Scale), Button("高亮", Highlight), Button("静态检查草稿", CheckDraft), Button("保存 SCL", ExportScl));
             var entry = new Panel { Dock = DockStyle.Top, Height = 98, Padding = new Padding(0, 4, 0, 4) };
             entry.Controls.Add(requirement); var entryTitle = Caption("工程需求、引用资料及待确认条件"); entry.Controls.Add(entryTitle);
             programming.Controls.Add(entry); programming.Controls.SetChildIndex(entry, 1);
@@ -61,7 +62,7 @@ namespace DeskBox.UI.Views
             Page("硬件组态", hardware, catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware));
             Page("网络拓扑", topology);
             Page("变量管理", tags, Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
-            Page("工程对比", diff, Button("设为基线", Remember), Button("对比另一批文件", Compare));
+            Page("工程对比", diff, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
             Page("测试验证", output, cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), Button("解释编译诊断", ExplainCompile));
             var left = new Panel { Dock = DockStyle.Left, Width = 240, Padding = new Padding(0, 0, 8, 0) };
             left.Controls.Add(tree); left.Controls.Add(Caption("工程浏览器"));
@@ -145,6 +146,7 @@ namespace DeskBox.UI.Views
         {
             var provider = providers == null ? null : providers.DefaultProvider;
             HintLabel.Text = Convert.ToString(mode.SelectedItem) + " · " + (snapshot == null ? "未加载工程" : snapshot.Name + " / " + snapshot.Origin) + " · " +
+                (cpu.SelectedIndex > 0 ? "PLC " + cpu.SelectedItem + " · " : "") +
                 (provider == null || !provider.Enabled ? "AI 未配置" : "AI " + provider.Name + " / " + provider.Model);
         }
         protected override void OnActivated()
@@ -267,9 +269,11 @@ namespace DeskBox.UI.Views
             analysis.Text = Describe(item, 16000);
             SelectTab(item.Kind == "PlcTag" ? 4 : 1);
         }
-        private static string Describe(PlcObject item, int limit)
+        private string Describe(PlcObject item, int limit)
         {
-            return Limit(item.Identity + "  ·  " + item.Language + "\r\n来源 " + item.Source + "\r\n" + item.Address + " " + item.DataType + "\r\n\r\n" + item.Interface + "\r\n\r\n" + item.Content + "\r\n\r\n引用线索 · " + string.Join(", ", item.References), limit);
+            return Limit(item.Identity + "  ·  " + item.Language + "\r\n来源 " + item.Source + "\r\n" + item.Address + " " + item.DataType + "\r\n\r\n" +
+                item.Interface + "\r\n\r\n" + item.Content + "\r\n\r\n引用线索 · " + string.Join(", ", item.References) +
+                "\r\n" + PlcEngineering.Related(snapshot, item), limit);
         }
         private static string Limit(string text, int limit) { return text.Length <= limit ? text : text.Substring(0, limit) + "\r\n（已截断）"; }
         public string ReadForVoice(string name)
@@ -293,7 +297,9 @@ namespace DeskBox.UI.Views
         private string Context()
         {
             if (snapshot == null) return "";
-            return Limit(snapshot.Report() + "\r\n工程对象（最多 80 项）\r\n" + string.Join("\r\n", snapshot.Objects.Take(80).Select(x => x.Identity + " · " + x.Language + " · " + x.Source)) + "\r\n" + (selected == null ? "" : Describe(selected, 10000)), 16000);
+            return Limit((selected == null ? "" : Describe(selected, 9000) + "\r\n\r\n") + Limit(snapshot.Report(), 3500) +
+                "\r\n工程对象（" + snapshot.Objects.Count + " 项，最多列出 80 项）\r\n" +
+                string.Join("\r\n", snapshot.Objects.Take(80).Select(x => x.Identity + " · " + x.Language + " · " + x.Source)), 16000);
         }
         private void Generate()
         {
@@ -302,8 +308,20 @@ namespace DeskBox.UI.Views
             Work("生成结构化工程任务与草稿", t => TiaPlanning.Plan(model, prompt, context, t), draft =>
             {
                 template = null; editor.Text = draft.Scl; Highlight(); assistant.Text = draft.Plan(); SelectTab(0);
-                output.Text = "AI 草稿 · " + draft.Kind + " " + draft.Name + "\r\n" + draft.Plan() + "\r\nTIA 编译未执行。";
+                output.Text = "AI 草稿 · " + draft.Kind + " " + draft.Name + "\r\n" + draft.Plan() + "\r\n" +
+                    (draft.Scl.Length == 0 ? "无 SCL 草稿。" : DraftReview(draft.Scl));
             });
+        }
+        private static string DraftReview(string source)
+        {
+            var review = PlcEngineering.ReviewScl(source, "SCL 草稿");
+            return (review.Notes.Count == 0 ? "静态检查 · 未发现当前规则覆盖的问题。" : "静态检查 · 有待复核项。") +
+                "\r\n" + review.Report() + "\r\nTIA 编译未执行。";
+        }
+        private void CheckDraft()
+        {
+            output.Text = DraftReview(editor.Text);
+            SelectTab(6);
         }
         private void Explain() { if (selected == null) throw new InvalidOperationException("请选择工程对象。"); RunExplanation("解释当前对象、可见条件和引用线索。", Context(), analysis, 1); }
         private void ExplainHardware() { RunExplanation("根据 IO 清单设计模块分组、地址规划及现场核对项。明确建议和待确认，未获取订货号或固件时留空。" + requirement.Text, Limit(Context() + "\r\n" + tags.Text, 16000), hardware, 2); }
@@ -340,6 +358,22 @@ namespace DeskBox.UI.Views
             var current = baseline ?? snapshot; if (current == null) throw new InvalidOperationException("请先读取并设置对比基线。");
             var files = SelectExports(); if (files == null) return;
             Work("比较工程对象、接口及地址", t => PlcEngineering.Diff(current, PlcEngineering.ReadExports(files, t)), text => { diff.Text = text; assistant.Text = "差异报告已生成。"; SelectTab(5); });
+        }
+        private void CompareProject()
+        {
+            var current = baseline ?? snapshot;
+            if (current == null) throw new InvalidOperationException("请先读取并设置对比基线。");
+            using (var dialog = new OpenFileDialog { Filter = "TIA Portal V20 工程 (*.ap20)|*.ap20", CheckFileExists = true })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                var job = new TiaJob { ProjectFile = dialog.FileName, ProjectId = ProjectId() };
+                Work("读取另一版本的独立工程副本", t =>
+                {
+                    var result = TiaOpenness.Run(job, t);
+                    if (result.Error.Length != 0) throw new InvalidOperationException(result.Error);
+                    return PlcEngineering.Diff(current, result.Snapshot);
+                }, text => { diff.Text = text; assistant.Text = "差异报告已生成。"; SelectTab(5); });
+            }
         }
         private void PlanIo()
         {

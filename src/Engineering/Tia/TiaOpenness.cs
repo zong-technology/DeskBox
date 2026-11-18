@@ -33,8 +33,9 @@ namespace DeskBox.Engineering.Tia
 
         public static TiaResult Run(TiaJob job, CancellationToken token)
         {
-            RequireV20();
             ValidateJob(job);
+            token.ThrowIfCancellationRequested();
+            RequireV20();
             var root = PlcEngineering.FullLocalPath(Path.Combine(AppPaths.DataDir, "tia-jobs"));
             string id = Guid.NewGuid().ToString("N");
             var dir = Path.Combine(root, id);
@@ -57,7 +58,8 @@ namespace DeskBox.Engineering.Tia
                     if (job.ExpectedSource.Length != 0 && job.ExpectedSource != PlcEngineering.Hash(string.Join("\n", first)))
                         throw new IOException("工程已变化，请重新读取并审批。");
                     File.WriteAllLines(Path.Combine(dir, "source-sha256.txt"), first, Utf8);
-                    CopyTree(baseline, Path.Combine(dir, CopyFolder), token);
+                    if (!first.SequenceEqual(CopyTree(baseline, Path.Combine(dir, CopyFolder), token)))
+                        throw new IOException("工作副本与原始快照不一致。");
                 }
                 token.ThrowIfCancellationRequested();
                 var executable = typeof(TiaOpenness).Assembly.Location;
@@ -105,6 +107,8 @@ namespace DeskBox.Engineering.Tia
                         throw new InvalidOperationException("缺少工作副本、原始快照或清单。");
                     result.Copy = project;
                     result.SourceHash = PlcEngineering.Hash(string.Join("\n", File.ReadAllLines(Path.Combine(directory, "source-sha256.txt"))));
+                    if (job.ExpectedSource.Length != 0 && result.SourceHash != job.ExpectedSource)
+                        throw new IOException("工程快照指纹与审批不一致。");
                 }
                 using (var api = new V20Session(installation.AssemblyPath)) api.Execute(job, project, directory, result);
             }
@@ -200,6 +204,23 @@ namespace DeskBox.Engineering.Tia
             return string.Equals(root, candidate, StringComparison.OrdinalIgnoreCase) || candidate.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
 
+        public static void VerifyNewScaleBlock(PlcSnapshot before, PlcSnapshot after, string cpu, string block)
+        {
+            var existing = before.Objects.ToLookup(x => x.Identity, StringComparer.OrdinalIgnoreCase);
+            var updated = after.Objects.ToLookup(x => x.Identity, StringComparer.OrdinalIgnoreCase);
+            var added = updated.Where(g => !existing.Contains(g.Key)).SelectMany(g => g).ToList();
+            if (added.Count != 1 || added[0].Kind != "FB" || added[0].Name != block ||
+                added[0].Scope != cpu + "/Blocks" || string.IsNullOrWhiteSpace(added[0].Interface))
+                throw new InvalidOperationException("复读未确认目标 PLC 的已批准 FB 接口，停止保存。");
+            foreach (var group in existing)
+            {
+                var previous = group.Select(x => x.Fingerprint).OrderBy(x => x, StringComparer.Ordinal);
+                var current = updated[group.Key].Select(x => x.Fingerprint).OrderBy(x => x, StringComparer.Ordinal);
+                if (!previous.SequenceEqual(current, StringComparer.Ordinal))
+                    throw new InvalidOperationException("复读发现审批以外的对象变化，停止保存：" + group.Key);
+            }
+        }
+
         private sealed class V20Session : IDisposable
         {
             private readonly Assembly api;
@@ -292,12 +313,7 @@ namespace DeskBox.Engineering.Tia
                 {
                     exportSize = 0;
                     var after = Read(directory, new Dictionary<string, object>(StringComparer.Ordinal));
-                    if (!after.Objects.Any(x => x.Scope.StartsWith(job.Cpu + "/", StringComparison.Ordinal) && x.Kind == "FB" && x.Name == job.Block))
-                        throw new InvalidOperationException("编译返回后未读到批准新增的 FB，停止保存。");
-                    var existing = new HashSet<string>(before.Objects.Select(x => x.Identity), StringComparer.OrdinalIgnoreCase);
-                    var updated = new HashSet<string>(after.Objects.Select(x => x.Identity), StringComparer.OrdinalIgnoreCase);
-                    if (!existing.IsSubsetOf(updated) || updated.Count != existing.Count + 1)
-                        throw new InvalidOperationException("复读显示对象范围与已批准计划不一致，停止保存。");
+                    VerifyNewScaleBlock(before, after, job.Cpu, job.Block);
                     result.Report += Environment.NewLine + PlcEngineering.Diff(before, after);
                     File.WriteAllText(Path.Combine(directory, "diff.txt"), result.Report, Utf8);
                     Call(project, "Save"); result.Saved = true; result.Snapshot = after;
@@ -351,15 +367,15 @@ namespace DeskBox.Engineering.Tia
                     if (software != null && Type(Ns + "SW.PlcSoftware").IsInstanceOfType(software))
                     {
                         cpus.Add(id, software);
-                        ReadPlcGroup(Prop(software, "BlockGroup"), id + "/Blocks", "Blocks", dir, snapshot, 0);
-                        ReadPlcGroup(Prop(software, "TypeGroup"), id + "/Types", "Types", dir, snapshot, 0);
-                        ReadPlcGroup(Prop(software, "TagTableGroup"), id + "/Tags", "TagTables", dir, snapshot, 0);
+                        ReadPlcGroup(Prop(software, "BlockGroup"), id + "/Blocks", id, "Blocks", dir, snapshot, 0);
+                        ReadPlcGroup(Prop(software, "TypeGroup"), id + "/Types", id, "Types", dir, snapshot, 0);
+                        ReadPlcGroup(Prop(software, "TagTableGroup"), id + "/Tags", id, "TagTables", dir, snapshot, 0);
                     }
                 }
                 foreach (var child in Items(Prop(device, "DeviceItems"))) ReadDevice(child, id, dir, snapshot, cpus, depth + 1, false);
             }
 
-            private void ReadPlcGroup(object group, string scope, string composition, string dir, PlcSnapshot snapshot, int depth)
+            private void ReadPlcGroup(object group, string scope, string controller, string composition, string dir, PlcSnapshot snapshot, int depth)
             {
                 RequireDepth(depth);
                 foreach (var item in Items(Prop(group, composition)))
@@ -367,17 +383,17 @@ namespace DeskBox.Engineering.Tia
                     var name = Text(item, "Name");
                     if (composition == "TagTables")
                     {
-                        Add(snapshot, new PlcObject { Name = name, Kind = "PlcTagTable", Scope = scope, Source = "Openness/" + scope });
-                        foreach (var tag in Items(Prop(item, "Tags"))) Add(snapshot, new PlcObject { Name = Text(tag, "Name"), Kind = "PlcTag", Scope = scope + "/" + name, Source = "Openness/" + scope + "/" + name, Address = Text(tag, "LogicalAddress"), DataType = Text(tag, "DataTypeName") });
+                        Add(snapshot, new PlcObject { Name = name, Kind = "PlcTagTable", Scope = scope, Controller = controller, Source = "Openness/" + scope });
+                        foreach (var tag in Items(Prop(item, "Tags"))) Add(snapshot, new PlcObject { Name = Text(tag, "Name"), Kind = "PlcTag", Scope = scope + "/" + name, Controller = controller, Source = "Openness/" + scope + "/" + name, Address = Text(tag, "LogicalAddress"), DataType = Text(tag, "DataTypeName") });
                     }
                     else
                     {
-                        var summary = new PlcObject { Kind = item.GetType().Name, Name = name, Scope = scope, Source = "Openness/" + scope + "/" + name, Language = Text(item, "ProgrammingLanguage"), Content = "块号 " + Text(item, "Number") };
+                        var summary = new PlcObject { Kind = item.GetType().Name, Name = name, Scope = scope, Controller = controller, Source = "Openness/" + scope + "/" + name, Language = Text(item, "ProgrammingLanguage"), Content = "块号 " + Text(item, "Number") };
                         ExportBlock(item, scope, dir, snapshot, summary);
                         Add(snapshot, summary);
                     }
                 }
-                foreach (var sub in Items(Prop(group, "Groups", false))) ReadPlcGroup(sub, scope + "/" + Text(sub, "Name"), composition, dir, snapshot, depth + 1);
+                foreach (var sub in Items(Prop(group, "Groups", false))) ReadPlcGroup(sub, scope + "/" + Text(sub, "Name"), controller, composition, dir, snapshot, depth + 1);
             }
 
             private void ExportBlock(object item, string scope, string dir, PlcSnapshot snapshot, PlcObject summary)

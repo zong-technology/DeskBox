@@ -15,7 +15,7 @@ namespace DeskBox.Engineering.Tia
 {
     public sealed class PlcObject
     {
-        public string Kind = "", Name = "", Scope = "", Source = "", Language = "", Content = "", Address = "", DataType = "", Signal = "", Interface = "", Fingerprint = "";
+        public string Kind = "", Name = "", Scope = "", Controller = "", Source = "", Language = "", Content = "", Address = "", DataType = "", Signal = "", OrderNumber = "", Interface = "", Fingerprint = "";
         public List<string> References = new List<string>();
         public string Identity { get { return Scope + " / " + Kind + " / " + Name; } }
     }
@@ -40,8 +40,8 @@ namespace DeskBox.Engineering.Tia
     public static class PlcEngineering
     {
         private const int MaxFile = 8 * 1024 * 1024;
-        private static readonly Regex Identifier = new Regex(@"^[A-Za-z_][A-Za-z0-9_]{0,62}$", RegexOptions.CultureInvariant);
-        private static readonly Regex SclBlock = new Regex(@"(?im)^\s*(FUNCTION_BLOCK|FUNCTION|DATA_BLOCK|TYPE|ORGANIZATION_BLOCK)\s+(?:""([^""\r\n]+)""|([A-Za-z_][A-Za-z0-9_]*))[^\r\n]*");
+        private static readonly Regex Identifier = new Regex(@"\A[A-Za-z_][A-Za-z0-9_]{0,62}\z", RegexOptions.CultureInvariant);
+        private static readonly Regex SclBlock = new Regex(@"(?im)^[ \t]*(FUNCTION_BLOCK|FUNCTION|DATA_BLOCK|TYPE|ORGANIZATION_BLOCK)[ \t]+(?:""([^""\r\n]+)""|([A-Za-z_][A-Za-z0-9_]*))[^\r\n]*");
         private static readonly HashSet<string> XmlKinds = new HashSet<string> { "SW.Blocks.FB", "SW.Blocks.FC", "SW.Blocks.OB", "SW.Blocks.GlobalDB", "SW.Blocks.InstanceDB", "SW.Types.PlcStruct", "SW.Tags.PlcTagTable", "SW.Tags.PlcTag", "HW.Device", "HW.DeviceItem", "HW.Subnet" };
 
         public static string FullLocalPath(string path)
@@ -124,9 +124,16 @@ namespace DeskBox.Engineering.Tia
                         var symbols = network.Descendants().Where(x => x.Name.LocalName == "Symbol")
                             .Select(x => string.Join(".", x.Elements().Where(c => c.Name.LocalName == "Component").Select(c => (string)c.Attribute("Name"))))
                             .Where(x => x.Length != 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                        item.References.AddRange(symbols);
+                        var calls = network.Descendants().Where(x => x.Name.LocalName == "CallInfo").Select(x => (string)x.Attribute("Name")).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+                        item.References.AddRange(symbols.Concat(calls));
                         var parts = network.Descendants().Where(x => x.Name.LocalName == "Part").Select(x => (string)x.Attribute("Name")).Where(x => x != null).ToArray();
                         details.AppendLine("网络 " + (++number) + " · " + string.Join(", ", parts)).AppendLine("引用 · " + string.Join(", ", symbols));
+                        if (calls.Count != 0) details.AppendLine("块调用 · " + string.Join(", ", calls));
+                        foreach (var wire in network.Descendants().Where(x => x.Name.LocalName == "Wire"))
+                        {
+                            var endpoints = wire.Elements().Select(x => x.Name.LocalName + " " + (string)x.Attribute("UId") + " " + (string)x.Attribute("Name"));
+                            details.AppendLine("连线端点 · " + string.Join(" → ", endpoints));
+                        }
                         var scl = network.Descendants().FirstOrDefault(x => x.Name.LocalName == "StructuredText");
                         if (scl != null) details.AppendLine(StructuredText(scl));
                     }
@@ -160,6 +167,15 @@ namespace DeskBox.Engineering.Tia
         {
             var child = element == null ? null : element.Elements().FirstOrDefault(x => x.Name.LocalName == key);
             return child == null ? "" : child.Value.Trim();
+        }
+
+        public static PlcSnapshot ReviewScl(string text, string file)
+        {
+            if (string.IsNullOrWhiteSpace(text) || text.Length > 24000) throw new ArgumentException("SCL 草稿需为 1–24000 字。");
+            var snapshot = new PlcSnapshot { Name = file, Origin = "SCL 草稿静态检查" };
+            ReadScl(text, file, snapshot);
+            if (snapshot.Objects.Count == 0) throw new InvalidDataException("未发现可识别的 SCL 工程对象。");
+            return snapshot;
         }
 
         private static void ReadScl(string text, string file, PlcSnapshot snapshot)
@@ -214,7 +230,8 @@ namespace DeskBox.Engineering.Tia
                     if (string.IsNullOrWhiteSpace(values[name])) throw new InvalidDataException("CSV 名称为空，第 " + row + " 行。");
                     string addr = Cell(values, address), plc = Cell(values, device), part = Cell(values, order);
                     var item = new PlcObject { Name = values[name], Kind = "PlcTag", Scope = plc, Address = addr, DataType = Cell(values, type), Signal = Cell(values, signal),
-                        Source = Path.GetFileName(path) + ":" + row, Content = "信号 " + Cell(values, signal) + " · 订货号 " + (part.Length == 0 ? "待确认" : part) + " · 地址 " + (addr.Length == 0 ? "待分配" : addr),
+                    Source = Path.GetFileName(path) + ":" + row, Controller = plc, OrderNumber = part,
+                    Content = "信号 " + Cell(values, signal) + " · 订货号 " + (part.Length == 0 ? "待确认" : part) + " · 地址 " + (addr.Length == 0 ? "待分配" : addr),
                         Fingerprint = Hash(string.Join("\u001f", values)) };
                     snapshot.Objects.Add(item);
                     if (snapshot.Objects.Count > 50000) throw new InvalidDataException("对象数量超过 50000。");
@@ -224,6 +241,24 @@ namespace DeskBox.Engineering.Tia
 
         private static int Column(string[] header, params string[] names) { return Array.FindIndex(header, h => names.Contains(h.Trim(), StringComparer.OrdinalIgnoreCase)); }
         private static string Cell(string[] row, int index) { return index < 0 ? "" : row[index].Trim(); }
+
+        public static string Related(PlcSnapshot snapshot, PlcObject item)
+        {
+            var candidates = snapshot.Objects.Where(x => x != item &&
+                (item.Controller.Length == 0 || x.Controller.Length == 0 || item.Controller == x.Controller));
+            var references = new HashSet<string>(item.References.Select(GlobalSymbol).Where(x => x.Length != 0), StringComparer.OrdinalIgnoreCase);
+            var links = candidates.Where(x => references.Contains(x.Name) || x.References.Any(r => string.Equals(GlobalSymbol(r), item.Name, StringComparison.OrdinalIgnoreCase)))
+                .Take(21).Select(x => x.Identity + " · " + x.Source).ToList();
+            bool truncated = links.Count > 20;
+            if (truncated) links.RemoveAt(20);
+            if (links.Count == 0) return "";
+            return "工程交叉引用候选（按可见符号匹配）\r\n" + string.Join("\r\n", links) + (truncated ? "\r\n仅显示前 20 项。" : "");
+        }
+
+        private static string GlobalSymbol(string symbol)
+        {
+            return symbol.StartsWith("#", StringComparison.Ordinal) ? "" : symbol.Trim('"');
+        }
 
         public static List<string> Check(PlcSnapshot snapshot)
         {
@@ -242,9 +277,8 @@ namespace DeskBox.Engineering.Tia
                 int width = TypeWidth(item.DataType);
                 if (width != 0 && width != parsed.SizeBits) notes.Add(item.Source + " · " + item.Name + " 的类型与地址宽度不一致。");
                 // CSV scope is a CPU, while XML tag tables may share the same CPU address space.
-                string scope = item.Scope;
-                if (item.Source.StartsWith("Openness/", StringComparison.Ordinal) && scope.Contains("/Tags")) scope = scope.Substring(0, scope.IndexOf("/Tags", StringComparison.Ordinal));
-                else if (item.Source.IndexOf(".xml:", StringComparison.OrdinalIgnoreCase) >= 0) scope = "导出 PLC（CPU 归属待核对）";
+                string scope = item.Controller.Length == 0 ? item.Scope : item.Controller;
+                if (item.Controller.Length == 0 && item.Source.IndexOf(".xml:", StringComparison.OrdinalIgnoreCase) >= 0) scope = "导出 PLC（CPU 归属待核对）";
                 spans.Add(Tuple.Create(item, scope + ":" + parsed.Area + ":" + parsed.DbNumber, start, start + parsed.SizeBits));
             }
             foreach (var group in spans.GroupBy(x => x.Item2, StringComparer.OrdinalIgnoreCase))
@@ -266,7 +300,7 @@ namespace DeskBox.Engineering.Tia
                 throw new ArgumentException("起始字节应为 0–65535，分配结果须按实际 CPU 核对。");
             var rows = snapshot.Objects.Where(x => x.Kind == "PlcTag").ToList();
             if (rows.Count == 0) throw new InvalidOperationException("请加载 IO CSV 或 PLC 变量。");
-            if (rows.Select(x => x.Scope).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+            if (rows.Select(x => x.Controller.Length == 0 ? x.Scope : x.Controller).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
                 throw new InvalidOperationException("请为每个目标 PLC 分别提供一份 IO CSV。");
             var ranges = new Dictionary<char, List<Tuple<long, long>>> { { 'I', new List<Tuple<long, long>>() }, { 'Q', new List<Tuple<long, long>>() } };
             foreach (var row in rows.Where(x => x.Address.Length != 0))
@@ -303,8 +337,12 @@ namespace DeskBox.Engineering.Tia
                         proposed = width == 1 ? area + (bit / 8).ToString(CultureInfo.InvariantCulture) + "." + (bit % 8) : area + (width == 8 ? "B" : width == 16 ? "W" : "D") + (bit / 8);
                     }
                 }
-                output.AppendLine(row.Name + " · " + row.DataType + " · " + proposed + " · " + row.Source);
+                output.AppendLine(row.Name + " · " + row.DataType + " · " + proposed + " · " + row.Source +
+                    " · 订货号 " + (row.OrderNumber.Length == 0 ? "待确认" : row.OrderNumber));
             }
+            output.AppendLine().AppendLine("建议按信号类型核对通道容量、订货号、固件和槽位。");
+            foreach (var group in rows.GroupBy(x => x.Signal.ToUpperInvariant()))
+                output.AppendLine((group.Key.Length == 0 ? "信号类型待确认" : group.Key) + " · " + group.Count() + " 点");
             return output.ToString();
         }
 
