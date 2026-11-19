@@ -1025,7 +1025,11 @@ namespace DeskBox.UI
                         workspaceView.SearchRequested += SearchProject;
                         return workspaceView;
                     case "engineering": return new DeskBox.UI.Views.EngineeringToolkitView(_store);
-                    case "tia": return _tiaView = new DeskBox.UI.Views.TiaEngineerView(_store, _providers, _workspaces);
+                    case "tia": return _tiaView = new DeskBox.UI.Views.TiaEngineerView(_store, _providers, _workspaces, delegate
+                    {
+                        SwitchView("settings");
+                        if (_settingsCenter != null) _settingsCenter.ShowAiProviders();
+                    });
                     case "search": return BuildSearchView();
                     case "library": return BuildLibraryView();
                     case "disk": return BuildDiskView();

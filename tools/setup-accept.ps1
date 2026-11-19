@@ -51,12 +51,15 @@ $state = @{ Settings = @{ TakeoverIcons=$false; AutoStart=$false; ReferenceUi=$t
 $state | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $profile 'state.json') -Encoding UTF8
 $oldHome = $env:DESKBOX_HOME
 $app = $null
-    Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+    Add-Type -ReferencedAssemblies System.Drawing,System.Windows.Forms,UIAutomationClient,UIAutomationTypes,WindowsBase -TypeDefinition @'
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Windows.Automation;
+using System.Windows.Forms;
 public static class DeskBoxInstallCapture {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     private delegate bool Enumerate(IntPtr window, IntPtr state);
@@ -82,6 +85,40 @@ public static class DeskBoxInstallCapture {
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr window,uint msg,IntPtr size,StringBuilder text);
+    private static AutomationElement Find(IntPtr window, string id, string name) {
+        var element = AutomationElement.FromHandle(window);
+        var matches = element.FindAll(TreeScope.Descendants, new OrCondition(
+            new PropertyCondition(AutomationElement.AutomationIdProperty, id),
+            new PropertyCondition(AutomationElement.NameProperty, name)));
+        foreach (AutomationElement match in matches)
+            if (!match.Current.IsOffscreen && !match.Current.BoundingRectangle.IsEmpty) return match;
+        throw new InvalidOperationException("Installed window does not expose " + id);
+    }
+    private static void Click(AutomationElement element) {
+        var rect = element.Current.BoundingRectangle;
+        SetCursorPos((int)(rect.Left+rect.Width/2), (int)(rect.Top+rect.Height/2));
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(180);
+    }
+    public static string ExerciseTiaPrompt(IntPtr window) {
+        Click(Find(window, "nav-tia", "\u535a\u56fe AI \u5de5\u7a0b\u5e08"));
+        var prompt = Find(window, "tia-requirement", "\u5de5\u7a0b\u9700\u6c42");
+        Click(prompt);
+        int editor = prompt.Current.NativeWindowHandle;
+        if (editor == 0 || AutomationElement.FocusedElement.Current.NativeWindowHandle != editor)
+            throw new InvalidOperationException("The installed requirement editor did not receive mouse focus.");
+        SendKeys.SendWait("S71500");
+        SendKeys.SendWait("+{ENTER}");
+        Clipboard.SetText("\u5de5\u7a0b\u9a8c\u6536");
+        SendKeys.SendWait("^v");
+        var text = new StringBuilder(1024);
+        SendMessage(new IntPtr(editor), 0x000D, new IntPtr(text.Capacity), text);
+        return text.ToString();
+    }
     public static bool Save(IntPtr window, string path) {
         Rect rect; if (!GetWindowRect(window, out rect)) return false;
         using (var image = new Bitmap(rect.Right-rect.Left, rect.Bottom-rect.Top))
@@ -112,6 +149,9 @@ try {
     $dpi = [DeskBoxInstallCapture]::GetDpiForWindow($window)
     $capture = [DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-main-window.png'))
     Check $capture 'Native capture of the real installed window'
+    $typed = [DeskBoxInstallCapture]::ExerciseTiaPrompt($window)
+    Check ($typed -match 'S71500[\r\n]+\p{IsCJKUnifiedIdeographs}{4}') 'Installed TIA input receives mouse focus, English typing, line breaks and Chinese clipboard text'
+    Check ([DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-tia-input.png'))) 'Native capture of the installed TIA input'
     @{ Path=$app.MainModule.FileName; SHA256=$expected; Version=$version; DeviceDpi=$dpi; SyntheticProfile=$profile } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-launch.json') -Encoding UTF8
     Check ([DeskBoxInstallCapture]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Installed window accepts a normal close request'

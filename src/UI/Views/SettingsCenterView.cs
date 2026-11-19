@@ -52,6 +52,11 @@ namespace DeskBox.UI.Views
 
         // ---------------- 外壳 ----------------
 
+        public void ShowAiProviders()
+        {
+            Switch(_nav.FindIndex(x => x.Key == "ai"));
+        }
+
         private void BuildShell()
         {
             _navPanel = new Panel { Dock = DockStyle.Left, Width = 186, BackColor = Palette.Bg, Padding = new Padding(0, 6, 8, 0) };
@@ -444,6 +449,8 @@ namespace DeskBox.UI.Views
                 try {AiEnvironment.Select(mode);_providers.ChangeEnvironment();_editing=null;var changed=AIEnvironmentChanged;if(changed!=null)changed(this,EventArgs.Empty);ReloadProviderList();if(_providers.Providers.Count==0)NewProvider();RaiseProviders();Toast("AI 环境已切换，原配置和记录保留");}
                 catch(Exception error){Toast(error.Message,false);environment.SelectedIndex=AiEnvironment.Local?0:1;}
             };
+            AddCheck(p, "博图工程需求：Enter 发送（关闭后用 Ctrl+Enter；Shift+Enter 换行）",
+                _store.Settings.TiaEnterSends, value => _store.Settings.TiaEnterSends = value).Name = "tia-enter-sends";
             Section(p, "AI 服务商管理", "API Key 使用 Windows DPAPI 加密存储，界面与日志永不显示明文");
 
             var bar = new Panel { Left = 0, Top = _y, Height = 36, Width = Math.Max(700, Body.Width - 230), BackColor = Palette.Bg };

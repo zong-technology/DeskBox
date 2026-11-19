@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using DeskBox.Ai;
+using DeskBox.Core;
 using DeskBox.Engineering;
 using DeskBox.Engineering.Tia;
 
@@ -27,9 +29,13 @@ namespace DeskBox.UI.Views
         private readonly NumericUpDown inputStart = new NumericUpDown { Maximum = 65535, Width = 70, AccessibleName = "输入起始字节" };
         private readonly NumericUpDown outputStart = new NumericUpDown { Maximum = 65535, Width = 70, AccessibleName = "输出起始字节" };
         private readonly CheckBox voiceAccess = new CheckBox { Text = "授权桌面 AI 查阅已加载工程", AutoSize = true };
+        private readonly CheckBox useProjectContext = new CheckBox { Text = "引用已加载的工程", AutoSize = true };
         private readonly List<DarkButton> actions = new List<DarkButton>();
-        private readonly DarkButton cancel;
+        private readonly DarkButton cancel, generate, regenerate;
+        private readonly Label modelStatus;
         private readonly Panel side;
+        private readonly Dictionary<string, string> unsent = new Dictionary<string, string>();
+        private string draftEnvironment, submittedRequirement;
         private PlcSnapshot snapshot, baseline;
         private PlcObject selected;
         private TiaResult inspected;
@@ -37,7 +43,7 @@ namespace DeskBox.UI.Views
         private CancellationTokenSource operation;
         private CancellationToken voiceScope;
 
-        public TiaEngineerView(Store store, ProviderStore providers, WorkspaceStore projects) : base(store, "博图 AI 工程师", "只读模式 · TIA Portal、SCL 与离线工程验证")
+        public TiaEngineerView(Store store, ProviderStore providers, WorkspaceStore projects, Action configureModel = null) : base(store, "博图 AI 工程师", "只读模式 · TIA Portal、SCL 与离线工程验证")
         {
             this.providers = providers; this.projects = projects;
             Name = "tia-engineer";
@@ -46,24 +52,56 @@ namespace DeskBox.UI.Views
             cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0;
             cpu.SelectedIndexChanged += delegate { RefreshHeading(); };
             var top = Bar();
-            top.Controls.AddRange(new Control[] { mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
+            var start = Button("输入工程需求", FocusRequirement);
+            start.Primary = true;
+            start.Name = "tia-focus-requirement";
+            top.Controls.AddRange(new Control[] { start, mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
             cancel = new DarkButton("取消当前任务") { Width = 116, Height = 32, Enabled = false, Palette = Palette };
             cancel.Click += delegate { if (operation != null) operation.Cancel(); }; top.Controls.Add(cancel);
 
-            requirement = TextArea("工程需求", false); requirement.Text = "";
-            editor = TextArea("SCL 草稿", false); editor.WordWrap = false; editor.TextChanged += delegate { UpdateButtons(); };
+            requirement = TextArea("工程需求", false);
+            requirement.Name = "tia-requirement";
+            requirement.Font = UiKit.CachedFont("Microsoft YaHei UI", 11, FontStyle.Regular);
+            requirement.BorderStyle = BorderStyle.FixedSingle;
+            requirement.MaxLength = 4000;
+            requirement.TabStop = true;
+            requirement.ImeMode = ImeMode.On;
+            requirement.AllowDrop = true;
+            requirement.EnableAutoDragDrop = false;
+            requirement.AccessibleDescription = "输入 PLC 系列、输入输出、约束或测试要求。Shift+Enter 换行。";
+            requirement.TextChanged += delegate { UpdateButtons(); };
+            requirement.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Control && e.KeyCode == Keys.A) { requirement.SelectAll(); e.SuppressKeyPress = true; return; }
+                if (e.KeyCode != Keys.Enter || e.Shift || e.Alt || (!e.Control && !Store.Settings.TiaEnterSends) || IsComposing(requirement.Handle)) return;
+                e.SuppressKeyPress = true;
+                if (generate.Enabled) RunAction(Generate);
+            };
+            requirement.DragEnter += delegate(object sender, DragEventArgs e)
+            {
+                e.Effect = operation == null && e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+            };
+            requirement.DragDrop += delegate(object sender, DragEventArgs e)
+            {
+                var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+                if (operation == null && files != null) LoadExports(files, true);
+            };
+            editor = TextArea("SCL 草稿", false); editor.WordWrap = false; editor.BorderStyle = BorderStyle.FixedSingle;
+            editor.TextChanged += delegate { UpdateButtons(); };
             analysis = TextArea("程序分析"); hardware = TextArea("硬件目录及建议"); topology = TextArea("网络与设备");
             tags = TextArea("变量与 IO"); diff = TextArea("工程差异"); output = TextArea("编译和操作日志"); assistant = TextArea("AI 工程助手");
-            var programming = Page("AI 编程", editor, Button("AI 任务计划", Generate), scaleName, Button("缩放模板", Scale), Button("高亮", Highlight), Button("静态检查草稿", CheckDraft), Button("保存 SCL", ExportScl));
-            var entry = new Panel { Dock = DockStyle.Top, Height = 98, Padding = new Padding(0, 4, 0, 4) };
-            entry.Controls.Add(requirement); var entryTitle = Caption("工程需求、引用资料及待确认条件"); entry.Controls.Add(entryTitle);
-            programming.Controls.Add(entry); programming.Controls.SetChildIndex(entry, 1);
-            Page("程序分析", analysis, Button("解释所选对象", Explain), Button("检查工程", Check));
-            Page("硬件组态", hardware, catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware));
-            Page("网络拓扑", topology);
-            Page("变量管理", tags, Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
-            Page("工程对比", diff, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
-            Page("测试验证", output, cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), Button("解释编译诊断", ExplainCompile));
+            generate = Button("生成工程计划", Generate);
+            generate.Primary = true;
+            regenerate = Button("重生成上次需求", delegate { SubmitRequirement(submittedRequirement); });
+            modelStatus = Caption("");
+            modelStatus.Name = "tia-model-status";
+            BuildProgrammingPage(configureModel);
+            Page("程序分析", "打开工程资料后，在左侧选择程序块。这里显示接口、来源和引用。AI 解释需配置服务商。", analysis, Button("解释所选对象", Explain), Button("检查工程", Check));
+            Page("硬件组态", "从 IO 清单生成模块建议。在订货号输入框查询本机 V20 硬件目录。", hardware, catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware));
+            Page("网络拓扑", "显示已读取的子网和设备层级。端口与连线请在 TIA 工程中核对。", topology);
+            Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
+            Page("工程对比", "先把当前资料设为基线，再打开同类导出文件或 V20 副本。结果可导出为 Markdown。", diff, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
+            Page("测试验证", "离线编译需 V20 Openness、独立副本和目标 PLC。副本写入仅开放经批准的缩放模板。", output, cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), Button("解释编译诊断", ExplainCompile));
             var left = new Panel { Dock = DockStyle.Left, Width = 240, Padding = new Padding(0, 0, 8, 0) };
             left.Controls.Add(tree); left.Controls.Add(Caption("工程浏览器"));
             side = new Panel { Dock = DockStyle.Right, Width = 320, Padding = new Padding(8, 0, 0, 0) };
@@ -91,24 +129,111 @@ namespace DeskBox.UI.Views
             FormatCombo(mode); FormatCombo(cpu);
             Body.Controls.Add(center); Body.Controls.Add(top);
             tree.AfterSelect += delegate(object sender, TreeViewEventArgs e) { ShowObject(e.Node == null ? null : e.Node.Tag as PlcObject); };
-            assistant.Text = "选择已导出的 SimaticML、SCL 或 IO CSV，或读取本机 .ap20 工程副本。\r\n\r\n默认只读。工程写入需要明确审批及本机 V20。";
-            output.Text = "当前没有编译回执。";
+            assistant.Text = "编写程序：在「AI 编程」填写工程需求，生成计划后在这里查看接口建议、待确认参数和测试用例。\r\n\r\n分析工程：打开 SimaticML、SCL 或 IO CSV，或读取本机 V20 工程副本，再从左侧选择对象。";
+            output.Text = "当前没有验证结果。可从「AI 编程」静态检查草稿，或在本页编译已加载的 V20 副本。";
             ApplyPalette(Palette);
-            UpdateButtons();
+            RestoreRequirement();
+            RefreshHeading();
         }
 
         private FlowLayoutPanel Bar() { return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(0, 4, 0, 5) }; }
-        private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = 24, ForeColor = Palette.TextDim, Font = Font }; }
+        private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = Dpi.D(this, 24), Margin = Padding.Empty, AutoEllipsis = true, UseMnemonic = false, ForeColor = Palette.TextDim, Font = Font }; }
         private RichTextBox TextArea(string name, bool readOnly = true)
         {
             return new RichTextBox { Dock = DockStyle.Fill, ReadOnly = readOnly, AccessibleName = name, BorderStyle = BorderStyle.None, DetectUrls = false, Font = new Font(readOnly ? "Microsoft YaHei UI" : "Consolas", 10), MaxLength = 24000 };
+        }
+        private void BuildProgrammingPage(Action configureModel)
+        {
+            var page = new TabPage("AI 编程") { Padding = new Padding(8, 4, 8, 4) };
+            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Margin = Padding.Empty };
+            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            foreach (int height in new[] { 24, 90, 24, 24 })
+                fields.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, height)));
+            fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            fields.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 24)));
+            fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            fields.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var promptActions = Bar();
+            promptActions.Controls.AddRange(new Control[] { generate, Button("填入示例", FillExample), regenerate, Button("保存需求草稿", SaveRequirement) });
+            if (configureModel != null) promptActions.Controls.Add(Button("配置 AI 服务商", configureModel));
+            promptActions.Controls.Add(Button("添加工程资料", delegate { var files = SelectExports(); if (files != null) LoadExports(files, true); }));
+            promptActions.Controls.Add(useProjectContext);
+            var draftActions = Bar();
+            draftActions.Controls.AddRange(new Control[] { scaleName, Button("载入缩放模板", Scale), Button("高亮", Highlight), Button("静态检查草稿", CheckDraft), Button("保存 SCL", ExportScl) });
+            if (configureModel != null) modelStatus.AccessibleDescription = "可打开 AI 服务商设置，配置默认模型。";
+            fields.Controls.Add(Caption("工程需求"), 0, 0);
+            fields.Controls.Add(requirement, 0, 1);
+            fields.Controls.Add(Caption("填写 PLC 系列、输入输出、限制与期望结果。已有资料可先导入。"), 0, 2);
+            fields.Controls.Add(modelStatus, 0, 3);
+            fields.Controls.Add(promptActions, 0, 4);
+            fields.Controls.Add(Caption("SCL 草稿 · 可编辑、检查并另存"), 0, 5);
+            fields.Controls.Add(draftActions, 0, 6);
+            fields.Controls.Add(editor, 0, 7);
+            page.Controls.Add(fields);
+            tabs.TabPages.Add(page);
+            requirement.TextChanged += delegate { ResizeRequirement(fields); };
+            fields.SizeChanged += delegate { ResizeRequirement(fields); };
+            requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.12); };
+            requirement.Leave += delegate { requirement.BackColor = Palette.PanelAlt; };
+        }
+        private void ResizeRequirement(TableLayoutPanel fields)
+        {
+            int min = Dpi.D(this, 90), max = Math.Max(min, Math.Min(Dpi.D(this, 220), fields.Height - Dpi.D(this, 220)));
+            int lines = requirement.GetLineFromCharIndex(requirement.TextLength) + 1;
+            var target = Math.Min(max, Math.Max(min, lines * requirement.Font.Height + Dpi.D(this, 12)));
+            if (fields.RowStyles[1].Height != target) fields.RowStyles[1].Height = target;
+        }
+        [DllImport("imm32.dll")] private static extern IntPtr ImmGetContext(IntPtr hwnd);
+        [DllImport("imm32.dll")] private static extern bool ImmReleaseContext(IntPtr hwnd, IntPtr context);
+        [DllImport("imm32.dll", CharSet = CharSet.Unicode)] private static extern int ImmGetCompositionString(IntPtr context, int index, IntPtr buffer, int length);
+        private static bool IsComposing(IntPtr hwnd)
+        {
+            var context = ImmGetContext(hwnd);
+            if (context == IntPtr.Zero) return false;
+            try { return ImmGetCompositionString(context, 8, IntPtr.Zero, 0) > 0; }
+            finally { ImmReleaseContext(hwnd, context); }
+        }
+        private void FocusRequirement()
+        {
+            SelectTab(0);
+            requirement.Focus();
+        }
+        private void FillExample()
+        {
+            if (string.IsNullOrWhiteSpace(requirement.Text))
+                requirement.Text = "为 S7-1200 写一个模拟量线性缩放 FB。输入为原始值、原始上下限和工程量上下限，输出为缩放值、有效标记和越界标记。请列出端点、中点、越界和无效量程的测试用例。实际模块和量程待确认。";
+            FocusRequirement();
+        }
+        private void RestoreRequirement()
+        {
+            string current = AiEnvironment.Suffix;
+            if (current == draftEnvironment) return;
+            if (draftEnvironment != null) unsent[draftEnvironment] = requirement.Text;
+            draftEnvironment = current;
+            submittedRequirement = null;
+            string draft;
+            requirement.Text = unsent.TryGetValue(current, out draft)
+                ? draft : Json.Load(AppPaths.File("tia-requirement" + current + ".json"), "");
+        }
+        private void SaveRequirement()
+        {
+            RestoreRequirement();
+            var path = AppPaths.File("tia-requirement" + draftEnvironment + ".json");
+            Json.Save(path, requirement.Text);
+            if (Json.Load(path, (string)null) != requirement.Text) throw new IOException("未能保存需求草稿。");
+            assistant.Text = "工程需求草稿已保存在当前 AI 环境的本机资料目录。";
         }
         private DarkButton Button(string label, Action action)
         {
             var button = new DarkButton(label) { Height = 32, Palette = Palette, AccessibleName = label };
             button.Width = Math.Max(90, TextRenderer.MeasureText(label, button.Font).Width + 24);
-            button.Click += delegate { try { action(); } catch (Exception e) { Failed(e.Message); } };
+            button.Click += delegate { RunAction(action); };
             actions.Add(button); return button;
+        }
+        private void RunAction(Action action)
+        {
+            try { action(); } catch (Exception e) { Failed(e.Message); }
         }
         private void FormatCombo(ComboBox box)
         {
@@ -124,20 +249,24 @@ namespace DeskBox.UI.Views
                 e.DrawFocusRectangle();
             };
         }
-        private TabPage Page(string title, Control target, params Control[] buttons)
+        private void Page(string title, string guidance, Control target, params Control[] buttons)
         {
             var page = new TabPage(title) { Padding = new Padding(4) };
             page.Controls.Add(target);
             if (buttons.Length > 0) { var bar = Bar(); bar.Controls.AddRange(buttons); page.Controls.Add(bar); }
-            tabs.TabPages.Add(page); return page;
+            page.Controls.Add(Caption(guidance));
+            tabs.TabPages.Add(page);
         }
         private void SelectTab(int index) { tabs.SelectedIndex = index; }
         private void UpdateButtons()
         {
-            if (actions == null || cancel == null || editor == null) return;
+            if (cancel == null || editor == null || generate == null) return;
             foreach (DarkButton b in actions)
-                b.Enabled = operation == null && (mode.SelectedIndex > 0 || !new[] { "AI 任务计划", "缩放模板", "保存 SCL", "AI 硬件建议", "生成地址建议", "编译副本", "批准新增模板并编译" }.Contains(b.Text)) &&
+                b.Enabled = operation == null && (mode.SelectedIndex > 0 || !new[] { "保存 SCL", "AI 硬件建议", "生成地址建议", "编译副本", "批准新增模板并编译" }.Contains(b.Text)) &&
                     (b.Text != "批准新增模板并编译" || mode.SelectedIndex == 2 && template != null && SameSource(template, editor.Text));
+            generate.Enabled = operation == null && !string.IsNullOrWhiteSpace(requirement.Text);
+            regenerate.Enabled = operation == null && !string.IsNullOrWhiteSpace(submittedRequirement);
+            useProjectContext.Enabled = operation == null && snapshot != null;
             cancel.Enabled = operation != null;
             mode.Enabled = operation == null; cpu.Enabled = operation == null;
             editor.ReadOnly = operation != null || mode.SelectedIndex == 0;
@@ -148,24 +277,31 @@ namespace DeskBox.UI.Views
             HintLabel.Text = Convert.ToString(mode.SelectedItem) + " · " + (snapshot == null ? "未加载工程" : snapshot.Name + " / " + snapshot.Origin) + " · " +
                 (cpu.SelectedIndex > 0 ? "PLC " + cpu.SelectedItem + " · " : "") +
                 (provider == null || !provider.Enabled ? "AI 未配置" : "AI " + provider.Name + " / " + provider.Model);
+            if (modelStatus != null)
+                modelStatus.Text = provider == null || !provider.Enabled
+                    ? "生成计划需要 AI 服务商。可直接载入下方缩放模板。"
+                    : provider.Name + " · " + provider.Model + " · " + (Store.Settings.TiaEnterSends ? "Enter 发送" : "Ctrl+Enter 发送") + "，Shift+Enter 换行";
         }
         protected override void OnActivated()
         {
             base.OnActivated();
+            RestoreRequirement();
+            UpdateButtons();
             if (voiceScope.IsCancellationRequested) voiceAccess.Checked = false;
             RefreshHeading();
         }
         public override void ApplyPalette(Palette palette)
         {
+            if (tabs != null) foreach (TabPage page in tabs.TabPages) page.BackColor = palette.Bg;
             base.ApplyPalette(palette);
             if (assistant == null) return;
             foreach (var box in new[] { requirement, editor, analysis, hardware, topology, tags, diff, output, assistant })
             { box.BackColor = palette.CardBg; box.ForeColor = palette.Text; }
+            requirement.BackColor = requirement.Focused ? UiKit.Mix(palette.PanelAlt, palette.Accent, 0.12) : palette.PanelAlt;
             tree.BackColor = palette.CardBg; tree.ForeColor = palette.Text; tree.LineColor = palette.Line;
-            foreach (TabPage page in tabs.TabPages) page.BackColor = palette.Bg;
-            foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, voiceAccess }) { control.BackColor = palette.CardBg; control.ForeColor = palette.Text; }
+            foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, voiceAccess, useProjectContext }) { control.BackColor = palette.CardBg; control.ForeColor = palette.Text; }
         }
-        private async void Work<T>(string action, Func<CancellationToken, T> work, Action<T> display)
+        private async void Work<T>(string action, Func<CancellationToken, T> work, Action<T> display, bool keepPage = false)
         {
             if (operation != null) return;
             operation = CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token);
@@ -179,13 +315,14 @@ namespace DeskBox.UI.Views
                 if (!IsDisposed) display(value);
                 Store.Log("info", "engineering", "TIA · 完成 " + action + ProjectLabel());
             }
-            catch (OperationCanceledException) { if (!IsDisposed) Failed("任务已取消。已生成的隔离副本和回执可核对。"); }
-            catch (Exception e) { if (!IsDisposed) Failed(e.Message); }
+            catch (OperationCanceledException) { if (!IsDisposed) Failed(keepPage ? "任务已取消，可修改需求后重试。" : "任务已取消。已生成的隔离副本和回执可核对。", keepPage); }
+            catch (Exception e) { if (!IsDisposed) Failed(e.Message, keepPage); }
             finally { operation = null; active.Dispose(); if (!IsDisposed) UpdateButtons(); }
         }
-        private void Failed(string message)
+        private void Failed(string message, bool keepPage = false)
         {
-            assistant.Text = message; output.AppendText(Environment.NewLine + message); SelectTab(6);
+            assistant.Text = message; output.AppendText(Environment.NewLine + message);
+            if (!keepPage) SelectTab(6);
             Store.Log("warn", "engineering", "TIA · " + message.Split('\n')[0]);
         }
         private void Inspect() { Work("检测本机 TIA", t => TiaEnvironmentInspector.Inspect(), result => { assistant.Text = result.Describe(); output.Text = assistant.Text; SelectTab(6); }); }
@@ -203,12 +340,19 @@ namespace DeskBox.UI.Views
             var files = SelectExports(); if (files == null) return;
             LoadExports(files);
         }
-        public void LoadExports(string[] files)
+        public void LoadExports(string[] files) { LoadExports(files, false); }
+
+        private void LoadExports(string[] files, bool attach)
         {
             Work("读取工程导出文件", t => PlcEngineering.ReadExports(files, t), value =>
             {
                 inspected = null; apFile = null; ResetCpus(); Display(value);
-            });
+                if (attach)
+                {
+                    useProjectContext.Checked = true;
+                    FocusRequirement();
+                }
+            }, keepPage: attach);
         }
         private void ChooseProject()
         {
@@ -230,7 +374,7 @@ namespace DeskBox.UI.Views
         private void ResetCpus() { cpu.Items.Clear(); cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0; }
         private void Display(PlcSnapshot value)
         {
-            snapshot = value; selected = null; voiceAccess.Checked = false; RefreshHeading();
+            snapshot = value; selected = null; voiceAccess.Checked = false; useProjectContext.Checked = false; RefreshHeading();
             tree.BeginUpdate(); tree.Nodes.Clear();
             try
             {
@@ -301,16 +445,33 @@ namespace DeskBox.UI.Views
                 "\r\n工程对象（" + snapshot.Objects.Count + " 项，最多列出 80 项）\r\n" +
                 string.Join("\r\n", snapshot.Objects.Take(80).Select(x => x.Identity + " · " + x.Language + " · " + x.Source)), 16000);
         }
-        private void Generate()
+        private void Generate() { SubmitRequirement(requirement.Text); }
+
+        private void SubmitRequirement(string prompt)
         {
-            if (mode.SelectedIndex == 0) return;
-            string context = Context(), prompt = requirement.Text; var model = ApproveModel(context); if (model == null) return;
+            if (operation != null || string.IsNullOrWhiteSpace(prompt)) return;
+            var provider = providers == null ? null : providers.DefaultProvider;
+            if (provider == null || !provider.Enabled)
+            {
+                assistant.Text = "请打开「配置 AI 服务商」，设置当前 AI 环境的默认模型。也可以先载入缩放模板，在本地编辑和静态检查。";
+                FocusRequirement();
+                return;
+            }
+            string context = useProjectContext.Checked ? Context() : "";
+            if (context.Length != 0 && !Store.Settings.AiFileAccess)
+            {
+                assistant.Text = "已加载工程资料。若计划要引用这些资料，请先在「设置 → 文件与隐私」启用 AI 文件访问。";
+                return;
+            }
+            var model = ApproveModel(context); if (model == null) return;
+            submittedRequirement = prompt;
+            if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
             Work("生成结构化工程任务与草稿", t => TiaPlanning.Plan(model, prompt, context, t), draft =>
             {
-                template = null; editor.Text = draft.Scl; Highlight(); assistant.Text = draft.Plan(); SelectTab(0);
+                template = null; templateName = null; editor.Text = draft.Scl; Highlight(); assistant.Text = draft.Plan(); SelectTab(0);
                 output.Text = "AI 草稿 · " + draft.Kind + " " + draft.Name + "\r\n" + draft.Plan() + "\r\n" +
                     (draft.Scl.Length == 0 ? "无 SCL 草稿。" : DraftReview(draft.Scl));
-            });
+            }, keepPage: true);
         }
         private static string DraftReview(string source)
         {
@@ -333,8 +494,9 @@ namespace DeskBox.UI.Views
         }
         private void Scale()
         {
-            if (mode.SelectedIndex == 0) return;
-            templateName = scaleName.Text.Trim(); template = PlcEngineering.AnalogScale(templateName);
+            string name = scaleName.Text.Trim();
+            template = PlcEngineering.AnalogScale(name); templateName = name;
+            if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
             editor.Text = template; Highlight(); assistant.Text = "模拟量线性缩放 · FB 草稿\r\n\r\n" + PlcEngineering.ScaleTests;
             output.Text = assistant.Text + "\r\n\r\nTIA 编译未执行。"; SelectTab(0); UpdateButtons();
         }

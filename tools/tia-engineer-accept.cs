@@ -6,7 +6,10 @@ using System.Threading;
 using DeskBox.Engineering.Tia;
 #if NETFRAMEWORK || TIA_WINFORMS
 using System.Drawing;
-using System.Drawing.Imaging;
+using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 using System.Threading.Tasks;
 using DeskBox;
@@ -126,19 +129,27 @@ public static class TiaEngineerAcceptance
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         Exception failure = null;
-        using (var form = new MainForm(store))
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        AiEnvironment.Select("local");
+        new ProviderStore().Add(new AiProvider { Name = "本机测试模型", BaseUrl = "http://127.0.0.1:" + ((IPEndPoint)listener.LocalEndpoint).Port + "/v1", Model = "tia-test", TimeoutMs = 8000, MaxRetries = 0 });
+        try
         {
-            form.Shown += async delegate
+            using (var form = new MainForm(store))
             {
-                try { await ExerciseWorkbench(form, store, evidence, files); }
-                catch (Exception e) { failure = e; }
-                finally { form.Close(); }
-            };
-            Application.Run(form);
+                form.Shown += async delegate
+                {
+                    try { await ExerciseWorkbench(form, store, evidence, files, listener); }
+                    catch (Exception e) { failure = e; }
+                    finally { form.Close(); }
+                };
+                Application.Run(form);
+            }
         }
+        finally { listener.Stop(); }
         if (failure != null) throw new InvalidOperationException("Native workbench failed", failure);
     }
-    private static async Task ExerciseWorkbench(MainForm form, Store store, string evidence, string[] files)
+    private static async Task ExerciseWorkbench(MainForm form, Store store, string evidence, string[] files, TcpListener listener)
     {
         await Task.Yield();
         form.Bounds = new Rectangle(0, 0, 1600, 900);
@@ -150,12 +161,13 @@ public static class TiaEngineerAcceptance
         var mode = Children(view).OfType<ComboBox>().First(x => x.AccessibleName == "操作模式");
         var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增模板并编译");
         Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode and write approval gate");
+        await Capture(form, evidence, "tia-empty.png");
         view.LoadExports(files);
         var until = DateTime.UtcNow.AddSeconds(12);
         while (!mode.Enabled && DateTime.UtcNow < until) await Task.Delay(50);
         Console.WriteLine("TIA view visible=" + view.Visible + " tabs=" + tabs.TabPages.Count + " roots=" + string.Join(" | ", tree.Nodes.Cast<TreeNode>().Select(n => n.Text)));
         Console.WriteLine("TIA text panes: " + string.Join(" | ", Children(view).OfType<RichTextBox>().Where(box => box.TextLength > 0).Select(box => box.AccessibleName + ":" + box.Text.Substring(0, Math.Min(100, box.TextLength)))));
-        await Capture(form, evidence, "tia-workbench-1600.png");
+        await Capture(form, evidence, "tia-analysis.png");
         Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
         Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
         Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
@@ -164,25 +176,129 @@ public static class TiaEngineerAcceptance
         var denied = ToolRegistry.Instance.Invoke("tia.read", call, voice);
         Check(!denied.Ok && denied.Error.Contains("语音查询授权"), "Voice tool requires explicit project authorization");
         Check(!ToolRegistry.Instance.Invoke("tia.write", call, voice).Ok, "No TIA write tool is exposed to an assistant");
-        Children(view).OfType<CheckBox>().Single().Checked = true;
+        Children(view).OfType<CheckBox>().Single(x => x.Text.Contains("语音") || x.Text.Contains("查阅已加载")).Checked = true;
         var lookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
         Check(lookup.Ok && lookup.Output.Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab " + lookup.Error);
-        form.Size = new Size(1024, 768);
-        await Task.Yield();
-        await Capture(form, evidence, "tia-workbench-1024.png");
+        await ExerciseRequirement(form, store, view, tabs, listener, evidence);
         Check(tabs.Width > 350, "Main work area retains room at narrow width");
+    }
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    private static async Task Click(Control control)
+    {
+        var point = control.PointToScreen(new Point(control.ClientSize.Width / 2, control.ClientSize.Height / 2));
+        var hit = WindowFromPoint(point);
+        if (hit != control.Handle) throw new InvalidOperationException("Mouse hit-test failed for " + control.AccessibleName + " at " + point + " hit " + Control.FromChildHandle(hit));
+        Cursor.Position = point;
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        await Task.Delay(100);
+    }
+    private static async Task ExerciseRequirement(MainForm form, Store store, TiaEngineerView view, TabControl tabs, TcpListener listener, string evidence)
+    {
+        var button = new Func<string, DarkButton>(label => Children(view).OfType<DarkButton>().Single(b => b.Text == label));
+        var prompt = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "工程需求");
+        var draft = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "SCL 草稿");
+        await Click(button("输入工程需求"));
+        Check(tabs.SelectedIndex == 0 && prompt.Focused && prompt.TabStop && !prompt.ReadOnly, "Top entry focuses the visible editable native requirement input");
+        await Click(prompt);
+        SendKeys.SendWait("S7-1200");
+        SendKeys.SendWait("+{ENTER}");
+        Clipboard.SetText("中文工程需求");
+        SendKeys.SendWait("^v");
+        Check(prompt.Focused && prompt.Text.Contains("S7-1200") && prompt.Text.Contains("中文工程需求") && prompt.Lines.Length == 2, "Mouse, English typing, Unicode paste and Shift+Enter work in the requirement field");
+        SendKeys.SendWait("^a");
+        SendKeys.SendWait("^c");
+        Check(prompt.SelectionLength == prompt.TextLength && Clipboard.GetText().Contains("中文工程需求"), "Ctrl+A and Ctrl+C select and copy the full multiline requirement");
+        var initial = prompt.Text;
+        await Click(button("保存需求草稿"));
+        Check(Json.Load(AppPaths.File("tia-requirement-local.json"), "") == initial, "Explicit draft save writes the complete requirement to the isolated profile");
+        await Click(button("配置 AI 服务商"));
+        Check(form.Controls.Find("ai-environment", true).Any(c => c.Visible), "Provider shortcut opens the actual AI settings page");
+        var enterSetting = form.Controls.Find("tia-enter-sends", true).OfType<CheckBox>().Single();
+        enterSetting.Checked = false;
+        form.SwitchView("tia");
+        await Click(button("输入工程需求"));
+        Check(prompt.Text == initial, "Switching to settings and back preserves the unsent requirement");
+        prompt.Select(prompt.TextLength, 0);
+        SendKeys.SendWait("{ENTER}");
+        Check(prompt.Lines.Length >= 2 && prompt.Text.Length > initial.Length && !listener.Pending() && !store.Settings.TiaEnterSends, "With Enter sending disabled, Enter adds a line without sending");
+        using (var requestReceived = new ManualResetEventSlim())
+        using (var canReply = new ManualResetEventSlim())
+        {
+            var request = Task.Run(() => ServePlan(listener, requestReceived, canReply));
+            SendKeys.SendWait("Confirm");
+            SendKeys.SendWait("^{ENTER}");
+            var until = DateTime.UtcNow.AddSeconds(6);
+            while (!requestReceived.IsSet && DateTime.UtcNow < until) await Task.Delay(30);
+            Check(requestReceived.IsSet && !button("生成工程计划").Enabled, "Configured Ctrl+Enter sends a real request to the local model fixture");
+            SendKeys.SendWait("Pending");
+            Check(prompt.Focused && prompt.Text.Contains("Pending"), "Input remains editable while a request is in progress");
+            canReply.Set();
+            string payload = await request;
+            until = DateTime.UtcNow.AddSeconds(8);
+            while (!button("生成工程计划").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
+            Check(payload.Contains("Confirm") && payload.Contains("中文工程需求") && !payload.Contains("Pending") &&
+                draft.Text.Contains("FB_ReviewedScale") && prompt.Text.Contains("Pending"), "Only submitted text reaches the model, its structured reply opens the SCL editor, and later input is retained");
+        }
+        await Capture(form, evidence, "tia-workbench-1600.png");
+        foreach (var page in new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" })
+        {
+            int index = Array.IndexOf(new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" }, page) + 1;
+            tabs.SelectedIndex = index;
+            await Capture(form, evidence, page + ".png");
+        }
+        form.Size = new Size(1024, 768);
+        await Task.Delay(140);
+        await Click(button("输入工程需求"));
+        await Click(prompt);
+        Check(prompt.Focused && prompt.Bounds.Height >= 60, "Narrow layout still hit-tests the prompt and gives it keyboard focus");
+        await Capture(form, evidence, "tia-workbench-1024.png");
+    }
+    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply)
+    {
+        using (var client = listener.AcceptTcpClient())
+        using (var stream = client.GetStream())
+        {
+            stream.ReadTimeout = 5000;
+            var headers = new StringBuilder();
+            while (headers.Length < 16384)
+            {
+                int next = stream.ReadByte();
+                if (next < 0) throw new EndOfStreamException();
+                headers.Append((char)next);
+                if (headers.Length >= 4 && headers.ToString(headers.Length - 4, 4) == "\r\n\r\n") break;
+            }
+            if (headers.ToString().IndexOf("100-continue", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                var acknowledge = Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n");
+                stream.Write(acknowledge, 0, acknowledge.Length);
+            }
+            int length = int.Parse(headers.ToString().Split('\n').Single(line => line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)).Split(':')[1].Trim());
+            var body = new byte[length];
+            int offset = 0;
+            while (offset < body.Length)
+            {
+                int read = stream.Read(body, offset, body.Length - offset);
+                if (read == 0) throw new EndOfStreamException();
+                offset += read;
+            }
+            requestReceived.Set();
+            if (!canReply.Wait(TimeSpan.FromSeconds(4))) throw new TimeoutException("Waiting for editor input");
+            var plan = new PlcDraft { Kind = "FB", Name = "FB_ReviewedScale", Purpose = "审查模拟量缩放", Scl = PlcEngineering.AnalogScale("FB_ReviewedScale"), Tests = new[] { "验证上下限、越界和无效量程" } };
+            var reply = Encoding.UTF8.GetBytes(Json.ToJson(new { choices = new[] { new { message = new { content = Json.ToJson(plan) } } } }));
+            var header = Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + reply.Length + "\r\nConnection: close\r\n\r\n");
+            stream.Write(header, 0, header.Length);
+            stream.Write(reply, 0, reply.Length);
+            return Encoding.UTF8.GetString(body);
+        }
     }
     private static async Task Capture(Form form, string directory, string file)
     {
         form.TopMost = true;
         form.Activate(); form.Refresh();
         await Task.Delay(180);
-        using (var image = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
-        using (var graphics = Graphics.FromImage(image))
-        {
-            graphics.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, image.Size);
-            image.Save(Path.Combine(directory, file), ImageFormat.Png);
-        }
+        RenderV4Ui.CaptureNative(form, Path.Combine(directory, file));
     }
     private static System.Collections.Generic.IEnumerable<Control> Children(Control control)
     {
