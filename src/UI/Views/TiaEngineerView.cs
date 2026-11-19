@@ -36,6 +36,7 @@ namespace DeskBox.UI.Views
         private readonly DarkButton cancel, generate, regenerate;
         private readonly Label modelStatus;
         private readonly Panel side;
+        private Panel programmingScroll;
         private readonly Dictionary<string, string> unsent = new Dictionary<string, string>();
         private string draftEnvironment, submittedRequirement;
         private PlcSnapshot snapshot, baseline;
@@ -202,7 +203,8 @@ namespace DeskBox.UI.Views
         private void BuildProgrammingPage(Action configureModel)
         {
             var page = new TabPage("AI 编程") { Padding = new Padding(8, 4, 8, 4) };
-            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Margin = Padding.Empty };
+            programmingScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            var fields = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 8, Margin = Padding.Empty };
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             foreach (int height in new[] { 24, 90, 24, 24 })
                 fields.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, height)));
@@ -227,12 +229,27 @@ namespace DeskBox.UI.Views
             fields.Controls.Add(Caption("SCL 草稿 · 可编辑、检查并另存"), 0, 5);
             fields.Controls.Add(draftActions, 0, 6);
             fields.Controls.Add(BuildCodeEditor(), 0, 7);
-            page.Controls.Add(fields);
+            programmingScroll.Controls.Add(fields);
+            page.Controls.Add(programmingScroll);
             tabs.TabPages.Add(page);
-            requirement.TextChanged += delegate { ResizeRequirement(fields); };
-            fields.SizeChanged += delegate { ResizeRequirement(fields); };
+            Action sizeContent = delegate
+            {
+                if (fields.ClientSize.Width <= 0) return;
+                ResizeRequirement(fields);
+                int toolbars = promptActions.GetPreferredSize(new Size(fields.ClientSize.Width, 0)).Height +
+                    draftActions.GetPreferredSize(new Size(fields.ClientSize.Width, 0)).Height;
+                int minimum = (int)fields.RowStyles[1].Height + Dpi.D(this, 96 + 112) + toolbars;
+                int height = Math.Max(programmingScroll.ClientSize.Height, minimum);
+                if (fields.Height != height) fields.Height = height;
+            };
+            requirement.TextChanged += delegate { sizeContent(); };
+            programmingScroll.SizeChanged += delegate { sizeContent(); };
+            promptActions.Layout += delegate { sizeContent(); };
+            draftActions.Layout += delegate { sizeContent(); };
             requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.12); };
             requirement.Leave += delegate { requirement.BackColor = Palette.PanelAlt; };
+            editor.Enter += delegate { programmingScroll.ScrollControlIntoView(editor); };
+            sizeContent();
         }
         private Control BuildCodeEditor()
         {
@@ -283,7 +300,7 @@ namespace DeskBox.UI.Views
         }
         private void ResizeRequirement(TableLayoutPanel fields)
         {
-            int min = Dpi.D(this, 90), max = Math.Max(min, Math.Min(Dpi.D(this, 220), fields.Height - Dpi.D(this, 220)));
+            int min = Dpi.D(this, 90), max = Dpi.D(this, 220);
             int lines = requirement.GetLineFromCharIndex(requirement.TextLength) + 1;
             var target = Math.Min(max, Math.Max(min, lines * requirement.Font.Height + Dpi.D(this, 12)));
             if (fields.RowStyles[1].Height != target) fields.RowStyles[1].Height = target;
@@ -301,6 +318,7 @@ namespace DeskBox.UI.Views
         private void FocusRequirement()
         {
             SelectTab(0);
+            programmingScroll.ScrollControlIntoView(requirement);
             requirement.Focus();
         }
         private void FillExample()
@@ -371,6 +389,7 @@ namespace DeskBox.UI.Views
             generate.Enabled = operation == null && !string.IsNullOrWhiteSpace(requirement.Text);
             regenerate.Enabled = operation == null && !string.IsNullOrWhiteSpace(submittedRequirement);
             useProjectContext.Enabled = operation == null && snapshot != null;
+            useProjectContext.Visible = snapshot != null;
             if (applyDraft != null) applyDraft.Enabled = operation == null && pendingScl != null && mode.SelectedIndex > 0;
             cancel.Enabled = operation != null;
             mode.Enabled = operation == null; cpu.Enabled = operation == null;

@@ -280,12 +280,20 @@ public static class TiaEngineerAcceptance
         Console.WriteLine("TIA window " + form.Size + ", observed DPI " + form.DeviceDpi);
         Check(prompt.Focused && form.Width == 1920, "The large workbench exposes the same working input control");
         await Capture(form, evidence, "tia-workbench-1920.png");
+        form.Size = new Size(1366, 768);
+        await Task.Delay(120);
+        await Click(prompt);
+        Check(prompt.Focused && form.Width == 1366, "The 1366-wide workbench still hit-tests the input");
         form.Size = new Size(1024, 768);
         await Task.Delay(140);
         await Click(button("输入工程需求"));
         await Click(prompt);
         Check(prompt.Focused && prompt.Bounds.Height >= 60, "Narrow layout still hit-tests the prompt and gives it keyboard focus");
         await Capture(form, evidence, "tia-workbench-1024.png");
+        draft.Focus();
+        await Task.Delay(120);
+        Check(draft.Focused && draft.Height >= 100, "The narrow programming page scrolls to a usable SCL editor");
+        await Capture(form, evidence, "tia-editor-narrow.png");
     }
     private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale")
     {
