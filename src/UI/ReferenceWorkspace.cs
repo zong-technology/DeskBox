@@ -128,10 +128,10 @@ namespace DeskBox.UI
         private void DataChanged(){if(IsDisposed)return;if(InvokeRequired){try{BeginInvoke(new Action(DataChanged));}catch{}return;}RefreshStatus();Action reload;if(new[]{"home","projects","project-detail","tasks","incidents"}.Contains(_current)&&_reload.TryGetValue(_current,out reload))reload();}
         private void CloudChanged(){if(IsDisposed)return;if(InvokeRequired){try{BeginInvoke(new Action(CloudChanged));}catch{}return;}RefreshStatus();Action reload;if(_current=="mobile"&&_reload.TryGetValue("mobile",out reload))reload();}
         private void ShowMore(){var menu=MenuBuilder.Create(_p);foreach(var item in new[]{new[]{"收藏与标签","library"},new[]{"磁盘分析","disk"},new[]{"系统监控","monitor"},new[]{"剪贴板","clipboard"},new[]{"工作记录","history"},new[]{"通知中心","notifications"},new[]{"文件操作历史","filehistory"},new[]{"设置中心","settings"}}){string id=item[1];menu.Items.Add(MenuBuilder.Item(item[0],()=>ShowLegacy(id)));}menu.Show(_rail,new Point(12,550));}
-        private void ShowLegacy(string name)
+        internal void ShowLegacy(string name, Action<Control> configure = null)
         {
             using(var dialog=new Form{Text="DeskBox · "+name,StartPosition=FormStartPosition.CenterParent,Size=new Size(1120,760),BackColor=_p.Bg})
-            {var view=_legacyFactory(name);if(view==null)return;view.Dock=DockStyle.Fill;dialog.Controls.Add(view);var baseView=view as Views.ViewBase;if(baseView!=null){baseView.ApplyPalette(_p);baseView.Activate();}dialog.ShowDialog(this);}DataChanged();
+            {var view=_legacyFactory(name);if(view==null)return;view.Dock=DockStyle.Fill;dialog.Controls.Add(view);var baseView=view as Views.ViewBase;if(baseView!=null){baseView.ApplyPalette(_p);baseView.Activate();}if(configure!=null)configure(view);dialog.ShowDialog(this);}DataChanged();
         }
         private void OpenPath(string path){if(!File.Exists(path)&&!Directory.Exists(path)){_status.Text="路径已不存在："+path;return;}Win32.OpenPath(path);if(File.Exists(path))_library.Touch(path);}
         private EngineerWorkspace CurrentProject(){return _projects.Current??_projects.Items.FirstOrDefault(p=>p.Id==_selectedProject)??_projects.Items.FirstOrDefault();}

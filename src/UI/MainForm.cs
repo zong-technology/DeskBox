@@ -1027,8 +1027,20 @@ namespace DeskBox.UI
                     case "engineering": return new DeskBox.UI.Views.EngineeringToolkitView(_store);
                     case "tia": return _tiaView = new DeskBox.UI.Views.TiaEngineerView(_store, _providers, _workspaces, delegate
                     {
-                        SwitchView("settings");
-                        if (_settingsCenter != null) _settingsCenter.ShowAiProviders();
+                        if (_referenceActive && _reference != null)
+                        {
+                            _reference.ShowLegacy("settings", view =>
+                            {
+                                var settings = view as DeskBox.UI.Views.SettingsCenterView;
+                                if (settings != null) settings.ShowAiProviders();
+                            });
+                            _tiaView.Activate();
+                        }
+                        else
+                        {
+                            SwitchView("settings");
+                            if (_settingsCenter != null) _settingsCenter.ShowAiProviders();
+                        }
                     });
                     case "search": return BuildSearchView();
                     case "library": return BuildLibraryView();

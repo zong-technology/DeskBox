@@ -87,6 +87,10 @@ public static class DeskBoxInstallCapture {
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window,StringBuilder name,int size);
+    [DllImport("user32.dll", EntryPoint="GetWindowLongW")] static extern int GetWindowLong(IntPtr window,int index);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr window,uint msg,IntPtr size,StringBuilder text);
     private static AutomationElement Find(IntPtr window, string id, string name) {
         var element = AutomationElement.FromHandle(window);
@@ -99,24 +103,40 @@ public static class DeskBoxInstallCapture {
     }
     private static void Click(AutomationElement element) {
         var rect = element.Current.BoundingRectangle;
-        SetCursorPos((int)(rect.Left+rect.Width/2), (int)(rect.Top+rect.Height/2));
+        Click((int)(rect.Left+rect.Width/2), (int)(rect.Top+rect.Height/2));
+    }
+    private static void Click(int x, int y) {
+        SetCursorPos(x, y);
         mouse_event(2, 0, 0, 0, UIntPtr.Zero);
         mouse_event(4, 0, 0, 0, UIntPtr.Zero);
         Thread.Sleep(180);
     }
     public static string ExerciseTiaPrompt(IntPtr window) {
+        SetForegroundWindow(window);
         Click(Find(window, "nav-tia", "\u535a\u56fe AI \u5de5\u7a0b\u5e08"));
-        var prompt = Find(window, "tia-requirement", "\u5de5\u7a0b\u9700\u6c42");
-        Click(prompt);
-        int editor = prompt.Current.NativeWindowHandle;
-        if (editor == 0 || AutomationElement.FocusedElement.Current.NativeWindowHandle != editor)
+        Click(Find(window, "tia-focus-requirement", "\u8f93\u5165\u5de5\u7a0b\u9700\u6c42"));
+        IntPtr editor = IntPtr.Zero;
+        EnumChildWindows(window, delegate(IntPtr handle, IntPtr state) {
+            var name = new StringBuilder(128);
+            GetClassName(handle, name, name.Capacity);
+            if (IsWindowVisible(handle) && name.ToString().IndexOf("RichEdit", StringComparison.OrdinalIgnoreCase) >= 0 && (GetWindowLong(handle,-16) & 0x0800) == 0)
+            {
+                editor = handle;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        Rect edit;
+        if (editor == IntPtr.Zero || !GetWindowRect(editor, out edit)) throw new InvalidOperationException("No visible editable Win32 Rich Edit window exists on the installed TIA page.");
+        Click((edit.Left+edit.Right)/2, (edit.Top+edit.Bottom)/2);
+        if (AutomationElement.FocusedElement.Current.NativeWindowHandle != editor.ToInt32())
             throw new InvalidOperationException("The installed requirement editor did not receive mouse focus.");
         SendKeys.SendWait("S71500");
         SendKeys.SendWait("+{ENTER}");
         Clipboard.SetText("\u5de5\u7a0b\u9a8c\u6536");
         SendKeys.SendWait("^v");
         var text = new StringBuilder(1024);
-        SendMessage(new IntPtr(editor), 0x000D, new IntPtr(text.Capacity), text);
+        SendMessage(editor, 0x000D, new IntPtr(text.Capacity), text);
         return text.ToString();
     }
     public static bool Save(IntPtr window, string path) {

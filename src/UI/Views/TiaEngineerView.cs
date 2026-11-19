@@ -17,9 +17,11 @@ namespace DeskBox.UI.Views
 {
     public sealed class TiaEngineerView : ViewBase
     {
+        private enum Phase { Idle, Planning, WaitingForInput, WaitingForApproval, Executing, Validating, Completed, Failed, Cancelled }
         private readonly ProviderStore providers;
         private readonly WorkspaceStore projects;
         private readonly TreeView tree = new TreeView { Dock = DockStyle.Fill, HideSelection = false, AccessibleName = "TIA 工程对象" };
+        private readonly DarkInput treeQuery = new DarkInput { Dock = DockStyle.Top, Placeholder = "搜索名称、类型或路径" };
         private readonly TabControl tabs = new TabControl { Dock = DockStyle.Fill };
         private readonly ComboBox mode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 175, AccessibleName = "操作模式" };
         private readonly ComboBox cpu = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 275, AccessibleName = "目标 PLC" };
@@ -42,6 +44,7 @@ namespace DeskBox.UI.Views
         private string apFile, template, templateName;
         private CancellationTokenSource operation;
         private CancellationToken voiceScope;
+        private Phase phase;
 
         public TiaEngineerView(Store store, ProviderStore providers, WorkspaceStore projects, Action configureModel = null) : base(store, "博图 AI 工程师", "只读模式 · TIA Portal、SCL 与离线工程验证")
         {
@@ -102,22 +105,49 @@ namespace DeskBox.UI.Views
             Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
             Page("工程对比", "先把当前资料设为基线，再打开同类导出文件或 V20 副本。结果可导出为 Markdown。", diff, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
             Page("测试验证", "离线编译需 V20 Openness、独立副本和目标 PLC。副本写入仅开放经批准的缩放模板。", output, cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), Button("解释编译诊断", ExplainCompile));
-            var left = new Panel { Dock = DockStyle.Left, Width = 240, Padding = new Padding(0, 0, 8, 0) };
-            left.Controls.Add(tree); left.Controls.Add(Caption("工程浏览器"));
+            var left = new Panel { Dock = DockStyle.Left, Width = 260, Padding = new Padding(0, 0, 4, 0) };
+            left.Controls.Add(tree); left.Controls.Add(treeQuery); left.Controls.Add(Caption("工程浏览器"));
+            tree.ShowNodeToolTips = true;
+            treeQuery.TextChanged += delegate { RefreshTree(); };
+            treeQuery.KeyPressed += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode != Keys.Enter || tree.Nodes.Count == 0) return;
+                e.SuppressKeyPress = true;
+                tree.Focus();
+            };
+            var leftDivider = new Splitter { Dock = DockStyle.Left, Width = 6, MinSize = 220, MinExtra = 400 };
             side = new Panel { Dock = DockStyle.Right, Width = 320, Padding = new Padding(8, 0, 0, 0) };
             side.Controls.Add(assistant); side.Controls.Add(Caption("工程助手 · 执行与复核")); side.Controls.Add(voiceAccess);
             voiceAccess.Dock = DockStyle.Bottom;
             voiceAccess.CheckedChanged += delegate { if (voiceAccess.Checked) voiceScope = AiEnvironment.Token; };
+            var rightDivider = new Splitter { Dock = DockStyle.Right, Width = 6, MinSize = 300, MinExtra = 630 };
             var center = new Panel { Dock = DockStyle.Fill };
-            center.Controls.Add(tabs); center.Controls.Add(side); center.Controls.Add(left);
+            center.Controls.AddRange(new Control[] { tabs, rightDivider, side, leftDivider, left });
+            bool assistantOpen = true;
+            var toggleAssistant = new DarkButton("收起助手") { Width = 100, Height = 32, Palette = Palette };
+            toggleAssistant.Click += delegate
+            {
+                assistantOpen = !assistantOpen;
+                side.Visible = assistantOpen;
+                rightDivider.Visible = assistantOpen && side.Dock == DockStyle.Right;
+                toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
+            };
+            top.Controls.Add(toggleAssistant);
+            bool? wideLayout = null;
             center.Resize += delegate
             {
-                bool wide = center.Width >= Dpi.D(this, 1050);
+                bool wide = center.Width >= Dpi.D(this, 1120);
+                if (wideLayout == wide) return;
+                wideLayout = wide;
                 left.Width = Dpi.D(this, wide ? 260 : 180);
                 side.Dock = wide ? DockStyle.Right : DockStyle.Bottom;
-                if (wide) side.Width = Dpi.D(this, 340);
-                else side.Height = Dpi.D(this, 132);
+                if (wide) side.Width = Dpi.D(this, 350);
+                else side.Height = Dpi.D(this, 120);
+                leftDivider.Visible = wide;
+                rightDivider.Visible = wide && assistantOpen;
             };
+            leftDivider.SplitterMoved += delegate { left.Width = Math.Min(left.Width, Dpi.D(this, 420)); };
+            rightDivider.SplitterMoved += delegate { side.Width = Math.Min(side.Width, Dpi.D(this, 520)); };
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
             tabs.DrawItem += delegate(object sender, DrawItemEventArgs e)
             {
@@ -129,6 +159,20 @@ namespace DeskBox.UI.Views
             FormatCombo(mode); FormatCombo(cpu);
             Body.Controls.Add(center); Body.Controls.Add(top);
             tree.AfterSelect += delegate(object sender, TreeViewEventArgs e) { ShowObject(e.Node == null ? null : e.Node.Tag as PlcObject); };
+            tree.NodeMouseDoubleClick += delegate(object sender, TreeNodeMouseClickEventArgs e) { ShowObject(e.Node.Tag as PlcObject); };
+            tree.NodeMouseClick += delegate(object sender, TreeNodeMouseClickEventArgs e)
+            {
+                if (e.Button != MouseButtons.Right) return;
+                tree.SelectedNode = e.Node;
+                var item = e.Node.Tag as PlcObject;
+                if (item == null) return;
+                var menu = MenuBuilder.Create(Palette);
+                menu.Items.Add(MenuBuilder.Item("查看对象", () => ShowObject(item)));
+                menu.Items.Add(MenuBuilder.Item("复制工程路径", () => Clipboard.SetText(item.Identity)));
+                menu.Items.Add(MenuBuilder.Item("复制来源", () => Clipboard.SetText(item.Source)));
+                menu.Closed += delegate { menu.Dispose(); };
+                menu.Show(tree, e.Location);
+            };
             assistant.Text = "编写程序：在「AI 编程」填写工程需求，生成计划后在这里查看接口建议、待确认参数和测试用例。\r\n\r\n分析工程：打开 SimaticML、SCL 或 IO CSV，或读取本机 V20 工程副本，再从左侧选择对象。";
             output.Text = "当前没有验证结果。可从「AI 编程」静态检查草稿，或在本页编译已加载的 V20 副本。";
             ApplyPalette(Palette);
@@ -276,12 +320,28 @@ namespace DeskBox.UI.Views
             var provider = providers == null ? null : providers.DefaultProvider;
             HintLabel.Text = Convert.ToString(mode.SelectedItem) + " · " + (snapshot == null ? "未加载工程" : snapshot.Name + " / " + snapshot.Origin) + " · " +
                 (cpu.SelectedIndex > 0 ? "PLC " + cpu.SelectedItem + " · " : "") +
-                (provider == null || !provider.Enabled ? "AI 未配置" : "AI " + provider.Name + " / " + provider.Model);
+                "任务：" + PhaseLabel(phase);
             if (modelStatus != null)
                 modelStatus.Text = provider == null || !provider.Enabled
                     ? "生成计划需要 AI 服务商。可直接载入下方缩放模板。"
                     : provider.Name + " · " + provider.Model + " · " + (Store.Settings.TiaEnterSends ? "Enter 发送" : "Ctrl+Enter 发送") + "，Shift+Enter 换行";
         }
+        private static string PhaseLabel(Phase value)
+        {
+            switch (value)
+            {
+                case Phase.Planning: return "生成计划";
+                case Phase.WaitingForInput: return "待补充";
+                case Phase.WaitingForApproval: return "待批准";
+                case Phase.Executing: return "执行中";
+                case Phase.Validating: return "验证中";
+                case Phase.Completed: return "已完成";
+                case Phase.Failed: return "失败";
+                case Phase.Cancelled: return "已取消";
+                default: return "就绪";
+            }
+        }
+        private void SetPhase(Phase value) { phase = value; RefreshHeading(); }
         protected override void OnActivated()
         {
             base.OnActivated();
@@ -301,27 +361,41 @@ namespace DeskBox.UI.Views
             tree.BackColor = palette.CardBg; tree.ForeColor = palette.Text; tree.LineColor = palette.Line;
             foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, voiceAccess, useProjectContext }) { control.BackColor = palette.CardBg; control.ForeColor = palette.Text; }
         }
-        private async void Work<T>(string action, Func<CancellationToken, T> work, Action<T> display, bool keepPage = false)
+        private async void Work<T>(string action, Func<CancellationToken, T> work, Action<T> display,
+            bool keepPage = false, Phase running = Phase.Executing, Func<T, Phase> outcome = null)
         {
             if (operation != null) return;
             operation = CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token);
             var active = operation;
+            SetPhase(running);
             UpdateButtons(); assistant.Text = "正在执行 · " + action;
             Store.Log("info", "engineering", "TIA · 开始 " + action + ProjectLabel());
             try
             {
                 var value = await Task.Run(() => work(active.Token), active.Token);
                 active.Token.ThrowIfCancellationRequested();
-                if (!IsDisposed) display(value);
+                if (!IsDisposed)
+                {
+                    display(value);
+                    SetPhase(outcome == null ? Phase.Completed : outcome(value));
+                }
                 Store.Log("info", "engineering", "TIA · 完成 " + action + ProjectLabel());
             }
-            catch (OperationCanceledException) { if (!IsDisposed) Failed(keepPage ? "任务已取消，可修改需求后重试。" : "任务已取消。已生成的隔离副本和回执可核对。", keepPage); }
+            catch (OperationCanceledException)
+            {
+                if (!IsDisposed)
+                {
+                    Failed(keepPage ? "任务已取消，可修改需求后重试。" : "任务已取消。已生成的隔离副本和回执可核对。", keepPage);
+                    SetPhase(Phase.Cancelled);
+                }
+            }
             catch (Exception e) { if (!IsDisposed) Failed(e.Message, keepPage); }
             finally { operation = null; active.Dispose(); if (!IsDisposed) UpdateButtons(); }
         }
         private void Failed(string message, bool keepPage = false)
         {
             assistant.Text = message; output.AppendText(Environment.NewLine + message);
+            SetPhase(Phase.Failed);
             if (!keepPage) SelectTab(6);
             Store.Log("warn", "engineering", "TIA · " + message.Split('\n')[0]);
         }
@@ -368,36 +442,44 @@ namespace DeskBox.UI.Views
                     inspected = result; apFile = path; ResetCpus(); cpu.Items.AddRange(result.Cpus.Cast<object>().ToArray());
                     if (cpu.Items.Count == 2) cpu.SelectedIndex = 1;
                     Display(result.Snapshot);
-                });
+                }, outcome: ReceiptPhase);
             }
         }
         private void ResetCpus() { cpu.Items.Clear(); cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0; }
         private void Display(PlcSnapshot value)
         {
             snapshot = value; selected = null; voiceAccess.Checked = false; useProjectContext.Checked = false; RefreshHeading();
-            tree.BeginUpdate(); tree.Nodes.Clear();
-            try
-            {
-                foreach (var group in value.Objects.GroupBy(o => Category(o.Kind)))
-                {
-                    var category = tree.Nodes.Add(group.Key + "  ·  " + group.Count());
-                    foreach (var scope in group.GroupBy(x => x.Scope))
-                    {
-                        var branch = scope.Key.Length == 0 ? category : category.Nodes.Add(scope.Key);
-                        foreach (var item in scope.Take(2000))
-                            branch.Nodes.Add(new TreeNode(item.Name + "  [" + item.Kind + "]") { Tag = item, ToolTipText = item.Source });
-                        if (scope.Count() > 2000) branch.Nodes.Add("仅显示前 2000 项，报告仍检查全部对象");
-                    }
-                    category.Expand();
-                }
-            }
-            finally { tree.EndUpdate(); }
+            RefreshTree();
             analysis.Text = value.Report(); assistant.Text = analysis.Text;
             tags.Text = string.Join(Environment.NewLine, value.Objects.Where(x => x.Kind == "PlcTag").Take(1500).Select(x => x.Name + "  " + x.DataType + "  " + x.Address + "  · " + x.Content + "  · " + x.Source));
             var devices = value.Objects.Where(o => o.Kind == "Device" || o.Kind == "DeviceItem").ToList();
             hardware.Text = devices.Count == 0 ? "未取得设备组态。可提供 IO CSV，通过本机硬件目录核对订货号和固件。" : string.Join(Environment.NewLine, devices.Select(x => x.Scope + " / " + x.Name + " · " + x.Content));
             topology.Text = string.Join(Environment.NewLine, value.Objects.Where(x => x.Kind == "Subnet").Select(x => x.Name + " · " + x.Content)) + "\r\n\r\n设备层级\r\n" + hardware.Text + "\r\n\r\n端口连接与网络链路需通过源工程复核。";
             SelectTab(1);
+        }
+        private void RefreshTree()
+        {
+            if (snapshot == null) return;
+            string query = treeQuery.Text.Trim();
+            tree.BeginUpdate(); tree.Nodes.Clear();
+            try
+            {
+                foreach (var group in snapshot.Objects.Where(o => query.Length == 0 ||
+                    (o.Identity + " " + o.Source).IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).GroupBy(o => Category(o.Kind)))
+                {
+                    var category = tree.Nodes.Add(group.Key + "  ·  " + group.Count());
+                    foreach (var scope in group.GroupBy(x => x.Scope))
+                    {
+                        var branch = scope.Key.Length == 0 ? category : category.Nodes.Add(scope.Key);
+                        foreach (var item in scope.Take(2000))
+                            branch.Nodes.Add(new TreeNode(item.Name + "  [" + item.Kind + "]") { Tag = item, ToolTipText = item.Identity + "\n" + item.Source });
+                        if (scope.Count() > 2000) branch.Nodes.Add("仅显示前 2000 项，报告仍检查全部对象");
+                        if (query.Length != 0) branch.Expand();
+                    }
+                    category.Expand();
+                }
+            }
+            finally { tree.EndUpdate(); }
         }
         private static string Category(string kind)
         {
@@ -435,7 +517,15 @@ namespace DeskBox.UI.Views
             if (context.Length != 0 && !Store.Settings.AiFileAccess) throw new InvalidOperationException("请先在文件与隐私中启用 AI 文件访问。");
             var model = providers == null ? null : providers.DefaultProvider;
             if (model == null || !model.Enabled) throw new InvalidOperationException("当前环境未配置默认 AI 服务商。");
-            if (!AiEnvironment.Local && MessageBox.Show(this, "将本次需求和当前范围的资料发送给 " + model.Name + "。\r\n工程上下文约 " + context.Length + " 字。是否继续？", "发送工程资料", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return null;
+            if (!AiEnvironment.Local)
+            {
+                SetPhase(Phase.WaitingForApproval);
+                if (MessageBox.Show(this, "将本次需求和当前范围的资料发送给 " + model.Name + "。\r\n工程上下文约 " + context.Length + " 字。是否继续？", "发送工程资料", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                {
+                    SetPhase(Phase.Cancelled);
+                    return null;
+                }
+            }
             return model.Clone();
         }
         private string Context()
@@ -453,6 +543,7 @@ namespace DeskBox.UI.Views
             var provider = providers == null ? null : providers.DefaultProvider;
             if (provider == null || !provider.Enabled)
             {
+                SetPhase(Phase.WaitingForInput);
                 assistant.Text = "请打开「配置 AI 服务商」，设置当前 AI 环境的默认模型。也可以先载入缩放模板，在本地编辑和静态检查。";
                 FocusRequirement();
                 return;
@@ -460,6 +551,7 @@ namespace DeskBox.UI.Views
             string context = useProjectContext.Checked ? Context() : "";
             if (context.Length != 0 && !Store.Settings.AiFileAccess)
             {
+                SetPhase(Phase.WaitingForInput);
                 assistant.Text = "已加载工程资料。若计划要引用这些资料，请先在「设置 → 文件与隐私」启用 AI 文件访问。";
                 return;
             }
@@ -471,7 +563,9 @@ namespace DeskBox.UI.Views
                 template = null; templateName = null; editor.Text = draft.Scl; Highlight(); assistant.Text = draft.Plan(); SelectTab(0);
                 output.Text = "AI 草稿 · " + draft.Kind + " " + draft.Name + "\r\n" + draft.Plan() + "\r\n" +
                     (draft.Scl.Length == 0 ? "无 SCL 草稿。" : DraftReview(draft.Scl));
-            }, keepPage: true);
+            }, keepPage: true, running: Phase.Planning,
+                outcome: draft => draft.Kind == "PLAN" || (draft.MissingParameters != null && draft.MissingParameters.Any(text => !string.IsNullOrWhiteSpace(text)))
+                    ? Phase.WaitingForInput : Phase.Completed);
         }
         private static string DraftReview(string source)
         {
@@ -481,8 +575,10 @@ namespace DeskBox.UI.Views
         }
         private void CheckDraft()
         {
+            SetPhase(Phase.Validating);
             output.Text = DraftReview(editor.Text);
             SelectTab(6);
+            SetPhase(Phase.Completed);
         }
         private void Explain() { if (selected == null) throw new InvalidOperationException("请选择工程对象。"); RunExplanation("解释当前对象、可见条件和引用线索。", Context(), analysis, 1); }
         private void ExplainHardware() { RunExplanation("根据 IO 清单设计模块分组、地址规划及现场核对项。明确建议和待确认，未获取订货号或固件时留空。" + requirement.Text, Limit(Context() + "\r\n" + tags.Text, 16000), hardware, 2); }
@@ -546,7 +642,7 @@ namespace DeskBox.UI.Views
         private void Catalog()
         {
             var job = new TiaJob { Operation = "catalog", CatalogQuery = catalogQuery.Text.Trim(), ProjectId = ProjectId() };
-            Work("查询 V20 硬件目录", t => TiaOpenness.Run(job, t), result => { ShowReceipt(result); hardware.Text = result.Error.Length == 0 ? result.Report : result.Error; SelectTab(2); });
+            Work("查询 V20 硬件目录", t => TiaOpenness.Run(job, t), result => { ShowReceipt(result); hardware.Text = result.Error.Length == 0 ? result.Report : result.Error; SelectTab(2); }, outcome: ReceiptPhase);
         }
         private void Compile(bool add)
         {
@@ -556,14 +652,20 @@ namespace DeskBox.UI.Views
             var job = new TiaJob { Operation = add ? "scale" : "compile", ProjectFile = apFile, Cpu = Convert.ToString(cpu.SelectedItem), Block = add ? templateName : "",
                 ApprovedHash = add ? PlcEngineering.Hash(template) : "", ExpectedSource = inspected.SourceHash, ProjectId = ProjectId() };
             string summary = "工程 " + snapshot.Name + "\r\nPLC " + job.Cpu + "\r\n" + (add ? "新增单个 FB " + templateName + "，禁止覆盖同名对象。成功编译和复读后保存副本。\r\n源 SHA-256 " + job.ApprovedHash : "只在新副本离线编译并读取诊断。") + "\r\n\r\n将先保留原文件快照，再操作独立副本。";
-            if (MessageBox.Show(this, summary, "批准离线工程操作", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            SetPhase(Phase.WaitingForApproval);
+            if (MessageBox.Show(this, summary, "批准离线工程操作", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            {
+                SetPhase(Phase.Cancelled);
+                return;
+            }
             Work(add ? "副本新增与离线编译" : "离线编译", t => TiaOpenness.Run(job, t), result =>
             {
                 ShowReceipt(result);
                 if (result.Saved && result.Snapshot != null) Display(result.Snapshot);
                 SelectTab(6);
-            });
+            }, running: Phase.Validating, outcome: result => result.Compiled && result.Error.Length == 0 ? Phase.Completed : Phase.Failed);
         }
+        private static Phase ReceiptPhase(TiaResult result) { return result.Error.Length == 0 ? Phase.Completed : Phase.Failed; }
         private void ShowReceipt(TiaResult result)
         {
             output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report + "\r\n\r\n工作副本 · " + result.Copy;

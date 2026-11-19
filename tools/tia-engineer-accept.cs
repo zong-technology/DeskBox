@@ -167,7 +167,7 @@ public static class TiaEngineerAcceptance
         while (!mode.Enabled && DateTime.UtcNow < until) await Task.Delay(50);
         Console.WriteLine("TIA view visible=" + view.Visible + " tabs=" + tabs.TabPages.Count + " roots=" + string.Join(" | ", tree.Nodes.Cast<TreeNode>().Select(n => n.Text)));
         Console.WriteLine("TIA text panes: " + string.Join(" | ", Children(view).OfType<RichTextBox>().Where(box => box.TextLength > 0).Select(box => box.AccessibleName + ":" + box.Text.Substring(0, Math.Min(100, box.TextLength)))));
-        await Capture(form, evidence, "tia-analysis.png");
+        await Capture(form, evidence, "tia-loaded.png");
         Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
         Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
         Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
@@ -214,9 +214,12 @@ public static class TiaEngineerAcceptance
         await Click(button("保存需求草稿"));
         Check(Json.Load(AppPaths.File("tia-requirement-local.json"), "") == initial, "Explicit draft save writes the complete requirement to the isolated profile");
         await Click(button("配置 AI 服务商"));
-        Check(form.Controls.Find("ai-environment", true).Any(c => c.Visible), "Provider shortcut opens the actual AI settings page");
-        var enterSetting = form.Controls.Find("tia-enter-sends", true).OfType<CheckBox>().Single();
+        var settings = Application.OpenForms.Cast<Form>().SingleOrDefault(window => window != form && window.Controls.Find("ai-environment", true).Any(c => c.Visible));
+        Check(settings != null, "Provider shortcut opens the actual AI settings page");
+        var enterSetting = settings.Controls.Find("tia-enter-sends", true).OfType<CheckBox>().Single();
         enterSetting.Checked = false;
+        settings.Close();
+        await Task.Delay(100);
         form.SwitchView("tia");
         await Click(button("输入工程需求"));
         Check(prompt.Text == initial, "Switching to settings and back preserves the unsent requirement");
@@ -242,12 +245,19 @@ public static class TiaEngineerAcceptance
                 draft.Text.Contains("FB_ReviewedScale") && prompt.Text.Contains("Pending"), "Only submitted text reaches the model, its structured reply opens the SCL editor, and later input is retained");
         }
         await Capture(form, evidence, "tia-workbench-1600.png");
-        foreach (var page in new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" })
+        var pages = new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" };
+        for (int i = 0; i < pages.Length; i++)
         {
-            int index = Array.IndexOf(new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" }, page) + 1;
-            tabs.SelectedIndex = index;
-            await Capture(form, evidence, page + ".png");
+            tabs.SelectedIndex = i + 1;
+            await Capture(form, evidence, pages[i] + ".png");
         }
+        form.Bounds = new Rectangle(0, 0, 1920, 1080);
+        await Task.Delay(100);
+        await Click(button("输入工程需求"));
+        await Click(prompt);
+        Console.WriteLine("TIA window " + form.Size + ", observed DPI " + form.DeviceDpi);
+        Check(prompt.Focused && form.Width == 1920, "The large workbench exposes the same working input control");
+        await Capture(form, evidence, "tia-workbench-1920.png");
         form.Size = new Size(1024, 768);
         await Task.Delay(140);
         await Click(button("输入工程需求"));

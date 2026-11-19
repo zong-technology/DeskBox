@@ -14,6 +14,7 @@ $lines = @(
     ('PASS: ' + $report.NativeChecks + ' immersive hologram checks against the installed payload.'),
     'PASS: 12-page keyboard navigation at 1600x900, 1280x800 and 1024x768 (96 DPI / 100%).',
     'PASS: three workspace layouts captured at each window size.',
+    'PASS: the real installed DeskBox process accepts a physical mouse click, English input, Shift+Enter and Chinese clipboard text in the TIA requirement editor.',
     '',
     'All data was synthetic. The old executable used for byte-exact rollback checks was a separate executable fixture.',
     'The real installed candidate was launched and its normal exit was checked. Production user data was never used.',
