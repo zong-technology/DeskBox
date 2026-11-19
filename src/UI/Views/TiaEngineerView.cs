@@ -122,7 +122,8 @@ namespace DeskBox.UI.Views
                 e.Node.Nodes.Clear();
                 PopulateTree(e.Node, items);
             };
-            treeQuery.TextChanged += delegate { RefreshTree(); };
+            treeQuery.Inner.AccessibleName = "搜索工程对象";
+            treeQuery.Inner.TextChanged += delegate { RefreshTree(); };
             treeQuery.KeyPressed += delegate(object sender, KeyEventArgs e)
             {
                 if (e.KeyCode != Keys.Enter || tree.Nodes.Count == 0) return;
