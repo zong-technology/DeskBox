@@ -171,6 +171,14 @@ public static class TiaEngineerAcceptance
         Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
         Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
         Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
+        var scopedTags = tree.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("PLC Tags")).Nodes[0];
+        Check(scopedTags.Nodes.Count == 1 && scopedTags.Nodes[0].Tag == null, "Scoped tree nodes defer materializing their objects until expanded");
+        scopedTags.Expand();
+        Check(scopedTags.Nodes.Count == 4 && scopedTags.Nodes[0].Tag is PlcObject, "Tree expansion resolves the source-backed tag objects");
+        var query = Children(view).OfType<DarkInput>().Single(input => input.Placeholder.Contains("路径"));
+        query.Text = "CheckValve";
+        Check(tree.Nodes.Count == 1 && tree.Nodes[0].Nodes[0].Text.Contains("CheckValve"), "Engineering tree search filters by object name");
+        query.Text = "";
         var voice = new ToolContext { Store = store, TiaRead = view.ReadForVoice };
         var call = new Dictionary<string, string> { { "name", "CheckValve" } };
         var denied = ToolRegistry.Instance.Invoke("tia.read", call, voice);
@@ -237,6 +245,7 @@ public static class TiaEngineerAcceptance
             Check(requestReceived.IsSet && !button("生成工程计划").Enabled, "Configured Ctrl+Enter sends a real request to the local model fixture");
             SendKeys.SendWait("Pending");
             Check(prompt.Focused && prompt.Text.Contains("Pending"), "Input remains editable while a request is in progress");
+            await Capture(form, evidence, "tia-task-running.png");
             canReply.Set();
             string payload = await request;
             until = DateTime.UtcNow.AddSeconds(8);
@@ -244,12 +253,25 @@ public static class TiaEngineerAcceptance
             Check(payload.Contains("Confirm") && payload.Contains("中文工程需求") && !payload.Contains("Pending") &&
                 draft.Text.Contains("FB_ReviewedScale") && prompt.Text.Contains("Pending"), "Only submitted text reaches the model, its structured reply opens the SCL editor, and later input is retained");
         }
+        using (var received = new ManualResetEventSlim())
+        using (var reply = new ManualResetEventSlim(true))
+        {
+            var response = Task.Run(() => ServePlan(listener, received, reply, "FB_SecondDraft"));
+            await Click(button("重生成上次需求"));
+            var until = DateTime.UtcNow.AddSeconds(8);
+            while ((!response.IsCompleted || tabs.SelectedIndex != 5) && DateTime.UtcNow < until) await Task.Delay(30);
+            Check(response.IsCompleted && tabs.SelectedIndex == 5 && draft.Text.Contains("FB_ReviewedScale"), "A new model draft opens the change preview without replacing existing source");
+            await response;
+            await Capture(form, evidence, "tia-diff.png");
+            await Click(button("应用已预览草稿"));
+            Check(tabs.SelectedIndex == 0 && draft.Text.Contains("FB_SecondDraft"), "Applying the preview explicitly replaces the editor draft");
+        }
         await Capture(form, evidence, "tia-workbench-1600.png");
         var pages = new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" };
         for (int i = 0; i < pages.Length; i++)
         {
             tabs.SelectedIndex = i + 1;
-            await Capture(form, evidence, pages[i] + ".png");
+            if (i != 4) await Capture(form, evidence, pages[i] + ".png");
         }
         form.Bounds = new Rectangle(0, 0, 1920, 1080);
         await Task.Delay(100);
@@ -265,7 +287,7 @@ public static class TiaEngineerAcceptance
         Check(prompt.Focused && prompt.Bounds.Height >= 60, "Narrow layout still hit-tests the prompt and gives it keyboard focus");
         await Capture(form, evidence, "tia-workbench-1024.png");
     }
-    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply)
+    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale")
     {
         using (var client = listener.AcceptTcpClient())
         using (var stream = client.GetStream())
@@ -295,7 +317,7 @@ public static class TiaEngineerAcceptance
             }
             requestReceived.Set();
             if (!canReply.Wait(TimeSpan.FromSeconds(4))) throw new TimeoutException("Waiting for editor input");
-            var plan = new PlcDraft { Kind = "FB", Name = "FB_ReviewedScale", Purpose = "审查模拟量缩放", Scl = PlcEngineering.AnalogScale("FB_ReviewedScale"), Tests = new[] { "验证上下限、越界和无效量程" } };
+            var plan = new PlcDraft { Kind = "FB", Name = name, Purpose = "审查模拟量缩放", Scl = PlcEngineering.AnalogScale(name), Tests = new[] { "验证上下限、越界和无效量程" } };
             var reply = Encoding.UTF8.GetBytes(Json.ToJson(new { choices = new[] { new { message = new { content = Json.ToJson(plan) } } } }));
             var header = Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + reply.Length + "\r\nConnection: close\r\n\r\n");
             stream.Write(header, 0, header.Length);

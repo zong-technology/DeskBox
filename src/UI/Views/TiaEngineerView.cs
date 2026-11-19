@@ -42,6 +42,8 @@ namespace DeskBox.UI.Views
         private PlcObject selected;
         private TiaResult inspected;
         private string apFile, template, templateName;
+        private string pendingScl, reviewedEditor;
+        private DarkButton applyDraft;
         private CancellationTokenSource operation;
         private CancellationToken voiceScope;
         private Phase phase;
@@ -91,8 +93,10 @@ namespace DeskBox.UI.Views
             };
             editor = TextArea("SCL 草稿", false); editor.WordWrap = false; editor.BorderStyle = BorderStyle.FixedSingle;
             editor.TextChanged += delegate { UpdateButtons(); };
+            editor.KeyDown += IndentCode;
             analysis = TextArea("程序分析"); hardware = TextArea("硬件目录及建议"); topology = TextArea("网络与设备");
             tags = TextArea("变量与 IO"); diff = TextArea("工程差异"); output = TextArea("编译和操作日志"); assistant = TextArea("AI 工程助手");
+            diff.Font = UiKit.CachedFont("Consolas", 10, FontStyle.Regular);
             generate = Button("生成工程计划", Generate);
             generate.Primary = true;
             regenerate = Button("重生成上次需求", delegate { SubmitRequirement(submittedRequirement); });
@@ -103,11 +107,20 @@ namespace DeskBox.UI.Views
             Page("硬件组态", "从 IO 清单生成模块建议。在订货号输入框查询本机 V20 硬件目录。", hardware, catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware));
             Page("网络拓扑", "显示已读取的子网和设备层级。端口与连线请在 TIA 工程中核对。", topology);
             Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
-            Page("工程对比", "先把当前资料设为基线，再打开同类导出文件或 V20 副本。结果可导出为 Markdown。", diff, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
-            Page("测试验证", "离线编译需 V20 Openness、独立副本和目标 PLC。副本写入仅开放经批准的缩放模板。", output, cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), Button("解释编译诊断", ExplainCompile));
+            applyDraft = Button("应用已预览草稿", ApplyDraft);
+            Page("工程对比", "查看 AI 草稿的替换预览，或用当前工程和另一份同类资料对比。", diff, applyDraft, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
+            Page("测试验证", "离线编译需 V20 Openness、独立副本和目标 PLC。副本写入仅开放经批准的缩放模板。", output, cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
             var left = new Panel { Dock = DockStyle.Left, Width = 260, Padding = new Padding(0, 0, 4, 0) };
             left.Controls.Add(tree); left.Controls.Add(treeQuery); left.Controls.Add(Caption("工程浏览器"));
             tree.ShowNodeToolTips = true;
+            tree.BeforeExpand += delegate(object sender, TreeViewCancelEventArgs e)
+            {
+                var items = e.Node.Tag as List<PlcObject>;
+                if (items == null) return;
+                e.Node.Tag = null;
+                e.Node.Nodes.Clear();
+                PopulateTree(e.Node, items);
+            };
             treeQuery.TextChanged += delegate { RefreshTree(); };
             treeQuery.KeyPressed += delegate(object sender, KeyEventArgs e)
             {
@@ -204,7 +217,7 @@ namespace DeskBox.UI.Views
             promptActions.Controls.Add(Button("添加工程资料", delegate { var files = SelectExports(); if (files != null) LoadExports(files, true); }));
             promptActions.Controls.Add(useProjectContext);
             var draftActions = Bar();
-            draftActions.Controls.AddRange(new Control[] { scaleName, Button("载入缩放模板", Scale), Button("高亮", Highlight), Button("静态检查草稿", CheckDraft), Button("保存 SCL", ExportScl) });
+            draftActions.Controls.AddRange(new Control[] { scaleName, Button("载入缩放模板", Scale), Button("高亮", Highlight), Button("查找 SCL", FindCode), Button("静态检查草稿", CheckDraft), Button("保存 SCL", ExportScl) });
             if (configureModel != null) modelStatus.AccessibleDescription = "可打开 AI 服务商设置，配置默认模型。";
             fields.Controls.Add(Caption("工程需求"), 0, 0);
             fields.Controls.Add(requirement, 0, 1);
@@ -213,13 +226,60 @@ namespace DeskBox.UI.Views
             fields.Controls.Add(promptActions, 0, 4);
             fields.Controls.Add(Caption("SCL 草稿 · 可编辑、检查并另存"), 0, 5);
             fields.Controls.Add(draftActions, 0, 6);
-            fields.Controls.Add(editor, 0, 7);
+            fields.Controls.Add(BuildCodeEditor(), 0, 7);
             page.Controls.Add(fields);
             tabs.TabPages.Add(page);
             requirement.TextChanged += delegate { ResizeRequirement(fields); };
             fields.SizeChanged += delegate { ResizeRequirement(fields); };
             requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.12); };
             requirement.Leave += delegate { requirement.BackColor = Palette.PanelAlt; };
+        }
+        private Control BuildCodeEditor()
+        {
+            var code = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
+            var lines = new Panel { Dock = DockStyle.Left, Width = Dpi.D(this, 40) };
+            lines.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                e.Graphics.Clear(Palette.HeaderBg);
+                if (!editor.IsHandleCreated || editor.ClientSize.Height <= 0) return;
+                int line = editor.GetLineFromCharIndex(editor.GetCharIndexFromPosition(Point.Empty));
+                int y = editor.Top;
+                for (; y < lines.Height; line++)
+                {
+                    int start = editor.GetFirstCharIndexFromLine(line);
+                    if (start < 0) break;
+                    y = editor.Top + editor.GetPositionFromCharIndex(start).Y;
+                    if (y >= lines.Height) break;
+                    TextRenderer.DrawText(e.Graphics, (line + 1).ToString(), editor.Font,
+                        new Rectangle(0, y, lines.Width - 5, editor.Font.Height), Palette.TextDim,
+                        TextFormatFlags.Right | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                }
+            };
+            editor.VScroll += delegate { lines.Invalidate(); };
+            editor.TextChanged += delegate { lines.Invalidate(); };
+            editor.SizeChanged += delegate { lines.Invalidate(); };
+            code.Controls.Add(editor);
+            code.Controls.Add(lines);
+            return code;
+        }
+        private void IndentCode(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode != Keys.Enter || e.Control || e.Alt || editor.ReadOnly) return;
+            int line = editor.GetLineFromCharIndex(editor.SelectionStart);
+            string source = editor.Lines.ElementAtOrDefault(line) ?? "";
+            editor.SelectedText = "\n" + new string(source.TakeWhile(c => c == ' ' || c == '\t').ToArray());
+            e.SuppressKeyPress = true;
+        }
+        private void FindCode()
+        {
+            string term = Prompt.Input(this, "查找 SCL", "搜索草稿中的文字", editor.SelectedText, Palette);
+            if (string.IsNullOrWhiteSpace(term)) return;
+            int index = editor.Text.IndexOf(term, Math.Min(editor.TextLength, editor.SelectionStart + editor.SelectionLength), StringComparison.OrdinalIgnoreCase);
+            if (index < 0) index = editor.Text.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+            if (index < 0) { assistant.Text = "草稿中未找到 " + term; return; }
+            editor.Select(index, term.Length);
+            editor.Focus();
+            editor.ScrollToCaret();
         }
         private void ResizeRequirement(TableLayoutPanel fields)
         {
@@ -311,6 +371,7 @@ namespace DeskBox.UI.Views
             generate.Enabled = operation == null && !string.IsNullOrWhiteSpace(requirement.Text);
             regenerate.Enabled = operation == null && !string.IsNullOrWhiteSpace(submittedRequirement);
             useProjectContext.Enabled = operation == null && snapshot != null;
+            if (applyDraft != null) applyDraft.Enabled = operation == null && pendingScl != null && mode.SelectedIndex > 0;
             cancel.Enabled = operation != null;
             mode.Enabled = operation == null; cpu.Enabled = operation == null;
             editor.ReadOnly = operation != null || mode.SelectedIndex == 0;
@@ -399,7 +460,22 @@ namespace DeskBox.UI.Views
             if (!keepPage) SelectTab(6);
             Store.Log("warn", "engineering", "TIA · " + message.Split('\n')[0]);
         }
-        private void Inspect() { Work("检测本机 TIA", t => TiaEnvironmentInspector.Inspect(), result => { assistant.Text = result.Describe(); output.Text = assistant.Text; SelectTab(6); }); }
+        private void Inspect()
+        {
+            Work("检测本机 TIA", t => TiaEnvironmentInspector.Inspect(), result =>
+            {
+                bool readyToAttempt = result.OpennessGroup && result.Installations.Any(item => item.Version == 20 && item.AssemblyPath != null);
+                string connection = readyToAttempt ? "已发现 V20 接口与权限线索，仍需打开实际工程确认许可和能力。" : "缺少 V20 接口或当前用户权限，原生操作不可用。";
+                output.Text = result.Describe() + "\r\n\r\n连接状态\r\n" + connection +
+                    "\r\n\r\n工程、设备与程序块：支持读取导出文件；V20 可尝试读取离线副本。" +
+                    "\r\nSCL 导入：V20 仅支持审批后新增内置缩放 FB。离线编译需选定目标 PLC。" +
+                    "\r\n变量表：读取、静态检查和建议。硬件：目录查询和设备建议。当前无写入入口。" +
+                    "\r\n网络、LAD/FBD：查看已读取的结构或导出连线。当前无图形编辑入口。" +
+                    "\r\n实际项目、真实编译与 PLCSIM 验收分别记录。";
+                assistant.Text = connection;
+                SelectTab(6);
+            });
+        }
         private string[] SelectExports()
         {
             using (var dialog = new OpenFileDialog { Title = "选择工程导出文件", Multiselect = true, CheckFileExists = true, Filter = "工程导出 (*.xml;*.scl;*.udt;*.db;*.csv)|*.xml;*.scl;*.udt;*.db;*.csv" })
@@ -470,16 +546,27 @@ namespace DeskBox.UI.Views
                     var category = tree.Nodes.Add(group.Key + "  ·  " + group.Count());
                     foreach (var scope in group.GroupBy(x => x.Scope))
                     {
-                        var branch = scope.Key.Length == 0 ? category : category.Nodes.Add(scope.Key);
-                        foreach (var item in scope.Take(2000))
-                            branch.Nodes.Add(new TreeNode(item.Name + "  [" + item.Kind + "]") { Tag = item, ToolTipText = item.Identity + "\n" + item.Source });
-                        if (scope.Count() > 2000) branch.Nodes.Add("仅显示前 2000 项，报告仍检查全部对象");
-                        if (query.Length != 0) branch.Expand();
+                        var items = scope.ToList();
+                        if (scope.Key.Length == 0) PopulateTree(category, items);
+                        else
+                        {
+                            var branch = category.Nodes.Add(scope.Key + "  ·  " + items.Count);
+                            branch.Tag = items;
+                            branch.ToolTipText = scope.Key;
+                            branch.Nodes.Add("展开查看对象");
+                            if (query.Length != 0) branch.Expand();
+                        }
                     }
                     category.Expand();
                 }
             }
             finally { tree.EndUpdate(); }
+        }
+        private static void PopulateTree(TreeNode branch, List<PlcObject> items)
+        {
+            foreach (var item in items.Take(2000))
+                branch.Nodes.Add(new TreeNode(item.Name + "  [" + item.Kind + "]") { Tag = item, ToolTipText = item.Identity + "\n" + item.Source });
+            if (items.Count > 2000) branch.Nodes.Add("显示前 2000 项。可用搜索定位其余对象。");
         }
         private static string Category(string kind)
         {
@@ -560,12 +647,48 @@ namespace DeskBox.UI.Views
             if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
             Work("生成结构化工程任务与草稿", t => TiaPlanning.Plan(model, prompt, context, t), draft =>
             {
-                template = null; templateName = null; editor.Text = draft.Scl; Highlight(); assistant.Text = draft.Plan(); SelectTab(0);
+                assistant.Text = draft.Plan();
+                pendingScl = null;
+                reviewedEditor = null;
+                if (draft.Scl.Length == 0) SelectTab(0);
+                else if (editor.TextLength == 0 || SameSource(editor.Text, draft.Scl)) LoadModelScl(draft.Scl);
+                else ShowDraftPreview(draft.Scl);
                 output.Text = "AI 草稿 · " + draft.Kind + " " + draft.Name + "\r\n" + draft.Plan() + "\r\n" +
                     (draft.Scl.Length == 0 ? "无 SCL 草稿。" : DraftReview(draft.Scl));
             }, keepPage: true, running: Phase.Planning,
                 outcome: draft => draft.Kind == "PLAN" || (draft.MissingParameters != null && draft.MissingParameters.Any(text => !string.IsNullOrWhiteSpace(text)))
-                    ? Phase.WaitingForInput : Phase.Completed);
+                    ? Phase.WaitingForInput : pendingScl != null ? Phase.WaitingForApproval : Phase.Completed);
+        }
+        private void LoadModelScl(string scl)
+        {
+            pendingScl = null;
+            reviewedEditor = null;
+            template = null;
+            templateName = null;
+            editor.Text = scl;
+            Highlight();
+            SelectTab(0);
+        }
+        private void ShowDraftPreview(string proposed)
+        {
+            pendingScl = proposed;
+            reviewedEditor = editor.Text;
+            diff.Text = "待确认的 SCL 草稿替换\r\n\r\n--- 当前草稿 ---\r\n" + reviewedEditor +
+                "\r\n\r\n+++ AI 建议 +++\r\n" + pendingScl;
+            SelectTab(5);
+        }
+        private void ApplyDraft()
+        {
+            if (pendingScl == null || mode.SelectedIndex == 0) return;
+            if (!SameSource(reviewedEditor, editor.Text) || !diff.Text.StartsWith("待确认的 SCL 草稿替换", StringComparison.Ordinal))
+            {
+                ShowDraftPreview(pendingScl);
+                assistant.Text = "当前草稿已改变，替换预览已更新。请重新核对后再应用。";
+                return;
+            }
+            LoadModelScl(pendingScl);
+            UpdateButtons();
+            SetPhase(Phase.Completed);
         }
         private static string DraftReview(string source)
         {
