@@ -107,6 +107,17 @@ public class RenderV4Ui
         Console.WriteLine(path);
     }
 
+    public static void CaptureNative(Control control, string path)
+    {
+        using (var bitmap = new Bitmap(control.ClientSize.Width, control.ClientSize.Height))
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.CopyFromScreen(control.PointToScreen(Point.Empty), Point.Empty, bitmap.Size);
+            bitmap.Save(path, ImageFormat.Png);
+        }
+        Console.WriteLine(path);
+    }
+
     private static void DumpSizes(MainForm form, string key)
     {
         var f = BindingFlags.NonPublic | BindingFlags.Instance;

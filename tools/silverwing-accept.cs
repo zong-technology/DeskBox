@@ -142,6 +142,26 @@ internal static class SilverwingAccept
                 Freeze(view);view.Start();var ending=view.StopAsync();Pump(()=>ending.IsCompleted);
                 Check(unopened==0 && pending.Disposed,"Cancelling connection never opens a late microphone");
             }
+            var voiceTransports = new List<FakeProvider>();
+            FakeInput pausedInput = null;
+            using (var view = new HolographicCallView(settings,
+                p => { var transport = new FakeProvider(); voiceTransports.Add(transport); return transport; },
+                r => pausedInput = new FakeInput(), r => new FakeOutput()))
+            {
+                Freeze(view);
+                view.Start();
+                Pump(() => view.Mode == HologramMode.Listening && pausedInput != null);
+                var pause = view.PauseAsync();
+                Pump(() => pause.IsCompleted);
+                pause.GetAwaiter().GetResult();
+                Check(voiceTransports.Single().Disposed && pausedInput.Disposed && view.Mode == HologramMode.Idle, "Pausing closes the transport and releases the microphone before showing idle");
+                view.Start();
+                Pump(() => voiceTransports.Count == 2 && view.Mode == HologramMode.Listening);
+                var stop = view.StopAsync();
+                Pump(() => stop.IsCompleted);
+                stop.GetAwaiter().GetResult();
+                Check(voiceTransports.All(transport => transport.Disposed), "Resuming opens a new transport and close releases it");
+            }
             var failed=new FakeProvider {FailConnect=true};
             using(var view=new HolographicCallView(settings,p=>failed,r=>new FakeInput(),r=>new FakeOutput())){
                 Freeze(view);view.Start();Pump(()=>view.Mode==HologramMode.Unavailable);
@@ -296,6 +316,7 @@ internal static class SilverwingAccept
         string longText=new string('详',340);
         log.Accept(new VoicePacket {Interrupted=true,InputStarted=true,UserTurnId="next-user"});
         log.Accept(new VoicePacket {UserCaption=longText,UserCaptionDelta=true,UserTurnId="next-user"});
+        Check(log.LastCompletedUserText=="请查看任务","TIA draft transfer excludes partial transcription segments");
         log.Accept(new VoicePacket {Caption="待完成的回复"});log.Flush(true);
         var recovered=new ChatService(null,new ProviderStore()).Sessions.Single(s=>s.Id==log.Session.Id);
         Check(recovered.Messages.All(m=>!m.Streaming) && recovered.Messages.Last().Interrupted,"Restart recovers an interrupted transcript without an endless streaming cursor");
@@ -306,6 +327,9 @@ internal static class SilverwingAccept
         Check(!File.ReadAllText(Path.Combine(AppPaths.DataDir,"chats.json")).Contains(settings.ApiKey),"Voice history never stores the provider key");
         log.Accept(new VoicePacket {Caption="未读完的千问回复"});log.Accept(new VoicePacket {ResponseFailed=true,TurnComplete=true});
         Check(log.Session.Messages.Last().Interrupted && !log.Session.Messages.Last().Streaming,"A failed Qwen turn preserves its unfinished transcript without an endless streaming state");
+        log.Accept(new VoicePacket {InputStarted=true});
+        log.Accept(new VoicePacket {UserCaption="新工程需求",UserCaptionDelta=true,InputEnded=true});
+        Check(log.LastCompletedUserText=="新工程需求","Finished Gemini input is available for explicit TIA draft transfer");
     }
 
     private static void CheckToolCards(string output)
@@ -345,6 +369,11 @@ internal static class SilverwingAccept
         Check(bounded.Length<17000 && bounded.Contains("\"truncated\":true"),"Large operation results are bounded and explicitly marked before voice continuation");
         var denied=tools.Execute(new VoiceToolCall {Id="deny",Name="fs.write",Arguments=new Dictionary<string,object>{{"path","must-not-write"},{"content","x"}}});
         Check(new JavaScriptSerializer().Serialize(denied.Response).Contains("\"ok\":false"),"Unregistered operations cannot execute through realtime tools");
+        var tiaTools = new HologramTools(() => new ToolContext {Store=store,TiaRead=name=>"导出证据："+name}, true);
+        var tiaRead = tiaTools.Execute(new VoiceToolCall {Id="tia-read",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","tia.read"},{"arguments","{\"name\":\"FB_FAULT\"}"}}});
+        Check(new JavaScriptSerializer().Serialize(tiaRead.Response).Contains("导出证据：FB_FAULT"),"TIA voice uses the authorized read route");
+        var tiaWrite = tiaTools.Execute(new VoiceToolCall {Id="tia-write",Name="deskbox_execute",Arguments=new Dictionary<string,object>{{"tool","task.create"},{"arguments","{\"title\":\"不允许从博图创建\"}"}}});
+        Check(new JavaScriptSerializer().Serialize(tiaWrite.Response).Contains("\"ok\":false") && store.Tasks.Count==createdCount,"TIA voice cannot execute unrelated application mutations");
         var shown=tools.Execute(new VoiceToolCall {Id="show",Name="hologram_show",Arguments=new Dictionary<string,object>{{"title","测试投影"},{"content","来自 AI 的临时要点"},{"seconds",9999}}});
         Check(tools.Information!=null && tools.Information.ExpiresUtc<=DateTime.UtcNow.AddSeconds(121),"Temporary information has a bounded lifetime");
         tools.Expire(DateTime.UtcNow.AddSeconds(122));Check(tools.Information==null,"Information expires independently of animation and reduced motion");

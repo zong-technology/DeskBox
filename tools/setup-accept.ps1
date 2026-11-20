@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$SetupPath,
     [string]$SourceExe = 'dist\DeskBox.exe',
-    [string]$OutputDir = 'dist\installer-qa'
+    [string]$OutputDir = 'dist\installer-qa',
+    [ValidateSet(96,120,144)][int]$ExpectedDpi = 96
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -51,12 +52,17 @@ $state = @{ Settings = @{ TakeoverIcons=$false; AutoStart=$false; ReferenceUi=$t
 $state | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $profile 'state.json') -Encoding UTF8
 $oldHome = $env:DESKBOX_HOME
 $app = $null
-    Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+    Add-Type -ReferencedAssemblies System.Drawing,System.Windows.Forms,UIAutomationClient,UIAutomationTypes,WindowsBase -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Windows.Automation;
+using System.Windows.Forms;
 public static class DeskBoxInstallCapture {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     private delegate bool Enumerate(IntPtr window, IntPtr state);
@@ -82,6 +88,128 @@ public static class DeskBoxInstallCapture {
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+    [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window,StringBuilder name,int size);
+    [DllImport("user32.dll", EntryPoint="GetWindowLongW")] static extern int GetWindowLong(IntPtr window,int index);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr window,uint msg,IntPtr size,StringBuilder text);
+    private static AutomationElement Find(IntPtr window, string id, string name) {
+        var element = AutomationElement.FromHandle(window);
+        var matches = element.FindAll(TreeScope.Descendants, new OrCondition(
+            new PropertyCondition(AutomationElement.AutomationIdProperty, id),
+            new PropertyCondition(AutomationElement.NameProperty, name)));
+        foreach (AutomationElement match in matches)
+            if (!match.Current.IsOffscreen && !match.Current.BoundingRectangle.IsEmpty) return match;
+        throw new InvalidOperationException("Installed window does not expose " + id);
+    }
+    private static void Click(AutomationElement element) {
+        var rect = element.Current.BoundingRectangle;
+        Click((int)(rect.Left+rect.Width/2), (int)(rect.Top+rect.Height/2));
+    }
+    private static void Click(int x, int y) {
+        SetCursorPos(x, y);
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(180);
+    }
+    public static string ExerciseTiaPrompt(IntPtr window) {
+        // DeskBox normally sits at the bottom of the desktop. Keep this isolated
+        // window above runner windows while delivering real pointer input.
+        if (!SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0043)) throw new InvalidOperationException("Could not raise the installed test window.");
+        SetForegroundWindow(window);
+        Thread.Sleep(180);
+        var navigation = Find(window, "nav-tia", "\u535a\u56fe AI \u5de5\u7a0b\u5e08");
+        var bounds = navigation.Current.BoundingRectangle;
+        IntPtr navHit = WindowFromPoint(new Point((int)(bounds.Left + bounds.Width/2), (int)(bounds.Top + bounds.Height/2)));
+        uint hitProcess, appProcess;
+        GetWindowThreadProcessId(navHit, out hitProcess);
+        GetWindowThreadProcessId(window, out appProcess);
+        if (hitProcess != appProcess) throw new InvalidOperationException("The installed navigation point is obscured by another process.");
+        Click(navigation);
+        Click(Find(window, "tia-focus-requirement", "\u8f93\u5165\u5de5\u7a0b\u9700\u6c42"));
+        IntPtr editor = IntPtr.Zero;
+        EnumChildWindows(window, delegate(IntPtr handle, IntPtr state) {
+            var name = new StringBuilder(128);
+            GetClassName(handle, name, name.Capacity);
+            if (IsWindowVisible(handle) && name.ToString().IndexOf("RichEdit", StringComparison.OrdinalIgnoreCase) >= 0 && (GetWindowLong(handle,-16) & 0x0800) == 0)
+            {
+                editor = handle;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        Rect edit;
+        if (editor == IntPtr.Zero || !GetWindowRect(editor, out edit)) throw new InvalidOperationException("No visible editable Win32 Rich Edit window exists on the installed TIA page.");
+        Click((edit.Left+edit.Right)/2, (edit.Top+edit.Bottom)/2);
+        if (AutomationElement.FocusedElement.Current.NativeWindowHandle != editor.ToInt32())
+            throw new InvalidOperationException("The installed requirement editor did not receive mouse focus.");
+        SendKeys.SendWait("S71500");
+        SendKeys.SendWait("+{ENTER}");
+        Clipboard.SetText("\u5de5\u7a0b\u9a8c\u6536");
+        SendKeys.SendWait("^v");
+        var text = new StringBuilder(1024);
+        SendMessage(editor, 0x000D, new IntPtr(text.Capacity), text);
+        SendKeys.SendWait("^a");
+        Clipboard.SetText("DeskBox clipboard fixture");
+        SendKeys.SendWait("^c");
+        if (Normalize(Clipboard.GetText()) != Normalize(text.ToString()))
+            throw new InvalidOperationException("Ctrl+A and Ctrl+C did not copy the actual requirement.");
+        SendKeys.SendWait("{END}");
+        return text.ToString();
+    }
+    private static string Normalize(string value) { return value.Replace("\r\n", "\n").TrimEnd('\r','\n'); }
+    public static int CaptureTiaPages(IntPtr window, string destination) {
+        var shots = new List<string>();
+        Action<IntPtr, string> capture = delegate(IntPtr handle, string name) {
+            if (!Save(handle, Path.Combine(destination, name + ".png"))) throw new InvalidOperationException("Could not capture " + name);
+            shots.Add(name);
+        };
+        SendKeys.SendWait("^a");
+        capture(window, "installed-tia-input-selection");
+        string[] labels = { "\u7a0b\u5e8f\u5206\u6790", "\u786c\u4ef6\u7ec4\u6001", "\u7f51\u7edc\u62d3\u6251", "\u53d8\u91cf\u7ba1\u7406", "\u5de5\u7a0b\u5bf9\u6bd4", "\u6d4b\u8bd5\u9a8c\u8bc1" };
+        string[] names = { "analysis", "hardware", "topology", "variables", "diff", "validation" };
+        for (int i = 0; i < labels.Length; i++) {
+            var tab = Find(window, "tia-tab-" + names[i], labels[i]);
+            object pattern;
+            if (tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) ((SelectionItemPattern)pattern).Select();
+            else Click(tab);
+            Thread.Sleep(160);
+            capture(window, "installed-tia-" + names[i]);
+        }
+        Click(Find(window, "tia-inspect", "\u67e5\u770b\u80fd\u529b\u4e0e\u73af\u5883"));
+        Thread.Sleep(300);
+        capture(window, "installed-tia-environment");
+        Click(Find(window, "tia-toggle-assistant", "\u6536\u8d77\u52a9\u624b"));
+        capture(window, "installed-tia-assistant-collapsed");
+        Click(Find(window, "tia-reset-layout", "\u6062\u590d\u9ed8\u8ba4\u5e03\u5c40"));
+        capture(window, "installed-tia-layout-default");
+        Click(Find(window, "tia-voice", "\u5de5\u7a0b\u8bed\u97f3"));
+        uint process;
+        GetWindowThreadProcessId(window, out process);
+        IntPtr voice = IntPtr.Zero;
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        do {
+            EnumWindows(delegate(IntPtr handle, IntPtr state) {
+                uint owner;
+                GetWindowThreadProcessId(handle, out owner);
+                if (owner != process || !IsWindowVisible(handle)) return true;
+                var title = new StringBuilder(128);
+                GetWindowText(handle, title, title.Capacity);
+                if (title.ToString() == "\u535a\u56fe\u5b9e\u65f6\u8bed\u97f3") voice = handle;
+                return voice == IntPtr.Zero;
+            }, IntPtr.Zero);
+            if (voice == IntPtr.Zero) Thread.Sleep(100);
+        } while (voice == IntPtr.Zero && DateTime.UtcNow < deadline);
+        if (voice == IntPtr.Zero) throw new InvalidOperationException("The installed engineering voice window did not open.");
+        try { capture(voice, "installed-tia-voice"); }
+        finally { PostMessage(voice, 0x0010, IntPtr.Zero, IntPtr.Zero); }
+        File.WriteAllLines(Path.Combine(destination, "installed-tia-screenshots.txt"), shots.ToArray());
+        return shots.Count + 1;
+    }
     public static bool Save(IntPtr window, string path) {
         Rect rect; if (!GetWindowRect(window, out rect)) return false;
         using (var image = new Bitmap(rect.Right-rect.Left, rect.Bottom-rect.Top))
@@ -110,8 +238,21 @@ try {
     Check ((Get-FileHash -LiteralPath $app.MainModule.FileName).Hash -eq $expected) 'Running executable hash matches the build'
     Start-Sleep -Milliseconds 300
     $dpi = [DeskBoxInstallCapture]::GetDpiForWindow($window)
+    Check ($dpi -eq $ExpectedDpi) ('Actual installed window reports ' + $ExpectedDpi + ' DPI')
     $capture = [DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-main-window.png'))
     Check $capture 'Native capture of the real installed window'
+    $typed = [DeskBoxInstallCapture]::ExerciseTiaPrompt($window)
+    Check ($typed -match 'S71500[\r\n]+\p{IsCJKUnifiedIdeographs}{4}') 'Installed TIA input receives mouse focus, English typing, line breaks and Chinese clipboard text'
+    Check ([DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-tia-input.png'))) 'Native capture of the installed TIA input'
+    $tiaScreenshotCount = [DeskBoxInstallCapture]::CaptureTiaPages($window, $output)
+    Check ($tiaScreenshotCount -eq 12) 'Twelve TIA screenshots captured directly from the installed DeskBox process'
+    @('installed-tia-input') + (Get-Content -LiteralPath (Join-Path $output 'installed-tia-screenshots.txt')) |
+        ForEach-Object { Join-Path $output ($_ + '.png') } |
+        Compress-Archive -DestinationPath (Join-Path $output 'installed-tia-screenshots.zip') -Force
+    $windows = Get-CimInstance -ClassName Win32_OperatingSystem
+    $inputProfiles = @(if (Get-Command Get-WinUserLanguageList -ErrorAction SilentlyContinue) { (Get-WinUserLanguageList).InputMethodTips })
+    @{ Windows=$windows.Caption; Build=$windows.BuildNumber; DeviceDpi=$dpi; InputMethodTips=$inputProfiles; MicrosoftPinyinTested=$false } |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-tia-environment.json') -Encoding UTF8
     @{ Path=$app.MainModule.FileName; SHA256=$expected; Version=$version; DeviceDpi=$dpi; SyntheticProfile=$profile } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-launch.json') -Encoding UTF8
     Check ([DeskBoxInstallCapture]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Installed window accepts a normal close request'
@@ -168,9 +309,9 @@ $nativeResult = [regex]::Match([IO.File]::ReadAllText((Join-Path $output 'instal
 if (-not $nativeResult.Success) { throw 'Native check count was not recorded.' }
 
 # UI matrix uses an identical copy of the installed payload, with synthetic fixtures only.
-& (Join-Path $root 'tools\prepare-ci-display.ps1')
-& (Join-Path $root 'tools\ui-regression.ps1') -ExpectedDpi 96 -SourceExe $installed
-Check ($?) 'Installed-payload 12-page navigation and three-layout matrix at 96 DPI'
+if ($env:GITHUB_ACTIONS -eq 'true') { & (Join-Path $root 'tools\prepare-ci-display.ps1') }
+& (Join-Path $root 'tools\ui-regression.ps1') -ExpectedDpi $ExpectedDpi -SourceExe $installed
+Check ($?) ('Installed-payload 12-page navigation and three-layout matrix at ' + $ExpectedDpi + ' DPI')
 
 $uninstall = Start-Process -FilePath (Join-Path $target 'unins000.exe') -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru
 Check ($uninstall.WaitForExit(60000)) 'Uninstaller completes'
@@ -178,6 +319,6 @@ Check ($uninstall.ExitCode -eq 0) 'Uninstaller returns success'
 Check (-not (Test-Path -LiteralPath $installed)) 'Uninstall removes the program'
 foreach ($path in $markers.Keys) { Check ((Get-FileHash -LiteralPath $path).Hash -eq $markers[$path]) ('Uninstall preserves ' + [IO.Path]::GetFileName($path)) }
 Check (-not (Test-Path -LiteralPath $registration)) 'Uninstall removes only its registration'
-@{ Result='PASS'; Version=$version; SourceSHA256=$expected; Checks=$checks.ToArray(); Count=$checks.Count; NativeChecks=[int]$nativeResult.Groups[1].Value; UIExpectedDpi=96; RealVoiceTested=$false } |
+@{ Result='PASS'; Version=$version; SourceSHA256=$expected; Checks=$checks.ToArray(); Count=$checks.Count; NativeChecks=[int]$nativeResult.Groups[1].Value; UIExpectedDpi=$ExpectedDpi; TiaScreenshotCount=$tiaScreenshotCount; Windows=$windows.Caption; WindowsBuild=$windows.BuildNumber; RealVoiceTested=$false } |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output 'install-report.json') -Encoding UTF8
 Write-Output ('PASS Windows setup / upgrade / rollback / uninstall: ' + $checks.Count + ' checks')

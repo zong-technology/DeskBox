@@ -24,6 +24,7 @@ namespace DeskBox.Ai
         public Sync.CloudSyncAgent Cloud;
         public Fs.FileOps Files;
         public Action<string> Navigate;
+        public Func<string, string> TiaRead;
         public Action RefreshApp;
         public Func<Func<ToolResult>,ToolResult> UiInvoke;
     }
@@ -67,7 +68,7 @@ namespace DeskBox.Ai
             _tools.Add(new CreateTaskTool());
             _tools.Add(new RunWorkflowTool());
             _tools.Add(new WebReadTool());
-            foreach(var name in new[]{"app.context","app.navigate","task.list","task.update","project.list","incident.list","incident.create","incident.update","workflow.list"})_tools.Add(new ApplicationTool(name));
+            foreach(var name in new[]{"app.context","app.navigate","tia.read","task.list","task.update","project.list","incident.list","incident.create","incident.update","workflow.list"})_tools.Add(new ApplicationTool(name));
             foreach(var name in new[]{"fs.list","fs.move","fs.copy","fs.rename","fs.trash","fs.undo"})_tools.Add(new FileManagementTool(name));
             _tools.Add(new Scale420Tool());
             _tools.Add(new S7AddressTool());

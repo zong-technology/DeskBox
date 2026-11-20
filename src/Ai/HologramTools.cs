@@ -26,12 +26,13 @@ namespace DeskBox.Ai
     internal sealed class HologramTools
     {
         private readonly Func<ToolContext> context;
+        private readonly bool tiaOnly;
         private sealed class Receipt { internal string Signature; internal object Response; }
         // ponytail: one call keeps the latest 128 mutation receipts; use a durable journal for cross-process retries.
         private readonly Dictionary<string,Receipt> receipts=new Dictionary<string,Receipt>();
         private readonly Queue<string> receiptOrder=new Queue<string>();
         internal HologramInformation Information { get; private set; }
-        internal HologramTools(Func<ToolContext> context) { this.context=context; }
+        internal HologramTools(Func<ToolContext> context, bool tiaOnly = false) { this.context=context; this.tiaOnly=tiaOnly; }
         internal void Clear() { Information=null; }
         internal void Expire(DateTime now) { if(Information!=null && now>=Information.ExpiresUtc)Clear(); }
 
@@ -102,12 +103,17 @@ namespace DeskBox.Ai
                 return new {ok=true,message="已展示临时全息信息",seconds=duration};
             }
             if(call.Name=="deskbox_execute"){
+                if (tiaOnly && Text(args,"tool") != "tia.read") return new {ok=false,error="博图语音仅能查询已加载的工程对象。"};
                 var operationContext=context==null?null:context();if(operationContext!=null)operationContext.Cancellation=cancellation;
                 var operationResult=MobileAiRunner.Execute(Text(args,"tool"),Text(args,"arguments"),operationContext);
                 string operationOutput=operationResult.Output??"";bool operationTruncated=operationOutput.Length>16000;
                 if(operationTruncated)operationOutput=Clip(operationOutput);
                 return new {ok=operationResult.Ok,result=operationOutput,error=operationResult.Error,truncated=operationTruncated};
             }
+            if (tiaOnly)
+                return call.Name=="deskbox_context"
+                    ? (object)new {ok=true,result="工程查询使用 deskbox_execute。tool 填写 tia.read，arguments 可包含对象名 name。"}
+                    : new {ok=false,error="博图语音仅能查询已加载的工程对象。"};
             string tool;
             switch(call.Name){
                 case "deskbox_task_create":tool="task.create";break;

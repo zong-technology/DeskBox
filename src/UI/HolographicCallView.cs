@@ -28,7 +28,7 @@ namespace DeskBox.UI
         private readonly HologramTools tools;
         private CancellationTokenSource session;
         private Task completion = Task.FromResult(0);
-        private bool exiting, muted, thinking, captionFinished = true, interruptRequested;
+        private bool exiting, paused, muted, thinking, captionFinished = true, interruptRequested;
         private string caption = "", assistantCaption = "", userCaption = "";
         private double seconds, lastFrame;
         private float level, targetLevel;
@@ -38,6 +38,7 @@ namespace DeskBox.UI
         internal string Caption { get { return caption; } }
         internal bool Muted { get { return muted; } }
         internal ChatSession Conversation { get { return conversation.Session; } }
+        internal string LastCompletedUserText { get { return conversation.LastCompletedUserText; } }
         internal HologramInformation Information { get { tools.Expire(DateTime.UtcNow);return tools.Information; } }
 
         public HolographicCallView(RealtimeVoiceSettings settings, ChatService history = null, Func<ToolContext> context = null) : this(settings,
@@ -49,7 +50,7 @@ namespace DeskBox.UI
             Func<int,IVoiceInput> inputs, Func<int,IVoiceOutput> outputs, ChatService history = null, Func<ToolContext> context = null)
         {
             profile=settings; providerFactory=providers; inputFactory=inputs; outputFactory=outputs;
-            conversation=new VoiceConversation(history,settings);tools=new HologramTools(context);
+            conversation=new VoiceConversation(history,settings);tools=new HologramTools(context,settings.TiaOnly);
             Dock=DockStyle.Fill; BackColor=Color.FromArgb(2,5,11); DoubleBuffered=true; TabStop=true;
             AccessibleName="全息 AI 对话"; AccessibleDescription="Esc 返回软件；Ctrl+M 静音；点击投影或按空格打断播报；连接中断时点击投影重试。";
             SetStyle(ControlStyles.ResizeRedraw,true);
@@ -75,7 +76,27 @@ namespace DeskBox.UI
         {
             if (session != null || exiting || IsDisposed) return;
             if (!profile.Ready) { mode=HologramMode.Idle; caption="语音尚未连接。"; Invalidate(); return; }
+            paused = false;
             completion=RunAsync();
+        }
+
+        internal void RequestInterrupt()
+        {
+            if (session != null && mode != HologramMode.Connecting) interruptRequested = true;
+        }
+
+        internal async Task PauseAsync()
+        {
+            paused = true;
+            if (session != null) session.Cancel();
+            await completion;
+            if (exiting || IsDisposed) return;
+            dynamics.Interrupt();
+            interruptRequested = false;
+            level = targetLevel = 0;
+            mode = HologramMode.Idle;
+            caption = "通话已暂停。";
+            Invalidate();
         }
 
         public async Task StopAsync()
@@ -215,8 +236,8 @@ namespace DeskBox.UI
                         }
                     } finally { active.Cancel(); if(receive!=null)ObserveFailure(receive); }
                 }
-            } catch(OperationCanceledException) { if(!exiting){mode=HologramMode.Unavailable;caption="暂时没有连上，请稍后重试。";} }
-              catch(Exception error) { DeskBox.Core.AppLog.Write("warn","ai","全息通话停止："+error.GetType().Name+"；code="+error.HResult); if(!exiting){mode=HologramMode.Unavailable;caption="连接暂时中断，点击投影可重试。";} }
+            } catch(OperationCanceledException) { if(!exiting && !paused){mode=HologramMode.Unavailable;caption="暂时没有连上，请稍后重试。";} }
+              catch(Exception error) { DeskBox.Core.AppLog.Write("warn","ai","全息通话停止："+error.GetType().Name+"；code="+error.HResult); if(!exiting && !paused){mode=HologramMode.Unavailable;caption="连接暂时中断，点击投影可重试。";} }
             finally {
                 if(session==active)session=null;
                 active.Dispose();targetLevel=0;

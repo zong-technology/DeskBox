@@ -40,6 +40,11 @@ namespace DeskBox
         public int WorkflowHistoryKeep = 500;       // 执行历史保留条数
         public bool WorkflowConfirmDanger = true;   // 高风险操作需确认
         public bool AiFileAccess = false;           // 允许 AI 读取文件内容
+        public bool TiaEnterSends = true;
+        public int TiaTreeWidth = 260;
+        public int TiaAssistantWidth = 350;
+        public int TiaLogHeight = 152;
+        public bool TiaAssistantCollapsed;
         public bool FileOpConfirm = true;           // 文件操作需确认
         public bool NotifyInApp = true;             // 应用内提醒
         public bool NotifyTask = true;              // 任务提醒

@@ -33,6 +33,7 @@ namespace DeskBox.UI
                 toolbar.AutoSize = true;
                 toolbar.AutoSizeMode = AutoSizeMode.GrowAndShrink;
                 if(_providers!=null)foreach(var provider in _providers.Providers.Where(x=>x.Enabled)){var p=provider;toolbar.Controls.Add(Button(p.Name,()=>{if(_chat!=null)_chat.SetProvider(p.Id,p.Model);},_chat!=null&&_chat.Current!=null&&_chat.Current.ProviderId==p.Id,130));}
+                toolbar.Controls.Add(Button("博图 AI 工程师",()=>Navigate("tia"),false,140));
                 toolbar.Controls.Add(Button("新对话",()=>_chat.NewSession(),false,90));toolbar.Controls.Add(Button("停止",()=>_chat.Cancel(),false,70));toolbar.Controls.Add(Button("参数设置",()=>{var chat=view as Views.ChatView;if(chat!=null)chat.ToggleReferenceOptions();},false,120));toolbar.Controls.Add(Button("服务商设置",()=>ShowLegacy("settings"),false,120));
 
                 toolbar.Controls.Add(Button("4–20 mA 换算", () => Navigate("calculator"), false, 126));
@@ -83,7 +84,11 @@ namespace DeskBox.UI
                 folders.Controls.Add(categories);
                 folders.Controls.Add(heading);
                 shell.Resize += delegate { preview.Width = Math.Max(180, Math.Min(320, shell.ClientSize.Width / 4)); };
-                search.EntrySelected+=file=>preview.ShowPreview(file.Path);preview.OpenRequested+=OpenPath;preview.RevealRequested+=path=>DeskBox.Native.Win32.RevealPath(path);preview.FavoriteRequested+=path=>_library.AddFavorite(path,"");preview.AiRequested += path => { var handler = FileAiRequested; if (handler != null) handler(path); };
+                string tiaFile = null;
+                var tia = Button("在博图工作台分析", () => { var handler = TiaFileRequested; if (tiaFile != null && handler != null) handler(tiaFile); }, false, 144);
+                tia.Enabled = false; toolbar.Controls.Add(tia);
+                search.Searched += result => { tiaFile = null; tia.Enabled = false; };
+                search.EntrySelected += file => { preview.ShowPreview(file.Path); tiaFile = !file.IsDir && new[] { ".aml", ".xml", ".scl", ".udt", ".db", ".csv" }.Contains(Path.GetExtension(file.Path).ToLowerInvariant()) ? file.Path : null; tia.Enabled = tiaFile != null; };preview.OpenRequested+=OpenPath;preview.RevealRequested+=path=>DeskBox.Native.Win32.RevealPath(path);preview.FavoriteRequested+=path=>_library.AddFavorite(path,"");preview.AiRequested += path => { var handler = FileAiRequested; if (handler != null) handler(path); };
                 shell.Controls.Add(view);shell.Controls.Add(preview);shell.Controls.Add(folders);view.BringToFront();workspace=shell;
             }
             AddMain(page,workspace,toolbar);_reload[id]=()=>{view.Activate();var search=view as Views.SearchView;if(search!=null){tree.RefreshRoots(DeskBox.Fs.FileIndex.Instance.Roots);tree.ShowScope(search.FolderScope);search.DoSearch();}};return page;

@@ -461,6 +461,7 @@ namespace DeskBox.UI
                 { "desktop", "▦", "智能桌面" },
                 { "projects", "◆", "项目舱" },
                 { "engineering", "⌁", "工程工具" },
+                { "tia", "▣", "博图 AI 工程师" },
                 { "ai", "◈", "AI&SI" },
                 { "automation", "⚡", "自动化" },
                 { "search", "🔍", "文件管理" },
@@ -589,7 +590,7 @@ namespace DeskBox.UI
                 _providers = new DeskBox.Ai.ProviderStore();
                 _chat = new DeskBox.Ai.ChatService(_store, _providers);
                 _chat.Workflows = _workflows;
-                _chat.Projects=_workspaces;_chat.Sync=_localSync;_chat.Cloud=_cloudSync;_chat.Files=_ops;_chat.Navigate=SwitchView;
+                _chat.Projects=_workspaces;_chat.Sync=_localSync;_chat.Cloud=_cloudSync;_chat.Files=_ops;_chat.Navigate=SwitchView;_chat.TiaRead=ReadTiaContext;
                 _chat.UiInvoke=delegate(Func<DeskBox.Ai.ToolResult> action){if(IsDisposed||_closing)return DeskBox.Ai.ToolResult.Fail("界面已关闭");return InvokeRequired?(DeskBox.Ai.ToolResult)Invoke(action):action();};
                 _chat.RefreshApp=delegate{OnGlobalContextChanged();if(_referenceActive)_reference.RefreshData();else{var view=_views.ContainsKey(_currentView)?_views[_currentView] as DeskBox.UI.Views.ViewBase:null;if(view!=null&&_currentView!="ai")view.Activate();}};
                 _cloudSync.MobileAi=new DeskBox.Ai.MobileAiRunner(_providers,CreateAssistantContext);
@@ -916,6 +917,7 @@ namespace DeskBox.UI
             {
                 _reference=new ReferenceWorkspace(_store,_workspaces,_localSync,_cloudSync,_chat,_providers,_workflows,_library,CreateView);
                 _reference.FileAiRequested += path => AskAiForPaths(new[] { path });
+                _reference.TiaFileRequested += path => { SwitchView("tia"); if (_tiaView != null) _tiaView.LoadExports(new[] { path }); };
                 _reference.PageChanged += id => { if (id == "desktop") RefreshReferenceDesktop(); };
                 _reference.ClassicRequested+=delegate{SetReferenceWorkspace(false);};_reference.PageChanged+=id=>{_currentView=id;};Controls.Add(_reference);
             }
@@ -1023,6 +1025,23 @@ namespace DeskBox.UI
                         workspaceView.SearchRequested += SearchProject;
                         return workspaceView;
                     case "engineering": return new DeskBox.UI.Views.EngineeringToolkitView(_store);
+                    case "tia": return _tiaView = new DeskBox.UI.Views.TiaEngineerView(_store, _providers, _workspaces, delegate
+                    {
+                        if (_referenceActive && _reference != null)
+                        {
+                            _reference.ShowLegacy("settings", view =>
+                            {
+                                var settings = view as DeskBox.UI.Views.SettingsCenterView;
+                                if (settings != null) settings.ShowAiProviders();
+                            });
+                            _tiaView.Activate();
+                        }
+                        else
+                        {
+                            SwitchView("settings");
+                            if (_settingsCenter != null) _settingsCenter.ShowAiProviders();
+                        }
+                    }, ShowTiaVoice);
                     case "search": return BuildSearchView();
                     case "library": return BuildLibraryView();
                     case "disk": return BuildDiskView();
@@ -1047,6 +1066,7 @@ namespace DeskBox.UI
             return null;
         }
 
+        private DeskBox.UI.Views.TiaEngineerView _tiaView;
         private DeskBox.UI.Views.SearchView _searchView;
         private void SearchProject(EngineerWorkspace project)
         {
@@ -1204,6 +1224,7 @@ namespace DeskBox.UI
                 new CommandItem { Icon="◫", Name="工程驾驶舱", Hint="系统、任务、通知与项目总览", Execute=delegate { SwitchView("home"); } },
                 new CommandItem { Icon="▦", Name="智能桌面", Hint="桌面文件、分类与快速启动", Execute=delegate { SwitchView("desktop"); } },
                 new CommandItem { Icon="◆", Name="工程项目舱", Hint="PLC / DCS / CSV 项目根目录", Execute=delegate { SwitchView("projects"); } },
+                new CommandItem { Icon="▣", Name="博图 AI 工程师", Hint="TIA 工程读取、SCL 草稿和副本验证", Execute=delegate { SwitchView("tia"); } },
                 new CommandItem { Icon="⌁", Name="工程工具矩阵", Hint="4–20mA、Pt100、S7、Modbus、网络与验证", Execute=delegate { SwitchView("engineering"); } },
                 new CommandItem { Icon="◈", Name="AI&SI 工程助手", Hint="PLC、DCS、GAMP 5、故障分析与文档审查", Execute=delegate { SwitchView("ai"); if (_chatView != null) BeginInvoke(new Action(_chatView.FocusInput)); } },
                 new CommandItem { Icon="⚡", Name="自动化工作流", Hint="预演、执行、取消与运行记录", Execute=delegate { SwitchView("automation"); } },
@@ -1886,7 +1907,7 @@ namespace DeskBox.UI
         protected override void OnDeactivate(EventArgs e)
         {
             base.OnDeactivate(e);
-            PushToBottom();
+            if (_tiaVoiceWindow == null) PushToBottom();
         }
 
         public void PushToBottom()
@@ -2039,6 +2060,7 @@ namespace DeskBox.UI
         }
 
         private HolographicCallView _liveVoice;
+        private Form _tiaVoiceWindow;
 
         private DeskBox.Ai.ToolContext CreateAssistantContext()
         {
@@ -2051,10 +2073,27 @@ namespace DeskBox.UI
             return context;
         }
 
+        private string ReadTiaContext(string name)
+        {
+            if (_tiaView == null || _tiaView.IsDisposed) throw new InvalidOperationException("请先在博图工作台加载工程并授权会话查询。");
+            return _tiaView.ReadForVoice(name);
+        }
+
+        private DeskBox.Ai.ToolContext CreateVoiceAssistantContext()
+        {
+            var context = CreateAssistantContext();
+            context.TiaRead = ReadTiaContext;
+            return context;
+        }
+
         internal void ShowLiveVoice()
         {
-            if (_liveVoice != null) return;
-            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,CreateAssistantContext);
+            if (_liveVoice != null)
+            {
+                if (_tiaVoiceWindow != null) _tiaVoiceWindow.Activate();
+                return;
+            }
+            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,CreateVoiceAssistantContext);
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
             voice.ExitRequested += async delegate {
@@ -2079,9 +2118,88 @@ namespace DeskBox.UI
             BeginInvoke(new Action(voice.Start));
         }
 
+        private void ShowTiaVoice()
+        {
+            if (_tiaVoiceWindow != null) { _tiaVoiceWindow.Activate(); return; }
+            if (_liveVoice != null) return;
+            var profile = new DeskBox.Ai.RealtimeVoiceSettingsStore().Load();
+            profile.TiaOnly = true;
+            var voice = new HolographicCallView(profile, _chat, CreateVoiceAssistantContext);
+            var area = Screen.FromControl(this).WorkingArea;
+            var window = new Form
+            {
+                Text = "博图实时语音", Name = "tia-voice-window", StartPosition = FormStartPosition.Manual,
+                Size = new Size(Math.Min(area.Width, 580), Math.Min(area.Height, 520)),
+                MinimumSize = new Size(420, 340), ShowInTaskbar = false, BackColor = Palette.Bg,
+                ForeColor = Palette.Text
+            };
+            window.Location = new Point(area.Right - window.Width, area.Top + Math.Min(115, Math.Max(0, area.Height - window.Height)));
+            var bottom = new Panel { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(6) };
+            var insert = new DarkButton("将转写加入需求") { Dock = DockStyle.Left, Width = 134, Palette = Palette };
+            var interrupt = new DarkButton("打断") { Dock = DockStyle.Left, Width = 58, Palette = Palette, Enabled = profile.Ready };
+            interrupt.Click += delegate { voice.RequestInterrupt(); };
+            var pause = new DarkButton("暂停通话") { Dock = DockStyle.Left, Width = 88, Palette = Palette, Enabled = profile.Ready };
+            bool paused = false;
+            pause.Click += async delegate
+            {
+                pause.Enabled = false;
+                try
+                {
+                    if (paused) voice.Start(); else await voice.PauseAsync();
+                    if (pause.IsDisposed) return;
+                    paused = !paused;
+                    pause.Text = paused ? "继续通话" : "暂停通话";
+                    interrupt.Enabled = !paused;
+                }
+                finally { if (!pause.IsDisposed) pause.Enabled = true; }
+            };
+            var hint = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0),
+                Text = profile.Ready ? "工程读取需在工作台授权。" : "请在「设置 → 全息语音」配置实时模型。" };
+            insert.Click += delegate
+            {
+                string text = voice.LastCompletedUserText;
+                if (string.IsNullOrWhiteSpace(text)) { hint.Text = "等待一条完整语音转写。"; return; }
+                SwitchView("tia");
+                hint.Text = _tiaView != null && !_tiaView.IsDisposed && _tiaView.AppendVoiceRequirement(text)
+                    ? "转写已加入需求，等待发送。" : "无法加入转写，请核对工作台和字数上限。";
+            };
+            bottom.Controls.Add(hint);
+            bottom.Controls.Add(interrupt);
+            bottom.Controls.Add(pause);
+            bottom.Controls.Add(insert);
+            window.Controls.Add(voice);
+            window.Controls.Add(bottom);
+            _liveVoice = voice;
+            _tiaVoiceWindow = window;
+            bool stopping = false, stopped = false;
+            voice.ExitRequested += delegate { window.Close(); };
+            window.FormClosing += async delegate(object sender, FormClosingEventArgs args)
+            {
+                if (_closing || stopped) return;
+                args.Cancel = true;
+                if (stopping) return;
+                stopping = true;
+                try
+                {
+                    await voice.StopAsync();
+                    if (_chat != null && !_chat.Busy && voice.Conversation != null) _chat.SwitchSession(voice.Conversation.Id);
+                }
+                catch (Exception error) { AppLog.Write("warn", "ai", "结束博图语音失败：" + error.Message); }
+                finally { stopped = true; if (window.IsHandleCreated && !window.IsDisposed) window.BeginInvoke(new Action(window.Close)); }
+            };
+            window.FormClosed += delegate
+            {
+                if (_liveVoice == voice) _liveVoice = null;
+                if (_tiaVoiceWindow == window) _tiaVoiceWindow = null;
+            };
+            window.Show(this);
+            voice.Focus();
+            window.BeginInvoke(new Action(voice.Start));
+        }
+
         private void OnFormKeyDown(object sender, KeyEventArgs e)
         {
-            if (_liveVoice != null) return;
+            if (_liveVoice != null && _tiaVoiceWindow == null) return;
             if (e.Control && e.KeyCode == Keys.K) { ShowCommandPalette(); e.Handled = true; }
             else if (e.Control && e.Shift && e.KeyCode == Keys.A) { SwitchView("ai"); if (_chatView != null) BeginInvoke(new Action(_chatView.FocusInput)); e.Handled = true; }
             else if (e.Control && e.Shift && e.KeyCode == Keys.E) { SwitchView("engineering"); e.Handled = true; }

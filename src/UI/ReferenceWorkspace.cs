@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -40,6 +40,7 @@ namespace DeskBox.UI
         private string _current="home",_selectedProject="";
         public event Action ClassicRequested;
         public event Action<string> FileAiRequested;
+        public event Action<string> TiaFileRequested;
         public event Action<string> PageChanged;
         public string CurrentPage{get{return _current;}}
         public static readonly string[] ReferencePages={"home","desktop","projects","engineering","ai","search","tasks","history","automation","incidents","weather","mobile"};
@@ -85,27 +86,27 @@ namespace DeskBox.UI
             var ai=Button("AI&SI",()=>Navigate("ai"),false,76);ai.SetBounds(1260,15,76,34);header.Controls.Add(ai);
             header.Resize+=delegate{int right=header.ClientSize.Width-16;ai.Left=right-ai.Width;user.Left=ai.Left-10-user.Width;_cloudLabel.Left=user.Left-190;_globalSearch.Width=Math.Max(180,Math.Min(490,_cloudLabel.Left-440));_heading.Visible=header.Width>1200;_globalSearch.Left=header.Width>1200?430:190;_globalSearch.Width=Math.Max(160,_cloudLabel.Left-_globalSearch.Left-24);};
             _rail=new Panel{Dock=DockStyle.Left,Width=200,BackColor=_p.HeaderBg,AutoScroll=true,Padding=new Padding(8,10,8,10)};
-            string[,] items={{"home","\uE80F","工程工作区"},{"desktop","\uE8A5","智能桌面"},{"projects","\uE8B7","项目管理"},{"engineering","\uE90F","工程工具"},{"ai","\uE99A","AI&SI 助手"},{"search","\uE721","文件中心"},{"tasks","\uE73A","任务与提醒"},{"history","\uE81C","工作记录"},{"automation","\uE945","自动化"},{"incidents","\uE7BA","现场事件"},{"weather","\uE753","天气"},{"mobile","\uE8EA","移动同步"}};
+            string[,] items={{"home","\uE80F","工程工作区"},{"desktop","\uE8A5","智能桌面"},{"projects","\uE8B7","项目管理"},{"engineering","\uE90F","工程工具"},{"tia","\uE950","博图 AI 工程师"},{"ai","\uE99A","AI&SI 助手"},{"search","\uE721","文件中心"},{"tasks","\uE73A","任务与提醒"},{"history","\uE81C","工作记录"},{"automation","\uE945","自动化"},{"incidents","\uE7BA","现场事件"},{"weather","\uE753","天气"},{"mobile","\uE8EA","移动同步"}};
             for(int i=0;i<items.GetLength(0);i++)
             {
                 string id=items[i,0];var button=Button(items[i,2],()=>Navigate(id),false,176);button.SetBounds(4,35+i*44,176,40);button.Font=FontOf(10.5f);button.Name="nav-"+id;button.Navigation=true;button.Symbol=items[i,1];_rail.Controls.Add(button);_nav[id]=button;
             }
             var section=TextLabel("WORKSPACE  /  工作空间",8,false,_p.TextFaint);section.SetBounds(18,10,170,20);_rail.Controls.Add(section);
-            var more=Button("功能与设置",()=>ShowMore(),false,176);more.SetBounds(4,591,176,38);more.Navigation=true;more.Symbol="\uE713";_rail.Controls.Add(more);
-            var classic=Button("切换经典模式",()=>{if(ClassicRequested!=null)ClassicRequested();},false,176);classic.SetBounds(4,635,176,34);classic.Navigation=true;classic.Symbol="\uE8A9";_rail.Controls.Add(classic);
+            var more=Button("功能与设置",()=>ShowMore(),false,176);more.SetBounds(4,635,176,38);more.Navigation=true;more.Symbol="\uE713";_rail.Controls.Add(more);
+            var classic=Button("切换经典模式",()=>{if(ClassicRequested!=null)ClassicRequested();},false,176);classic.SetBounds(4,679,176,34);classic.Navigation=true;classic.Symbol="\uE8A9";_rail.Controls.Add(classic);
             _content=new Panel{Dock=DockStyle.Fill,BackColor=_p.Bg};_status=TextLabel("",8,false,_p.TextDim);_status.Dock=DockStyle.Bottom;_status.Height=25;_status.Padding=new Padding(18,3,0,0);
             Controls.Add(_content);Controls.Add(_rail);Controls.Add(_status);Controls.Add(header);RefreshStatus();
         }
         public void Navigate(string page)
         {
-            if(!ReferencePages.Contains(page)&&page!="project-detail"&&page!="calculator"&&page!="tool-workspace"){ShowLegacy(page);return;}
+            if(!ReferencePages.Contains(page)&&page!="project-detail"&&page!="calculator"&&page!="tool-workspace"&&page!="tia"){ShowLegacy(page);return;}
             _current=page;
             _globalSearch.UseDrawnPlaceholder = page == "desktop" || page == "home" || page == "engineering" || page == "ai";
             if(PageChanged!=null)PageChanged(page);
             if(!_pages.ContainsKey(page))
             {
                 Control control;
-                switch(page){case "home":control=BuildOperationsDesk();break;case "desktop":control=BuildDesktopPage();break;case "history":control=BuildHistoryPage();break;case "projects":control=BuildPortfolio();break;case "project-detail":control=BuildProjectWorkspace();break;case "engineering":control=BuildToolStudio();break;case "tool-workspace":control=BuildToolWorkspace();break;case "calculator":control=BuildCalculator();break;case "tasks":control=BuildTasks();break;case "incidents":control=BuildIncidents();break;case "weather":control=BuildWeather();break;case "mobile":control=BuildMobile();break;default:control=BuildServicePage(page);break;}
+                switch(page){case "home":control=BuildOperationsDesk();break;case "desktop":control=BuildDesktopPage();break;case "history":control=BuildHistoryPage();break;case "projects":control=BuildPortfolio();break;case "project-detail":control=BuildProjectWorkspace();break;case "engineering":control=BuildToolStudio();break;case "tia":control=_legacyFactory(page);break;case "tool-workspace":control=BuildToolWorkspace();break;case "calculator":control=BuildCalculator();break;case "tasks":control=BuildTasks();break;case "incidents":control=BuildIncidents();break;case "weather":control=BuildWeather();break;case "mobile":control=BuildMobile();break;default:control=BuildServicePage(page);break;}
                 control.Name="page-"+page;control.Dock=DockStyle.Fill;_pages[page]=control;_content.Controls.Add(control);
             }
             foreach(var item in _pages)item.Value.Visible=item.Key==page;_pages[page].BringToFront();
@@ -127,10 +128,10 @@ namespace DeskBox.UI
         private void DataChanged(){if(IsDisposed)return;if(InvokeRequired){try{BeginInvoke(new Action(DataChanged));}catch{}return;}RefreshStatus();Action reload;if(new[]{"home","projects","project-detail","tasks","incidents"}.Contains(_current)&&_reload.TryGetValue(_current,out reload))reload();}
         private void CloudChanged(){if(IsDisposed)return;if(InvokeRequired){try{BeginInvoke(new Action(CloudChanged));}catch{}return;}RefreshStatus();Action reload;if(_current=="mobile"&&_reload.TryGetValue("mobile",out reload))reload();}
         private void ShowMore(){var menu=MenuBuilder.Create(_p);foreach(var item in new[]{new[]{"收藏与标签","library"},new[]{"磁盘分析","disk"},new[]{"系统监控","monitor"},new[]{"剪贴板","clipboard"},new[]{"工作记录","history"},new[]{"通知中心","notifications"},new[]{"文件操作历史","filehistory"},new[]{"设置中心","settings"}}){string id=item[1];menu.Items.Add(MenuBuilder.Item(item[0],()=>ShowLegacy(id)));}menu.Show(_rail,new Point(12,550));}
-        private void ShowLegacy(string name)
+        internal void ShowLegacy(string name, Action<Control> configure = null)
         {
             using(var dialog=new Form{Text="DeskBox · "+name,StartPosition=FormStartPosition.CenterParent,Size=new Size(1120,760),BackColor=_p.Bg})
-            {var view=_legacyFactory(name);if(view==null)return;view.Dock=DockStyle.Fill;dialog.Controls.Add(view);var baseView=view as Views.ViewBase;if(baseView!=null){baseView.ApplyPalette(_p);baseView.Activate();}dialog.ShowDialog(this);}DataChanged();
+            {var view=_legacyFactory(name);if(view==null)return;view.Dock=DockStyle.Fill;dialog.Controls.Add(view);var baseView=view as Views.ViewBase;if(baseView!=null){baseView.ApplyPalette(_p);baseView.Activate();}if(configure!=null)configure(view);dialog.ShowDialog(this);}DataChanged();
         }
         private void OpenPath(string path){if(!File.Exists(path)&&!Directory.Exists(path)){_status.Text="路径已不存在："+path;return;}Win32.OpenPath(path);if(File.Exists(path))_library.Touch(path);}
         private EngineerWorkspace CurrentProject(){return _projects.Current??_projects.Items.FirstOrDefault(p=>p.Id==_selectedProject)??_projects.Items.FirstOrDefault();}

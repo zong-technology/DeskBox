@@ -14,6 +14,7 @@ namespace DeskBox.Ai
         private bool dirty;
         private DateTime lastSave=DateTime.MinValue;
         internal ChatSession Session { get; private set; }
+        internal string LastCompletedUserText { get; private set; }
         internal VoiceConversation(ChatService history, RealtimeVoiceSettings profile) { this.history=history;this.profile=profile; }
 
         internal void Accept(VoicePacket packet)
@@ -35,6 +36,9 @@ namespace DeskBox.Ai
                 if(!packet.UserCaptionDelta)user.Streaming=false;
                 Put(user);
             }
+            if (user != null && (packet.InputEnded || packet.TurnComplete || !string.IsNullOrEmpty(packet.UserCaption) && !packet.UserCaptionDelta) &&
+                !string.IsNullOrWhiteSpace(user.Content))
+                LastCompletedUserText = user.Content;
             if(!string.IsNullOrEmpty(packet.Caption)){
                 if(assistant==null)assistant=NewMessage("assistant");
                 assistant.Content+=packet.Caption;Put(assistant);
