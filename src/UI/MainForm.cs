@@ -1041,7 +1041,7 @@ namespace DeskBox.UI
                             SwitchView("settings");
                             if (_settingsCenter != null) _settingsCenter.ShowAiProviders();
                         }
-                    });
+                    }, ShowTiaVoice);
                     case "search": return BuildSearchView();
                     case "library": return BuildLibraryView();
                     case "disk": return BuildDiskView();
@@ -1907,7 +1907,7 @@ namespace DeskBox.UI
         protected override void OnDeactivate(EventArgs e)
         {
             base.OnDeactivate(e);
-            PushToBottom();
+            if (_tiaVoiceWindow == null) PushToBottom();
         }
 
         public void PushToBottom()
@@ -2060,6 +2060,7 @@ namespace DeskBox.UI
         }
 
         private HolographicCallView _liveVoice;
+        private Form _tiaVoiceWindow;
 
         private DeskBox.Ai.ToolContext CreateAssistantContext()
         {
@@ -2087,7 +2088,11 @@ namespace DeskBox.UI
 
         internal void ShowLiveVoice()
         {
-            if (_liveVoice != null) return;
+            if (_liveVoice != null)
+            {
+                if (_tiaVoiceWindow != null) _tiaVoiceWindow.Activate();
+                return;
+            }
             var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,CreateVoiceAssistantContext);
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
@@ -2113,9 +2118,69 @@ namespace DeskBox.UI
             BeginInvoke(new Action(voice.Start));
         }
 
+        private void ShowTiaVoice()
+        {
+            if (_tiaVoiceWindow != null) { _tiaVoiceWindow.Activate(); return; }
+            if (_liveVoice != null) return;
+            var profile = new DeskBox.Ai.RealtimeVoiceSettingsStore().Load();
+            profile.TiaOnly = true;
+            var voice = new HolographicCallView(profile, _chat, CreateVoiceAssistantContext);
+            var area = Screen.FromControl(this).WorkingArea;
+            var window = new Form
+            {
+                Text = "博图实时语音", Name = "tia-voice-window", StartPosition = FormStartPosition.Manual,
+                Size = new Size(Math.Min(area.Width, 580), Math.Min(area.Height, 520)),
+                MinimumSize = new Size(420, 340), ShowInTaskbar = false, BackColor = Palette.Bg,
+                ForeColor = Palette.Text
+            };
+            window.Location = new Point(area.Right - window.Width, area.Top + Math.Min(115, Math.Max(0, area.Height - window.Height)));
+            var bottom = new Panel { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(6) };
+            var insert = new DarkButton("将转写加入需求") { Dock = DockStyle.Left, Width = 134, Palette = Palette };
+            var hint = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0),
+                Text = profile.Ready ? "工程读取需在工作台授权。" : "请在「设置 → 全息语音」配置实时模型。" };
+            insert.Click += delegate
+            {
+                string text = voice.LastCompletedUserText;
+                if (string.IsNullOrWhiteSpace(text)) { hint.Text = "等待一条完整语音转写。"; return; }
+                SwitchView("tia");
+                hint.Text = _tiaView != null && !_tiaView.IsDisposed && _tiaView.AppendVoiceRequirement(text)
+                    ? "转写已加入需求，等待发送。" : "无法加入转写，请核对工作台和字数上限。";
+            };
+            bottom.Controls.Add(hint);
+            bottom.Controls.Add(insert);
+            window.Controls.Add(voice);
+            window.Controls.Add(bottom);
+            _liveVoice = voice;
+            _tiaVoiceWindow = window;
+            bool stopping = false, stopped = false;
+            voice.ExitRequested += delegate { window.Close(); };
+            window.FormClosing += async delegate(object sender, FormClosingEventArgs args)
+            {
+                if (_closing || stopped) return;
+                args.Cancel = true;
+                if (stopping) return;
+                stopping = true;
+                try
+                {
+                    await voice.StopAsync();
+                    if (_chat != null && !_chat.Busy && voice.Conversation != null) _chat.SwitchSession(voice.Conversation.Id);
+                }
+                catch (Exception error) { AppLog.Write("warn", "ai", "结束博图语音失败：" + error.Message); }
+                finally { stopped = true; if (window.IsHandleCreated && !window.IsDisposed) window.BeginInvoke(new Action(window.Close)); }
+            };
+            window.FormClosed += delegate
+            {
+                if (_liveVoice == voice) _liveVoice = null;
+                if (_tiaVoiceWindow == window) _tiaVoiceWindow = null;
+            };
+            window.Show(this);
+            voice.Focus();
+            window.BeginInvoke(new Action(voice.Start));
+        }
+
         private void OnFormKeyDown(object sender, KeyEventArgs e)
         {
-            if (_liveVoice != null) return;
+            if (_liveVoice != null && _tiaVoiceWindow == null) return;
             if (e.Control && e.KeyCode == Keys.K) { ShowCommandPalette(); e.Handled = true; }
             else if (e.Control && e.Shift && e.KeyCode == Keys.A) { SwitchView("ai"); if (_chatView != null) BeginInvoke(new Action(_chatView.FocusInput)); e.Handled = true; }
             else if (e.Control && e.Shift && e.KeyCode == Keys.E) { SwitchView("engineering"); e.Handled = true; }

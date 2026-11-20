@@ -57,7 +57,8 @@ namespace DeskBox.UI.Views
         private CancellationToken voiceScope;
         private Phase phase;
 
-        public TiaEngineerView(Store store, ProviderStore providers, WorkspaceStore projects, Action configureModel = null) : base(store, "博图 AI 工程师", "只读模式 · TIA Portal、SCL 与离线工程验证")
+        public TiaEngineerView(Store store, ProviderStore providers, WorkspaceStore projects, Action configureModel = null,
+            Action openVoice = null) : base(store, "博图 AI 工程师", "只读模式 · TIA Portal、SCL 与离线工程验证")
         {
             this.providers = providers; this.projects = projects;
             Name = "tia-engineer";
@@ -70,6 +71,7 @@ namespace DeskBox.UI.Views
             start.Primary = true;
             start.Name = "tia-focus-requirement";
             top.Controls.AddRange(new Control[] { start, mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
+            if (openVoice != null) top.Controls.Add(Button("工程语音", openVoice));
             cancel = new DarkButton("取消当前任务") { Width = 116, Height = 32, Enabled = false, Palette = Palette };
             cancel.Click += delegate { if (operation != null) operation.Cancel(); }; top.Controls.Add(cancel);
 
@@ -546,6 +548,15 @@ namespace DeskBox.UI.Views
             SelectTab(0);
             programmingScroll.ScrollControlIntoView(requirement);
             requirement.Focus();
+        }
+        internal bool AppendVoiceRequirement(string transcript)
+        {
+            if (string.IsNullOrWhiteSpace(transcript)) return false;
+            string addition = (requirement.TextLength == 0 ? "" : "\n") + transcript.Trim();
+            if (requirement.TextLength + addition.Length > requirement.MaxLength) return false;
+            requirement.AppendText(addition);
+            FocusRequirement();
+            return true;
         }
         private void FillExample()
         {

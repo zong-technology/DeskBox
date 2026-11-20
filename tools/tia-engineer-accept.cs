@@ -339,6 +339,14 @@ public static class TiaEngineerAcceptance
             Check(tabs.SelectedIndex == 0 && draft.Text.Contains("FB_SecondDraft"), "Applying the preview explicitly replaces the editor draft");
         }
         await Capture(form, evidence, "tia-workbench-1600.png");
+        await Click(button("工程语音"));
+        var voiceForm = Application.OpenForms.Cast<Form>().Single(window => window.Name == "tia-voice-window");
+        Check(voiceForm.Visible && !voiceForm.Modal && view.Visible, "TIA voice opens in an owned modeless window while engineering stays visible");
+        await Capture(form, evidence, "tia-voice.png");
+        voiceForm.Close();
+        var voiceClosedBy = DateTime.UtcNow.AddSeconds(4);
+        while (!voiceForm.IsDisposed && DateTime.UtcNow < voiceClosedBy) await Task.Delay(40);
+        Check(voiceForm.IsDisposed && view.Visible && prompt.Text.Contains("Pending"), "Closing TIA voice leaves the unsent engineering draft intact");
         string goodSource = draft.Text;
         draft.Text = "FUNCTION_BLOCK Test\nVAR_INPUT\n Known : Bool;\nEND_VAR\nBEGIN\n IF #Unknown THEN\n END_IF;\nEND_FUNCTION_BLOCK";
         await Click(button("静态检查草稿"));

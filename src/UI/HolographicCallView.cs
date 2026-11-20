@@ -38,6 +38,7 @@ namespace DeskBox.UI
         internal string Caption { get { return caption; } }
         internal bool Muted { get { return muted; } }
         internal ChatSession Conversation { get { return conversation.Session; } }
+        internal string LastCompletedUserText { get { return conversation.LastCompletedUserText; } }
         internal HologramInformation Information { get { tools.Expire(DateTime.UtcNow);return tools.Information; } }
 
         public HolographicCallView(RealtimeVoiceSettings settings, ChatService history = null, Func<ToolContext> context = null) : this(settings,
@@ -49,7 +50,7 @@ namespace DeskBox.UI
             Func<int,IVoiceInput> inputs, Func<int,IVoiceOutput> outputs, ChatService history = null, Func<ToolContext> context = null)
         {
             profile=settings; providerFactory=providers; inputFactory=inputs; outputFactory=outputs;
-            conversation=new VoiceConversation(history,settings);tools=new HologramTools(context);
+            conversation=new VoiceConversation(history,settings);tools=new HologramTools(context,settings.TiaOnly);
             Dock=DockStyle.Fill; BackColor=Color.FromArgb(2,5,11); DoubleBuffered=true; TabStop=true;
             AccessibleName="全息 AI 对话"; AccessibleDescription="Esc 返回软件；Ctrl+M 静音；点击投影或按空格打断播报；连接中断时点击投影重试。";
             SetStyle(ControlStyles.ResizeRedraw,true);
