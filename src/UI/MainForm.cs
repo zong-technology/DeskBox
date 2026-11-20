@@ -2136,6 +2136,23 @@ namespace DeskBox.UI
             window.Location = new Point(area.Right - window.Width, area.Top + Math.Min(115, Math.Max(0, area.Height - window.Height)));
             var bottom = new Panel { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(6) };
             var insert = new DarkButton("将转写加入需求") { Dock = DockStyle.Left, Width = 134, Palette = Palette };
+            var interrupt = new DarkButton("打断") { Dock = DockStyle.Left, Width = 58, Palette = Palette, Enabled = profile.Ready };
+            interrupt.Click += delegate { voice.RequestInterrupt(); };
+            var pause = new DarkButton("暂停通话") { Dock = DockStyle.Left, Width = 88, Palette = Palette, Enabled = profile.Ready };
+            bool paused = false;
+            pause.Click += async delegate
+            {
+                pause.Enabled = false;
+                try
+                {
+                    if (paused) voice.Start(); else await voice.PauseAsync();
+                    if (pause.IsDisposed) return;
+                    paused = !paused;
+                    pause.Text = paused ? "继续通话" : "暂停通话";
+                    interrupt.Enabled = !paused;
+                }
+                finally { if (!pause.IsDisposed) pause.Enabled = true; }
+            };
             var hint = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0),
                 Text = profile.Ready ? "工程读取需在工作台授权。" : "请在「设置 → 全息语音」配置实时模型。" };
             insert.Click += delegate
@@ -2147,6 +2164,8 @@ namespace DeskBox.UI
                     ? "转写已加入需求，等待发送。" : "无法加入转写，请核对工作台和字数上限。";
             };
             bottom.Controls.Add(hint);
+            bottom.Controls.Add(interrupt);
+            bottom.Controls.Add(pause);
             bottom.Controls.Add(insert);
             window.Controls.Add(voice);
             window.Controls.Add(bottom);

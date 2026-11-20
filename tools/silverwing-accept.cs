@@ -142,6 +142,26 @@ internal static class SilverwingAccept
                 Freeze(view);view.Start();var ending=view.StopAsync();Pump(()=>ending.IsCompleted);
                 Check(unopened==0 && pending.Disposed,"Cancelling connection never opens a late microphone");
             }
+            var voiceTransports = new List<FakeProvider>();
+            FakeInput pausedInput = null;
+            using (var view = new HolographicCallView(settings,
+                p => { var transport = new FakeProvider(); voiceTransports.Add(transport); return transport; },
+                r => pausedInput = new FakeInput(), r => new FakeOutput()))
+            {
+                Freeze(view);
+                view.Start();
+                Pump(() => view.Mode == HologramMode.Listening && pausedInput != null);
+                var pause = view.PauseAsync();
+                Pump(() => pause.IsCompleted);
+                pause.GetAwaiter().GetResult();
+                Check(voiceTransports.Single().Disposed && pausedInput.Disposed && view.Mode == HologramMode.Idle, "Pausing closes the transport and releases the microphone before showing idle");
+                view.Start();
+                Pump(() => voiceTransports.Count == 2 && view.Mode == HologramMode.Listening);
+                var stop = view.StopAsync();
+                Pump(() => stop.IsCompleted);
+                stop.GetAwaiter().GetResult();
+                Check(voiceTransports.All(transport => transport.Disposed), "Resuming opens a new transport and close releases it");
+            }
             var failed=new FakeProvider {FailConnect=true};
             using(var view=new HolographicCallView(settings,p=>failed,r=>new FakeInput(),r=>new FakeOutput())){
                 Freeze(view);view.Start();Pump(()=>view.Mode==HologramMode.Unavailable);

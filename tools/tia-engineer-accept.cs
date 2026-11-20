@@ -404,12 +404,44 @@ public static class TiaEngineerAcceptance
         Children(view).OfType<CheckBox>().Single(x => x.Text.Contains("语音") || x.Text.Contains("查阅已加载")).Checked = true;
         var lookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
         Check(lookup.Ok && lookup.Output.Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab " + lookup.Error);
+        Check(((PlcObject)tree.SelectedNode.Tag).Name == "CheckValve", "Voice tool highlights the exact program block in the tree");
+        call["name"] = "Pressure";
+        var tagLookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
+        var variableLines = Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "变量与 IO");
+        Check(tagLookup.Ok && tabs.SelectedIndex == 4 && variableLines.SelectedText.StartsWith("Pressure  "), "Voice lookup highlights a variable row in the actual variable view");
+        call["name"] = "CPU A";
+        var hardwareLookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
+        Check(hardwareLookup.Ok && tabs.SelectedIndex == 2 && hardwareList.SelectedItems.Count == 1 && hardwareList.SelectedItems[0].Text == "CPU A", "Voice lookup locates the exact owning hardware row");
         var sourceNode = blocks.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("FB_AnalogScale "));
         tree.SelectedNode = sourceNode;
         Check(Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "程序分析").Text.Contains("最大嵌套"),
             "SCL objects expose the actual control-flow summary in program analysis");
         await ExerciseRequirement(form, store, view, tabs, listener, evidence);
         Check(tabs.Width > 350, "Main work area retains room at narrow width");
+        form.Bounds = new Rectangle(0, 0, 1600, 900);
+        await Task.Delay(100);
+        var logDivider = view.Controls.Find("tia-log-divider", true).Single();
+        var logPane = view.Controls.Find("tia-log-pane", true).Single();
+        var previousHeight = logPane.Height;
+        var position = logDivider.PointToScreen(new Point(logDivider.Width / 2, logDivider.Height / 2));
+        Check(WindowFromPoint(position) == logDivider.Handle, "The installed-layout log divider is directly reachable by pointer");
+        Cursor.Position = position;
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+        try
+        {
+            await Task.Delay(60);
+            Cursor.Position = new Point(position.X, position.Y - 30);
+            await Task.Delay(100);
+        }
+        finally { mouse_event(4, 0, 0, 0, UIntPtr.Zero); }
+        await Task.Delay(160);
+        var persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
+        Check(logPane.Height > previousHeight && persisted.Settings.TiaLogHeight == store.Settings.TiaLogHeight && store.Settings.TiaLogHeight > 152,
+            "Dragging the native log divider persists its adjusted height");
+        await Click(view.Controls.Find("tia-reset-layout", true).Single());
+        persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
+        Check(persisted.Settings.TiaLogHeight == 152 && persisted.Settings.TiaTreeWidth == 260 && persisted.Settings.TiaAssistantWidth == 350 && logPane.Height == previousHeight,
+            "Reset restores and persists the default workbench dimensions");
     }
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);

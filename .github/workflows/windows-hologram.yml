@@ -142,6 +142,8 @@ jobs:
         run: |
           .\tools\write-install-report.ps1
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-input.png -Destination .\dist\installer
+          Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-screenshots.zip -Destination .\dist\installer
+          Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-environment.json -Destination .\dist\installer
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -191,6 +193,8 @@ jobs:
             '.\installer\SHA256SUMS.txt'
             '.\installer\INSTALL-TEST-REPORT.md'
             '.\installer\installed-tia-input.png'
+            '.\installer\installed-tia-screenshots.zip'
+            '.\installer\installed-tia-environment.json'
             '.\native-preview\hologram-qa\hologram-motion.gif'
           )
           $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-network-endpoints.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png', 'tia-environment.png') | ForEach-Object { Join-Path $tia $_ }

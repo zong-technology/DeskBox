@@ -131,7 +131,7 @@ namespace DeskBox.UI.Views
             compileCopy = Button("编译副本", () => Compile(false));
             approveInsertion = Button("批准新增 FB 并编译", () => Compile(true));
             Page("测试验证", "离线编译需 V20 Openness。双击诊断可定位有证据的位置。", BuildValidationPanel(), cpu, compileCopy, approveInsertion, restoreBackup, Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
-            var left = new Panel { Dock = DockStyle.Left, Width = 260, Padding = new Padding(0, 0, 4, 0) };
+            var left = new Panel { Name = "tia-tree-pane", Dock = DockStyle.Left, Width = 260, Padding = new Padding(0, 0, 4, 0) };
             left.Controls.Add(tree); left.Controls.Add(treeQuery); left.Controls.Add(Caption("工程浏览器"));
             tree.ShowNodeToolTips = true;
             tree.BeforeExpand += delegate(object sender, TreeViewCancelEventArgs e)
@@ -150,39 +150,53 @@ namespace DeskBox.UI.Views
                 e.SuppressKeyPress = true;
                 tree.Focus();
             };
-            var leftDivider = new Splitter { Dock = DockStyle.Left, Width = 6, MinSize = 220, MinExtra = 400 };
-            side = new Panel { Dock = DockStyle.Right, Width = 320, Padding = new Padding(8, 0, 0, 0) };
+            tree.Font = UiKit.CachedFont("Microsoft YaHei UI", 10, FontStyle.Regular);
+            var leftDivider = new Splitter { Name = "tia-tree-divider", Dock = DockStyle.Left, Width = 6, MinSize = 220, MinExtra = 400 };
+            side = new Panel { Name = "tia-assistant-pane", Dock = DockStyle.Right, Width = 320, Padding = new Padding(8, 0, 0, 0) };
             side.Controls.Add(assistant); side.Controls.Add(Caption("工程助手 · 执行与复核")); side.Controls.Add(voiceAccess);
             voiceAccess.Dock = DockStyle.Bottom;
             voiceAccess.CheckedChanged += delegate { if (voiceAccess.Checked) voiceScope = AiEnvironment.Token; };
-            var rightDivider = new Splitter { Dock = DockStyle.Right, Width = 6, MinSize = 300, MinExtra = 630 };
+            var rightDivider = new Splitter { Name = "tia-assistant-divider", Dock = DockStyle.Right, Width = 6, MinSize = 300, MinExtra = 630 };
+            var logs = new Panel { Name = "tia-log-pane", Dock = DockStyle.Bottom, Height = 152 };
+            var logsDivider = new Splitter { Name = "tia-log-divider", Dock = DockStyle.Bottom, Height = 6, MinSize = 84, MinExtra = 280 };
+            logs.Controls.Add(output); logs.Controls.Add(Caption("工程日志与验证结果"));
             var center = new Panel { Dock = DockStyle.Fill };
             center.Controls.AddRange(new Control[] { tabs, rightDivider, side, leftDivider, left });
-            bool assistantOpen = true;
-            var toggleAssistant = new DarkButton("收起助手") { Width = 100, Height = 32, Palette = Palette };
-            toggleAssistant.Click += delegate
-            {
-                assistantOpen = !assistantOpen;
-                side.Visible = assistantOpen;
-                rightDivider.Visible = assistantOpen && side.Dock == DockStyle.Right;
-                toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
-            };
-            top.Controls.Add(toggleAssistant);
-            bool? wideLayout = null;
-            center.Resize += delegate
+            var toggleAssistant = new DarkButton("收起助手") { Name = "tia-toggle-assistant", Width = 100, Height = 32, Palette = Palette };
+            Action applyLayout = delegate
             {
                 bool wide = center.Width >= Dpi.D(this, 1120);
-                if (wideLayout == wide) return;
-                wideLayout = wide;
-                left.Width = Dpi.D(this, wide ? 260 : 180);
+                bool assistantOpen = !Store.Settings.TiaAssistantCollapsed;
+                left.Width = Dpi.D(this, wide ? Clamp(Store.Settings.TiaTreeWidth, 220, assistantOpen ? Math.Min(420, LayoutUnits(center.Width) - 740) : 420) : 180);
                 side.Dock = wide ? DockStyle.Right : DockStyle.Bottom;
-                if (wide) side.Width = Dpi.D(this, 350);
-                else side.Height = Dpi.D(this, 120);
+                if (wide) side.Width = Dpi.D(this, Clamp(Store.Settings.TiaAssistantWidth, 300, Math.Min(520, LayoutUnits(center.Width - left.Width) - 440)));
+                else side.Height = Dpi.D(this, 106);
+                logs.Height = Dpi.D(this, Clamp(Store.Settings.TiaLogHeight, 84, Math.Min(240, Math.Max(92, LayoutUnits(Body.Height) / 3))));
                 leftDivider.Visible = wide;
                 rightDivider.Visible = wide && assistantOpen;
+                side.Visible = assistantOpen;
+                toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
             };
-            leftDivider.SplitterMoved += delegate { left.Width = Math.Min(left.Width, Dpi.D(this, 420)); };
-            rightDivider.SplitterMoved += delegate { side.Width = Math.Min(side.Width, Dpi.D(this, 520)); };
+            toggleAssistant.Click += delegate
+            {
+                Store.Settings.TiaAssistantCollapsed = !Store.Settings.TiaAssistantCollapsed;
+                applyLayout(); Store.SaveSettingsOnly();
+            };
+            var resetLayout = new DarkButton("恢复默认布局") { Name = "tia-reset-layout", Width = 108, Height = 32, Palette = Palette };
+            resetLayout.Click += delegate
+            {
+                var defaults = new AppSettings();
+                Store.Settings.TiaTreeWidth = defaults.TiaTreeWidth;
+                Store.Settings.TiaAssistantWidth = defaults.TiaAssistantWidth;
+                Store.Settings.TiaLogHeight = defaults.TiaLogHeight;
+                Store.Settings.TiaAssistantCollapsed = defaults.TiaAssistantCollapsed;
+                applyLayout(); Store.SaveSettingsOnly();
+            };
+            top.Controls.AddRange(new Control[] { toggleAssistant, resetLayout });
+            center.SizeChanged += delegate { applyLayout(); };
+            leftDivider.SplitterMoved += delegate { Store.Settings.TiaTreeWidth = Clamp(LayoutUnits(left.Width), 220, 420); applyLayout(); Store.SaveSettingsOnly(); };
+            rightDivider.SplitterMoved += delegate { Store.Settings.TiaAssistantWidth = Clamp(LayoutUnits(side.Width), 300, 520); applyLayout(); Store.SaveSettingsOnly(); };
+            logsDivider.SplitterMoved += delegate { Store.Settings.TiaLogHeight = Clamp(LayoutUnits(logs.Height), 84, 240); applyLayout(); Store.SaveSettingsOnly(); };
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
             tabs.DrawItem += delegate(object sender, DrawItemEventArgs e)
             {
@@ -192,7 +206,8 @@ namespace DeskBox.UI.Views
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
             };
             FormatCombo(mode); FormatCombo(cpu);
-            Body.Controls.Add(center); Body.Controls.Add(top);
+            Body.Controls.AddRange(new Control[] { center, logsDivider, logs, top });
+            applyLayout();
             tree.AfterSelect += delegate(object sender, TreeViewEventArgs e) { ShowObject(e.Node == null ? null : e.Node.Tag as PlcObject); };
             tree.NodeMouseDoubleClick += delegate(object sender, TreeNodeMouseClickEventArgs e) { ShowObject(e.Node.Tag as PlcObject); };
             tree.NodeMouseClick += delegate(object sender, TreeNodeMouseClickEventArgs e)
@@ -214,6 +229,9 @@ namespace DeskBox.UI.Views
             RestoreRequirement();
             RefreshHeading();
         }
+
+        private int LayoutUnits(int pixels) { return (int)Math.Round(pixels * 96.0 / DeviceDpi); }
+        private static int Clamp(int value, int minimum, int maximum) { return Math.Max(minimum, Math.Min(maximum, value)); }
 
         private FlowLayoutPanel Bar() { return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(0, 4, 0, 5) }; }
         private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = Dpi.D(this, 24), Margin = Padding.Empty, AutoEllipsis = true, UseMnemonic = false, ForeColor = Palette.TextDim, Font = Font }; }
@@ -268,7 +286,7 @@ namespace DeskBox.UI.Views
             programmingScroll.SizeChanged += delegate { sizeContent(); };
             promptActions.Layout += delegate { sizeContent(); };
             draftActions.Layout += delegate { sizeContent(); };
-            requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.12); };
+            requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.15); };
             requirement.Leave += delegate { requirement.BackColor = Palette.PanelAlt; };
             editor.Enter += delegate { programmingScroll.ScrollControlIntoView(editor); };
             sizeContent();
@@ -349,16 +367,16 @@ namespace DeskBox.UI.Views
         }
         private Control BuildValidationPanel()
         {
-            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
             panel.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 32)));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             diagnosticFilter.Items.AddRange(new object[] { "全部诊断", "错误", "警告", "其他" });
             diagnosticFilter.SelectedIndex = 0;
             diagnosticFilter.SelectedIndexChanged += delegate { RefreshDiagnostics(); };
             diagnosticList.Columns.Add("级别", 65);
             diagnosticList.Columns.Add("来源与位置", 200);
             diagnosticList.Columns.Add("诊断说明", 540);
+            diagnosticList.ShowItemToolTips = true;
             diagnosticList.ItemActivate += delegate
             {
                 if (diagnosticList.SelectedItems.Count == 1) LocateDiagnostic((PlcDiagnostic)diagnosticList.SelectedItems[0].Tag);
@@ -366,7 +384,6 @@ namespace DeskBox.UI.Views
             output.TextChanged += delegate { SetDiagnostics(null); };
             panel.Controls.Add(diagnosticFilter, 0, 0);
             panel.Controls.Add(diagnosticList, 0, 1);
-            panel.Controls.Add(output, 0, 2);
             return panel;
         }
         private Control BuildHardwarePanel()
@@ -545,6 +562,7 @@ namespace DeskBox.UI.Views
                     var row = new ListViewItem(severity == 1 ? "错误" : severity == 2 ? "警告" : "其他");
                     row.SubItems.Add(issue.Source + (issue.Line > 0 ? " · " + issue.Line + ":" + issue.Column : ""));
                     row.SubItems.Add(issue.Message);
+                    row.ToolTipText = issue.ToString();
                     row.Tag = issue;
                     diagnosticList.Items.Add(row);
                 }
@@ -744,7 +762,7 @@ namespace DeskBox.UI.Views
             if (assistant == null) return;
             foreach (var box in new[] { requirement, editor, analysis, hardware, topology, tags, diff, output, assistant })
             { box.BackColor = palette.CardBg; box.ForeColor = palette.Text; }
-            requirement.BackColor = requirement.Focused ? UiKit.Mix(palette.PanelAlt, palette.Accent, 0.12) : palette.PanelAlt;
+            requirement.BackColor = requirement.Focused ? UiKit.Mix(palette.PanelAlt, palette.Accent, 0.15) : palette.PanelAlt;
             tree.BackColor = palette.CardBg; tree.ForeColor = palette.Text; tree.LineColor = palette.Line;
             foreach (var list in new[] { diagnosticList, hardwareInventory, networkLinks, referenceGraph })
             { list.BackColor = palette.CardBg; list.ForeColor = palette.Text; }
@@ -857,7 +875,7 @@ namespace DeskBox.UI.Views
             RefreshTree();
             referenceGraph.Items.Clear();
             analysis.Text = value.Report(); assistant.Text = analysis.Text;
-            tags.Text = string.Join(Environment.NewLine, value.Objects.Where(x => x.Kind == "PlcTag").Take(1500).Select(x => x.Name + "  " + x.DataType + "  " + x.Address + "  · " + x.Content + "  · " + x.Source));
+            DisplayTags();
             FillHardware(value);
             SelectTab(1);
         }
@@ -920,7 +938,21 @@ namespace DeskBox.UI.Views
                     referenceGraph.Items.Add(new ListViewItem(new[] { link.Relationship, link.Symbol,
                         link.Target == null ? "" : link.Target.Identity, link.Evidence }) { Tag = link.Target });
             analysis.Text = Describe(item, 16000);
+            if (!stayInAnalysis && item.Kind == "PlcTag") DisplayTags(item);
             SelectTab(!stayInAnalysis && item.Kind == "PlcTag" ? 4 : 1);
+        }
+        private void DisplayTags(PlcObject focus = null)
+        {
+            var visible = snapshot.Objects.Where(x => x.Kind == "PlcTag").Take(1500).ToList();
+            if (focus != null && !visible.Contains(focus)) visible.Insert(0, focus);
+            var rows = visible.Select(x => x.Name + "  " + x.DataType + "  " + x.Address + "  · " + x.Content + "  · " + x.Source).ToList();
+            tags.Text = string.Join(Environment.NewLine, rows);
+            tags.WordWrap = false;
+            tags.HideSelection = false;
+            if (focus == null) return;
+            int row = visible.IndexOf(focus);
+            tags.Select(tags.GetFirstCharIndexFromLine(row), rows[row].Length);
+            tags.ScrollToCaret();
         }
         private string Describe(PlcObject item, int limit)
         {
@@ -935,8 +967,14 @@ namespace DeskBox.UI.Views
             if (string.IsNullOrWhiteSpace(name)) return Limit(snapshot.Report() + "\r\n对象 · " + string.Join(", ", snapshot.Objects.Take(50).Select(x => x.Name)), 3600);
             var exact = snapshot.Objects.Where(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase) || string.Equals(x.Identity, name, StringComparison.OrdinalIgnoreCase)).Take(2).ToList();
             if (exact.Count != 1) throw new InvalidOperationException("对象未找到或名称不唯一，请提供完整工程路径。");
-            ShowObject(exact[0]);
-            return Describe(exact[0], 4200);
+            var item = exact[0];
+            var root = tree.Nodes.Cast<TreeNode>().FirstOrDefault(n => n.Text.StartsWith(Category(item.Kind) + "  ·  ", StringComparison.Ordinal));
+            var branch = root == null || item.Scope.Length == 0 ? root : root.Nodes.Cast<TreeNode>().FirstOrDefault(n => n.ToolTipText == item.Scope);
+            if (branch != null) branch.Expand();
+            var node = branch == null ? null : branch.Nodes.Cast<TreeNode>().FirstOrDefault(n => n.Tag == item);
+            if (node != null && tree.SelectedNode != node) { tree.SelectedNode = node; node.EnsureVisible(); }
+            else ShowObject(item);
+            return Describe(item, 4200);
         }
         private void Check()
         {
