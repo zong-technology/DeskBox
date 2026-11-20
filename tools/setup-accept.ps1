@@ -52,6 +52,7 @@ $state = @{ Settings = @{ TakeoverIcons=$false; AutoStart=$false; ReferenceUi=$t
 $state | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $profile 'state.json') -Encoding UTF8
 $oldHome = $env:DESKBOX_HOME
 $app = $null
+$initialDisplay = $null
     Add-Type -ReferencedAssemblies System.Drawing,System.Windows.Forms,UIAutomationClient,UIAutomationTypes,WindowsBase -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -230,7 +231,10 @@ public static class DeskBoxInstallCapture {
 
 try {
     $env:DESKBOX_HOME = $profile
-    if ($env:GITHUB_ACTIONS -eq 'true') { & (Join-Path $root 'tools\prepare-ci-display.ps1') }
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        $initialDisplay = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize
+        & (Join-Path $root 'tools\prepare-ci-display.ps1')
+    }
     $app = Start-Process -FilePath $installed -WorkingDirectory $target -PassThru
     $until = [DateTime]::UtcNow.AddSeconds(30)
     do {
@@ -270,6 +274,10 @@ try {
 } finally {
     if ($app -and -not $app.HasExited) { $app.Kill(); $app.WaitForExit() }
     $env:DESKBOX_HOME = $oldHome
+    if ($initialDisplay -and [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize -ne $initialDisplay) {
+        $restored = [DeskBoxCIDisplay]::SetSize($initialDisplay.Width, $initialDisplay.Height)
+        if ($restored -ne 0) { throw ('Could not restore CI display size after capturing the installer: ' + $restored) }
+    }
 }
 
 # Use a distinctly hashed, executable old-version fixture; no real user data is involved.
@@ -318,6 +326,7 @@ $nativeResult = [regex]::Match([IO.File]::ReadAllText((Join-Path $output 'instal
 if (-not $nativeResult.Success) { throw 'Native check count was not recorded.' }
 
 # UI matrix uses an identical copy of the installed payload, with synthetic fixtures only.
+if ($env:GITHUB_ACTIONS -eq 'true') { & (Join-Path $root 'tools\prepare-ci-display.ps1') }
 & (Join-Path $root 'tools\ui-regression.ps1') -ExpectedDpi $ExpectedDpi -SourceExe $installed
 Check ($?) ('Installed-payload 12-page navigation and three-layout matrix at ' + $ExpectedDpi + ' DPI')
 

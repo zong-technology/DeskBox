@@ -365,6 +365,14 @@ namespace DeskBox.UI.Views
 
         private void StyleDetails(ListView list)
         {
+            var finalColumn = list.Columns[list.Columns.Count - 1];
+            int minimumWidth = finalColumn.Width;
+            list.ClientSizeChanged += delegate
+            {
+                int otherColumns = list.Columns.Cast<ColumnHeader>().Take(list.Columns.Count - 1).Sum(column => column.Width);
+                int width = Math.Max(minimumWidth, list.ClientSize.Width - otherColumns - SystemInformation.VerticalScrollBarWidth);
+                if (finalColumn.Width != width) finalColumn.Width = width;
+            };
             list.OwnerDraw = true;
             list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e)
             {

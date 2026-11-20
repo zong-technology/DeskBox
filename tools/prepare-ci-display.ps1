@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true') { throw 'This helper changes only the disposable GitHub Windows runner display.' }
+if (-not ('DeskBoxCIDisplay' -as [type])) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -22,6 +23,7 @@ public static class DeskBoxCIDisplay {
     }
 }
 '@
+}
 $before = @([DeskBoxCIDisplay]::GetSystemMetrics(0), [DeskBoxCIDisplay]::GetSystemMetrics(1))
 if ($before[0] -lt 1920 -or $before[1] -lt 1080) {
     $result = [DeskBoxCIDisplay]::SetSize(1920,1080)
