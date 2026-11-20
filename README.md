@@ -51,7 +51,7 @@ AI&SI 的「全息 AI 通话」现在直接在软件内进入沉浸投影，只�
 
 ## 安装与运行
 
-在左侧打开「博图 AI 工程师」，点击「输入工程需求」开始。V4.2.1 改进需求输入、工程树查找和 SCL 草稿审查。真实 V20 Openness 读取和编译待持证 Windows 验证。[Windows 预览安装包](https://github.com/zong-technology/DeskBox/releases/tag/v4.2.1-tia.3) · [使用与验收](docs/TIA-V421-WORKBENCH.md) · [工程验收案例](docs/TIA-V42-ACCEPTANCE.md)
+在左侧打开「博图 AI 工程师」，点击「输入工程需求」开始。V4.2.1 支持 SCL 诊断定位、逐行修改预览、程序引用、CAx AML 拓扑和工程语音窗口。真实 V20 Openness 读取和编译待持证 Windows 验证。[Windows 预览安装包](https://github.com/zong-technology/DeskBox/releases/tag/v4.2.1-tia.8) · [使用与验收](docs/TIA-V421-WORKBENCH.md) · [工程验收案例](docs/TIA-V42-ACCEPTANCE.md)
 
 本地一键更新打包：Windows 双击 `build-update.cmd`；iPhone 在 Mac 运行 `bash tools/release-ios.sh`。日常更新不依赖 Actions 云端额度，见[本地构建与低成本更新](docs/LOCAL-RELEASE.md)。
 
