@@ -149,6 +149,50 @@ namespace DeskBox.Engineering.Tia
                 throw new InvalidOperationException("缩放模板与已批准的源文件不匹配。");
         }
 
+        public static string RestoreSnapshot(TiaResult job, CancellationToken token)
+        {
+            if (job == null || string.IsNullOrWhiteSpace(job.Copy) || string.IsNullOrWhiteSpace(job.SourceHash))
+                throw new InvalidOperationException("找不到可恢复的 TIA 作业快照。");
+            var copy = PlcEngineering.FullLocalPath(job.Copy);
+            var work = Path.GetDirectoryName(copy);
+            var directory = Path.GetDirectoryName(work);
+            var root = PlcEngineering.FullLocalPath(Path.Combine(AppPaths.DataDir, "tia-jobs"));
+            Guid id;
+            if (directory == null || Path.GetFileName(work) != CopyFolder || !Guid.TryParseExact(Path.GetFileName(directory), "N", out id) ||
+                !string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetExtension(copy), ".ap20", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("只能恢复当前资料目录中已记录的 TIA 工程作业。");
+            var snapshot = PlcEngineering.FullLocalPath(Path.Combine(directory, SnapshotFolder));
+            var manifestPath = PlcEngineering.FullLocalPath(Path.Combine(directory, "source-sha256.txt"));
+            var expected = File.ReadAllLines(manifestPath, Utf8);
+            if (!File.Exists(PlcEngineering.FullLocalPath(Path.Combine(snapshot, Path.GetFileName(copy)))) ||
+                PlcEngineering.Hash(string.Join("\n", expected)) != job.SourceHash ||
+                !CopyTree(snapshot, null, token).SequenceEqual(expected))
+                throw new IOException("原始快照与记录的 SHA-256 清单不一致。");
+
+            string suffix = Guid.NewGuid().ToString("N");
+            string staging = Path.Combine(directory, "restoring-" + suffix);
+            string target = Path.Combine(directory, "restored-" + suffix);
+            string project = Path.Combine(target, Path.GetFileName(copy));
+            string receipt = target + ".txt";
+            try
+            {
+                if (!CopyTree(snapshot, staging, token).SequenceEqual(expected) || !CopyTree(staging, null, token).SequenceEqual(expected))
+                    throw new IOException("恢复副本与原始快照不一致。");
+                token.ThrowIfCancellationRequested();
+                File.WriteAllText(receipt, DateTime.UtcNow.ToString("O") + "\r\n快照 SHA-256 " + job.SourceHash +
+                    "\r\n恢复工程 " + project, Utf8);
+                Directory.Move(staging, target);
+                return project;
+            }
+            catch
+            {
+                try { if (Directory.Exists(staging)) Directory.Delete(staging, true); } catch (IOException) { }
+                try { if (File.Exists(receipt)) File.Delete(receipt); } catch (IOException) { }
+                throw;
+            }
+        }
+
         public static string[] CopyTree(string source, string destination, CancellationToken token)
         {
             source = PlcEngineering.FullLocalPath(source);

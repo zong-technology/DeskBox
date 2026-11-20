@@ -153,6 +153,28 @@ public static class TiaEngineerAcceptance
             Reject(() => TiaOpenness.CopyTree(source, Path.Combine(source, "nested"), CancellationToken.None), "Nested destination rejected");
             Reject(() => TiaOpenness.CopyTree(source, backup, CancellationToken.None), "An existing destination is never overwritten");
             Reject(() => TiaOpenness.CopyTree(source, Path.Combine(temp, "cancel"), new CancellationToken(true)), "Copy respects cancellation");
+            var previousData = DeskBox.Core.AppPaths.DataDir;
+            try
+            {
+                DeskBox.Core.AppPaths.DataDir = temp;
+                string jobDir = Path.Combine(temp, "tia-jobs", Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(jobDir);
+                string recorded = Path.Combine(jobDir, "snapshot"), work = Path.Combine(jobDir, "work");
+                var originalManifest = TiaOpenness.CopyTree(source, recorded, CancellationToken.None);
+                TiaOpenness.CopyTree(source, work, CancellationToken.None);
+                string modified = Path.Combine(work, "Unit.ap20");
+                File.WriteAllText(modified, "approved changes fixture");
+                File.WriteAllLines(Path.Combine(jobDir, "source-sha256.txt"), originalManifest);
+                var saved = new TiaResult { Copy = modified, SourceHash = PlcEngineering.Hash(string.Join("\n", originalManifest)), Saved = true };
+                string restored = TiaOpenness.RestoreSnapshot(saved, CancellationToken.None);
+                Check(Path.GetDirectoryName(restored) != work && File.ReadAllText(modified) == "approved changes fixture" &&
+                    TiaOpenness.CopyTree(Path.GetDirectoryName(restored), null, CancellationToken.None).SequenceEqual(originalManifest) &&
+                    File.Exists(Path.GetDirectoryName(restored) + ".txt"), "Snapshot recovery produces and logs a hash-verified independent project");
+                File.AppendAllText(Path.Combine(recorded, "Unit.ap20"), "tampered");
+                Reject(() => TiaOpenness.RestoreSnapshot(saved, CancellationToken.None), "A modified snapshot cannot be recovered under its original approved hash");
+                Check(Directory.GetDirectories(jobDir, "restored-*").Length == 1, "A failed verification leaves no new recovery directory");
+            }
+            finally { DeskBox.Core.AppPaths.DataDir = previousData; }
             var originalBlock = new PlcObject { Name = "Original", Kind = "FC", Scope = "CPU/Blocks", Fingerprint = "before" };
             var newBlock = new PlcObject { Name = "Approved", Kind = "FB", Scope = "CPU/Blocks", Interface = "Raw : Real", Fingerprint = "new" };
             var before = new PlcSnapshot { Objects = new List<PlcObject> { originalBlock } };

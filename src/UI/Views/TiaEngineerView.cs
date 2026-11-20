@@ -49,10 +49,11 @@ namespace DeskBox.UI.Views
         private PlcSnapshot snapshot, baseline;
         private PlcObject selected;
         private TiaResult inspected;
+        private TiaResult savedJob;
         private string apFile, template, templateName;
         private string pendingScl, reviewedEditor, pendingTemplateName, diagnosticDraft;
         private IList<PlcDiagnostic> currentDiagnostics = new List<PlcDiagnostic>();
-        private DarkButton applyDraft, repairDraft;
+        private DarkButton applyDraft, repairDraft, restoreBackup;
         private CancellationTokenSource operation;
         private CancellationToken voiceScope;
         private Phase phase;
@@ -122,7 +123,8 @@ namespace DeskBox.UI.Views
             applyDraft = Button("应用已预览草稿", ApplyDraft);
             Page("工程对比", "查看草稿的逐行变更，或用当前工程和另一份同类资料对比。", diff, applyDraft, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
             repairDraft = Button("生成修复草稿", RepairDraft);
-            Page("测试验证", "离线编译需 V20 Openness。双击诊断可定位有证据的位置。", BuildValidationPanel(), cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
+            restoreBackup = Button("从快照恢复副本", RestoreBackup);
+            Page("测试验证", "离线编译需 V20 Openness。双击诊断可定位有证据的位置。", BuildValidationPanel(), cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), restoreBackup, Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
             var left = new Panel { Dock = DockStyle.Left, Width = 260, Padding = new Padding(0, 0, 4, 0) };
             left.Controls.Add(tree); left.Controls.Add(treeQuery); left.Controls.Add(Caption("工程浏览器"));
             tree.ShowNodeToolTips = true;
@@ -629,6 +631,7 @@ namespace DeskBox.UI.Views
             useProjectContext.Visible = snapshot != null;
             if (applyDraft != null) applyDraft.Enabled = operation == null && pendingScl != null && mode.SelectedIndex > 0;
             if (repairDraft != null) repairDraft.Enabled = operation == null && diagnosticDraft != null && currentDiagnostics.Count > 0 && SameSource(diagnosticDraft, editor.Text);
+            if (restoreBackup != null) restoreBackup.Enabled = operation == null && savedJob != null;
             cancel.Enabled = operation != null;
             mode.Enabled = operation == null; cpu.Enabled = operation == null;
             editor.ReadOnly = operation != null || mode.SelectedIndex == 0;
@@ -1088,8 +1091,22 @@ namespace DeskBox.UI.Views
             }, running: Phase.Validating, outcome: result => result.Compiled && result.Error.Length == 0 ? Phase.Completed : Phase.Failed);
         }
         private static Phase ReceiptPhase(TiaResult result) { return result.Error.Length == 0 ? Phase.Completed : Phase.Failed; }
+        private void RestoreBackup()
+        {
+            var job = savedJob;
+            if (job == null) return;
+            if (MessageBox.Show(this, "从以下作业的原始快照生成一个经过清单校验的新工程副本。\r\n\r\n" + job.Copy,
+                "恢复原始工程快照", MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.OK) return;
+            Work("恢复已验证的工程快照", t => TiaOpenness.RestoreSnapshot(job, t), project =>
+            {
+                output.Text = "快照清单验证通过\r\nSHA-256 " + job.SourceHash + "\r\n\r\n恢复工程 · " + project;
+                assistant.Text = "已生成恢复副本，并将回执保存在原作业目录。可重新选择该工程读取核对。";
+                SelectTab(6);
+            });
+        }
         private void ShowReceipt(TiaResult result)
         {
+            if (result.Saved && result.Error.Length == 0) savedJob = result;
             output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report + "\r\n\r\n工作副本 · " + result.Copy;
             SetDiagnostics(result.Diagnostics);
             assistant.Text = result.Error.Length == 0 ? "回执已保存在本地工程作业目录。\r\n" + (result.Saved ? "副本已保存。" : "请查看诊断和工作副本状态。") : result.Error;

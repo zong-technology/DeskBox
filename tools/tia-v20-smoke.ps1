@@ -55,6 +55,7 @@ $summary = [ordered]@{
     Inventory = @($inspection.Snapshot.Objects | Group-Object Kind | Select-Object Name, Count)
     Compile = 'NotRun'
     SavedCopyReopened = $false
+    SnapshotRestored = $false
     SourceUnchanged = $false
 }
 if ($Compile -or $ApprovedNewScaleBlock) {
@@ -82,6 +83,11 @@ if ($Compile -or $ApprovedNewScaleBlock) {
         if ($reopened.Error) { throw $reopened.Error }
         [DeskBox.Engineering.Tia.TiaOpenness]::VerifyNewScaleBlock($inspection.Snapshot, $reopened.Snapshot, $TargetCpu, $ApprovedNewScaleBlock)
         $summary.SavedCopyReopened = $true
+        $restored = [DeskBox.Engineering.Tia.TiaOpenness]::RestoreSnapshot($result, $token)
+        $restoredManifest = [DeskBox.Engineering.Tia.TiaOpenness]::CopyTree((Split-Path -LiteralPath $restored), $null, $token)
+        if ((Compare-Object -ReferenceObject $sourceBefore -DifferenceObject $restoredManifest -CaseSensitive)) { throw 'Restored copy does not match the original project files.' }
+        $summary.SnapshotRestored = $true
+        Write-Output ('Restored copy: ' + $restored)
     }
     Write-Output ('Copy: ' + $result.Copy)
 }
