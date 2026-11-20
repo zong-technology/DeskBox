@@ -120,7 +120,7 @@ namespace DeskBox.UI.Views
             modelStatus = Caption("");
             modelStatus.Name = "tia-model-status";
             BuildProgrammingPage(configureModel);
-            Page("程序分析", "选择程序块或变量查看调用及引用。双击唯一匹配的关系可打开目标。", BuildReferencePanel(), Button("解释所选对象", Explain), Button("检查工程", Check));
+            Page("程序分析", "选择程序块或变量查看调用及引用。只读工程可另行授权读取块正文。", BuildReferencePanel(), Button("读取块正文", ReadBlockContent), Button("解释所选对象", Explain), Button("检查工程", Check));
             Page("硬件组态", "从机架选择模块查看槽位、订货号和来源。可加载 CAx AML 或查询本机 V20 硬件目录。", BuildHardwarePanel(), catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware), Button("导出硬件清单", ExportHardware));
             Page("网络拓扑", "选择一条已记录的连接，查看来源或点击端点定位所属硬件。", BuildNetworkPanel());
             Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
@@ -165,11 +165,12 @@ namespace DeskBox.UI.Views
             var toggleAssistant = new DarkButton("收起助手") { Name = "tia-toggle-assistant", Width = 100, Height = 32, Palette = Palette };
             Action applyLayout = delegate
             {
-                bool wide = center.Width >= Dpi.D(this, 1120);
+                int width = Body.DisplayRectangle.Width;
+                bool wide = width >= Dpi.D(this, 1120);
                 bool assistantOpen = !Store.Settings.TiaAssistantCollapsed;
-                left.Width = Dpi.D(this, wide ? Clamp(Store.Settings.TiaTreeWidth, 220, assistantOpen ? Math.Min(420, LayoutUnits(center.Width) - 740) : 420) : 180);
+                left.Width = Dpi.D(this, wide ? Clamp(Store.Settings.TiaTreeWidth, 220, assistantOpen ? Math.Min(420, LayoutUnits(width) - 740) : 420) : 180);
                 side.Dock = wide ? DockStyle.Right : DockStyle.Bottom;
-                if (wide) side.Width = Dpi.D(this, Clamp(Store.Settings.TiaAssistantWidth, 300, Math.Min(520, LayoutUnits(center.Width - left.Width) - 440)));
+                if (wide) side.Width = Dpi.D(this, Clamp(Store.Settings.TiaAssistantWidth, 300, Math.Min(520, LayoutUnits(width - left.Width) - 440)));
                 else side.Height = Dpi.D(this, 106);
                 logs.Height = Dpi.D(this, Clamp(Store.Settings.TiaLogHeight, 84, Math.Min(240, Math.Max(92, LayoutUnits(Body.Height) / 3))));
                 leftDivider.Visible = wide;
@@ -193,7 +194,7 @@ namespace DeskBox.UI.Views
                 applyLayout(); Store.SaveSettingsOnly();
             };
             top.Controls.AddRange(new Control[] { toggleAssistant, resetLayout });
-            center.SizeChanged += delegate { applyLayout(); };
+            Body.SizeChanged += delegate { applyLayout(); };
             leftDivider.SplitterMoved += delegate { Store.Settings.TiaTreeWidth = Clamp(LayoutUnits(left.Width), 220, 420); applyLayout(); Store.SaveSettingsOnly(); };
             rightDivider.SplitterMoved += delegate { Store.Settings.TiaAssistantWidth = Clamp(LayoutUnits(side.Width), 300, 520); applyLayout(); Store.SaveSettingsOnly(); };
             logsDivider.SplitterMoved += delegate { Store.Settings.TiaLogHeight = Clamp(LayoutUnits(logs.Height), 84, 240); applyLayout(); Store.SaveSettingsOnly(); };
@@ -609,6 +610,7 @@ namespace DeskBox.UI.Views
         private static bool MatchesBlock(PlcDiagnostic issue, string block)
         {
             return issue.Source.Split('/', '\\').Any(part => part.Trim().Equals(block, StringComparison.OrdinalIgnoreCase) ||
+                part.Trim().Equals(block + ".scl", StringComparison.OrdinalIgnoreCase) ||
                 part.Trim().StartsWith(block + " [", StringComparison.OrdinalIgnoreCase));
         }
         private void ResizeRequirement(TableLayoutPanel fields)
@@ -869,6 +871,20 @@ namespace DeskBox.UI.Views
             }
         }
         private void ResetCpus() { cpu.Items.Clear(); cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0; }
+        private void ReadBlockContent()
+        {
+            if (inspected == null || NativeFingerprint().Length == 0) throw new InvalidOperationException("请先只读打开一个 V20 工程副本。");
+            if (MessageBox.Show(this, "在另一个独立副本尝试读取可导出的程序块正文，供本地查看。\r\n是否继续？",
+                "授权读取块正文", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            var job = new TiaJob { ProjectFile = apFile, ExpectedSource = NativeFingerprint(), ReadBlockContent = true, ProjectId = ProjectId() };
+            Work("在独立副本读取块正文", token => TiaOpenness.Run(job, token), result =>
+            {
+                ShowReceipt(result);
+                if (result.Error.Length != 0 || result.Snapshot == null) return;
+                inspected = result; lastAiAnalysis = "";
+                Display(result.Snapshot);
+            }, outcome: ReceiptPhase);
+        }
         private void Display(PlcSnapshot value)
         {
             snapshot = value; selected = null; voiceAccess.Checked = false; useProjectContext.Checked = false; RefreshHeading();

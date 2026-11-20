@@ -17,13 +17,14 @@ namespace DeskBox.Engineering.Tia
     {
         public string Operation = "inspect", ProjectFile = "", Cpu = "", Block = "", ApprovedHash = "", CatalogQuery = "", ProjectId = "", ExpectedSource = "";
         public string Source = "";
+        public bool ReadBlockContent;
     }
 
     public sealed class TiaResult
     {
         public string Error = "", Copy = "", Report = "", CompileState = "未运行", SourceHash = "";
         public string OpennessVersion = "", SavedCopyHash = "";
-        public bool Saved, Compiled, WriteStarted;
+        public bool Saved, Compiled, WriteStarted, OpenedReadOnly;
         public PlcSnapshot Snapshot;
         public List<string> Cpus = new List<string>();
         public List<PlcDiagnostic> Diagnostics = new List<PlcDiagnostic>();
@@ -97,9 +98,10 @@ namespace DeskBox.Engineering.Tia
             if (!Guid.TryParseExact(id, "N", out parsed) || Path.GetFileName(dataRoot) != "tia-jobs") return 2;
             var directory = PlcEngineering.FullLocalPath(Path.Combine(dataRoot, id));
             var result = new TiaResult();
+            TiaJob job = null;
             try
             {
-                var job = Json.Load<TiaJob>(PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile)), null);
+                job = Json.Load<TiaJob>(PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile)), null);
                 ValidateJob(job);
                 var installation = RequireV20();
                 result.OpennessVersion = FileVersionInfo.GetVersionInfo(installation.AssemblyPath).FileVersion ?? "";
@@ -122,6 +124,8 @@ namespace DeskBox.Engineering.Tia
             {
                 while (e is TargetInvocationException && e.InnerException != null) e = e.InnerException;
                 result.Error = e.GetType().Name + " · " + e.Message;
+                if (result.WriteStarted && result.CompileState == "未运行" && job != null)
+                    result.Diagnostics.Add(new PlcDiagnostic { Severity = "Error", Source = job.Block + ".scl", Message = e.Message });
             }
             File.WriteAllText(Path.Combine(directory, ResponseFile), Json.ToJson(result), Utf8);
             if (result.Copy.Length != 0)
@@ -154,6 +158,8 @@ namespace DeskBox.Engineering.Tia
         private static string VerifySclSource(string source)
         {
             if (string.IsNullOrWhiteSpace(source) || source.Length > 20000) throw new ArgumentException("请选择 1–20000 字的 SCL 草稿。");
+            if (source.Any(c => c > '~' || c < ' ' && c != '\r' && c != '\n' && c != '\t'))
+                throw new InvalidDataException("V20 Openness 从外部源生成块仅接受 ASCII SCL。请调整源文本后重新预览和批准。");
             var review = PlcEngineering.ReviewScl(source, "审批草稿");
             var block = review.Objects.Count == 1 ? review.Objects[0] : null;
             var masked = SclEditing.Mask(source, false);
@@ -391,12 +397,20 @@ namespace DeskBox.Engineering.Tia
                     if (entries.Count > 200) result.Report += Environment.NewLine + "首 200 条，请缩小搜索。";
                     return;
                 }
-                project = Call(Prop(portal, "Projects"), "Open", new FileInfo(file));
+                var projects = Prop(portal, "Projects");
+                bool reading = job.Operation == "inspect";
+                if (reading && !job.ReadBlockContent)
+                {
+                    project = Call(projects, "Open", new FileInfo(file), null, Enum.Parse(Type(Ns + "ProjectOpenMode"), "Secondary"));
+                    if (Convert.ToBoolean(Prop(project, "IsPrimary"))) throw new InvalidOperationException("TIA 未以只读模式打开此副本。");
+                    result.OpenedReadOnly = true;
+                }
+                else project = Call(projects, "Open", new FileInfo(file));
                 var cpus = new Dictionary<string, object>(StringComparer.Ordinal);
-                var before = Read(directory, cpus);
+                var before = Read(directory, cpus, !result.OpenedReadOnly);
                 result.Snapshot = before;
                 result.Cpus = cpus.Keys.OrderBy(x => x).ToList();
-                if (job.Operation == "inspect") { result.Report = before.Report(); return; }
+                if (reading) { result.Report = before.Report(); return; }
                 object cpu;
                 if (!cpus.TryGetValue(job.Cpu, out cpu)) throw new InvalidOperationException("已批准的 PLC 在当前副本中不存在：" + job.Cpu);
                 var compile = Service(cpu, "Compiler.ICompilable");
@@ -408,7 +422,7 @@ namespace DeskBox.Engineering.Tia
                         throw new InvalidOperationException("存在同名工程对象，无法新增该块。");
                     var approvedSource = job.Operation == "scale" ? PlcEngineering.AnalogScale(job.Block) : job.Source;
                     var source = Path.Combine(directory, job.Block + ".scl");
-                    File.WriteAllText(source, approvedSource, new UTF8Encoding(true));
+                    File.WriteAllText(source, approvedSource, Encoding.ASCII);
                     File.WriteAllText(Path.Combine(directory, "approved-source-diff.txt"), SclEditing.Diff("", approvedSource), Utf8);
                     var sources = Prop(Prop(cpu, "ExternalSourceGroup"), "ExternalSources");
                     result.WriteStarted = true;
@@ -426,7 +440,7 @@ namespace DeskBox.Engineering.Tia
                 if (writesBlock && result.Compiled)
                 {
                     exportSize = 0;
-                    var after = Read(directory, new Dictionary<string, object>(StringComparer.Ordinal));
+                    var after = Read(directory, new Dictionary<string, object>(StringComparer.Ordinal), true);
                     VerifyNewScaleBlock(before, after, job.Cpu, job.Block);
                     result.Report += Environment.NewLine + PlcEngineering.Diff(before, after);
                     File.WriteAllText(Path.Combine(directory, "diff.txt"), result.Report, Utf8);
@@ -448,10 +462,11 @@ namespace DeskBox.Engineering.Tia
                 }
             }
 
-            private PlcSnapshot Read(string directory, Dictionary<string, object> cpus)
+            private PlcSnapshot Read(string directory, Dictionary<string, object> cpus, bool includeSource)
             {
-                var snapshot = new PlcSnapshot { Name = Text(project, "Name"), Origin = "TIA V20 Openness · 独立副本" };
-                ReadDevices(project, "项目", directory, snapshot, cpus, 0);
+                var snapshot = new PlcSnapshot { Name = Text(project, "Name"), Origin = includeSource ? "TIA V20 Openness · 独立副本" : "TIA V20 Openness · 只读副本" };
+                if (!includeSource) snapshot.Notes.Add("只读读取设备、程序块和变量元数据。需要源代码时可授权从独立副本读取块正文。");
+                ReadDevices(project, "项目", includeSource ? directory : null, snapshot, cpus, 0);
                 foreach (var subnet in Items(Prop(project, "Subnets", false))) Add(snapshot, new PlcObject { Name = Text(subnet, "Name"), Kind = "Subnet", Scope = "项目", Source = "Openness/Subnets", Content = Text(subnet, "TypeIdentifier") });
                 if (snapshot.Objects.Count == 0) snapshot.Notes.Add("该副本未枚举到设备或子网。");
                 return snapshot;
@@ -514,7 +529,7 @@ namespace DeskBox.Engineering.Tia
                     else
                     {
                         var summary = new PlcObject { Kind = item.GetType().Name, Name = name, Scope = scope, Controller = controller, Source = "Openness/" + scope + "/" + name, Language = Text(item, "ProgrammingLanguage"), Content = "块号 " + Text(item, "Number") };
-                        ExportBlock(item, scope, dir, snapshot, summary);
+                        if (dir != null) ExportBlock(item, scope, dir, snapshot, summary);
                         Add(snapshot, summary);
                     }
                 }

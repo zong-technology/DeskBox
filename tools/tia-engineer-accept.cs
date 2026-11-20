@@ -188,10 +188,12 @@ public static class TiaEngineerAcceptance
             Reject(() => PlcEngineering.ReadExports(new[] { xml }, new CancellationToken(true)), "Read respects cancellation");
             var source = Path.Combine(temp, "source"); Directory.CreateDirectory(source); Directory.CreateDirectory(Path.Combine(source, "System"));
             var project = Path.Combine(source, "Unit.ap20"); File.WriteAllText(project, "original"); File.WriteAllText(Path.Combine(source, "System", "sample"), "fixture");
-            string approvedDraft = PlcEngineering.AnalogScale("FB_Reviewed") + "\n// 已人工复核\n";
+            string approvedDraft = PlcEngineering.AnalogScale("FB_Reviewed") + "\n// Reviewed locally\n";
             var prepared = TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", approvedDraft);
             Check(prepared.Block == "FB_Reviewed" && prepared.ApprovedHash == PlcEngineering.Hash(approvedDraft) && prepared.Source == approvedDraft,
-                "Approval binds the exact reviewed SCL source, including Unicode comments");
+                "Approval binds the exact reviewed SCL source");
+            Reject(() => TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", approvedDraft + "// 已审核"),
+                "Openness external source rejects unsupported non-ASCII before consuming the approval");
             Reject(() => TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", approvedDraft + PlcEngineering.AnalogScale("Other")),
                 "Insertion rejects a second block before starting any native operation");
             Reject(() => TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", "VERSION : 0.1\n" + approvedDraft),
