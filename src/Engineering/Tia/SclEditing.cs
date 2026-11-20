@@ -18,6 +18,98 @@ namespace DeskBox.Engineering.Tia
 
     public static class SclEditing
     {
+        private static readonly Regex ControlTokens = new Regex(@"^[ \t]*(?:REGION|END_REGION)\b[^\r\n]*|(?<![\w#.])(?<token>END_(?:IF|CASE|FOR|WHILE|REPEAT)|ELSIF|ELSE|THEN|OF|DO|UNTIL|IF|CASE|FOR|WHILE|REPEAT|EXIT|CONTINUE)\b",
+            RegexOptions.Multiline | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Dictionary<string, string> Separators = new Dictionary<string, string>
+        {
+            { "IF", "THEN" }, { "CASE", "OF" }, { "FOR", "DO" }, { "WHILE", "DO" }, { "REPEAT", "" }
+        };
+
+        private sealed class Statement
+        {
+            public string Open, Pending;
+            public int Offset, Header;
+            public bool HasElse, HasUntil;
+            public bool IsLoop { get { return Open == "FOR" || Open == "WHILE" || Open == "REPEAT"; } }
+        }
+
+        internal static string ReviewControlFlow(string body, Action<int, string, string> diagnostic)
+        {
+            Action<int, string> issue = (offset, message) => diagnostic(offset, "Error", message);
+            var stack = new Stack<Statement>();
+            int count = 0, depth = 0;
+            var code = Mask(body, false);
+            for (var match = ControlTokens.Match(code); match.Success; match = match.NextMatch())
+            {
+                var capture = match.Groups["token"];
+                if (!capture.Success) continue;
+                string token = capture.Value.ToUpperInvariant();
+                int offset = capture.Index;
+                var current = stack.Count == 0 ? null : stack.Peek();
+                string separator;
+                if (Separators.TryGetValue(token, out separator))
+                {
+                    if (stack.Count >= 128)
+                    {
+                        diagnostic(offset, "Warning", "控制结构超过 128 层静态检查范围。剩余结构需要在 TIA 中复核。");
+                        return "SCL 控制结构检查未完成 · 嵌套超过 128 层";
+                    }
+                    if (current != null) CheckSeparator(current, issue);
+                    stack.Push(new Statement { Open = token, Offset = offset, Header = offset, Pending = separator });
+                    count++;
+                    depth = Math.Max(depth, stack.Count);
+                    continue;
+                }
+                if (token.StartsWith("END_", StringComparison.Ordinal))
+                {
+                    string open = token.Substring(4);
+                    if (current == null || current.Open != open)
+                    {
+                        issue(offset, "找不到当前层级与 " + token + " 匹配的 " + open);
+                        if (!stack.Any(s => s.Open == open)) continue;
+                        while (stack.Peek().Open != open)
+                        {
+                            var orphan = stack.Pop();
+                            issue(orphan.Offset, "未找到 END_" + orphan.Open);
+                        }
+                    }
+                    var completed = stack.Pop();
+                    CheckSeparator(completed, issue);
+                    if (completed.Open == "REPEAT" && !completed.HasUntil) issue(completed.Offset, "REPEAT 缺少 UNTIL 条件");
+                    continue;
+                }
+                if (current != null && token == current.Pending) current.Pending = "";
+                else if (token == "ELSE" || token == "ELSIF")
+                {
+                    if (current == null || current.HasElse || (current.Open != "IF" && (token == "ELSIF" || current.Open != "CASE")))
+                    {
+                        issue(offset, token + " 缺少有效的分支或出现在 ELSE 之后");
+                        continue;
+                    }
+                    CheckSeparator(current, issue);
+                    current.HasElse = token == "ELSE";
+                    current.Pending = current.HasElse ? "" : "THEN";
+                    current.Header = offset;
+                }
+                else if (token == "UNTIL")
+                {
+                    if (current == null || current.Open != "REPEAT" || current.HasUntil) issue(offset, "UNTIL 缺少对应的 REPEAT 或已重复");
+                    else current.HasUntil = true;
+                }
+                else if ((token == "EXIT" || token == "CONTINUE") && !stack.Any(s => s.IsLoop))
+                    issue(offset, token + " 位于循环之外");
+            }
+            foreach (var unfinished in stack) issue(unfinished.Offset, "未找到 END_" + unfinished.Open);
+            return "SCL 控制结构 " + count + " 个 · 最大嵌套 " + depth + " 层";
+        }
+
+        private static void CheckSeparator(Statement statement, Action<int, string> issue)
+        {
+            if (statement.Pending.Length == 0) return;
+            issue(statement.Header, "控制结构缺少 " + statement.Pending);
+            statement.Pending = "";
+        }
+
         internal static string Mask(string source, bool keepQuotedNames)
         {
             var characters = source.ToCharArray();

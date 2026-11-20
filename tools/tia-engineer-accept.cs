@@ -139,6 +139,23 @@ public static class TiaEngineerAcceptance
             var located = PlcEngineering.ReviewScl(File.ReadAllText(invalidScl), "editor").Diagnostics;
             Check(located.Any(d => d.Severity == "Error" && d.Line == 5 && d.Column == 2) &&
                 located.Any(d => d.Message.Contains("#Unknown") && d.Line == 8 && d.Column == 13), "Static diagnostics point to the duplicate declaration and unresolved reference");
+            var flow = PlcEngineering.ReviewScl("FUNCTION_BLOCK Walk\r\nBEGIN\r\n REGION IF ELSE WHILE\r\n" +
+                " IF \"END_IF\" THEN\r\n  WHILE TRUE DO\r\n   EXIT;\r\n  END_WHILE;\r\n ELSIF FALSE THEN\r\n  RETURN;\r\n" +
+                " ELSE\r\n  CASE 2 OF\r\n   2: RETURN;\r\n  END_CASE;\r\n END_IF;\r\n END_REGION\r\nEND_FUNCTION_BLOCK", "valid-flow.scl");
+            Check(flow.Diagnostics.Count == 0 && flow.Objects.Single().ControlFlow.Contains("3 个 · 最大嵌套 2 层"),
+                "Control flow counts documented nested statements without reading region titles or quoted identifiers as keywords");
+            var brokenFlow = PlcEngineering.ReviewScl("FUNCTION_BLOCK Walk\nBEGIN\n IF TRUE\n ELSE\n ELSE\n END_IF;\n REPEAT\n" +
+                "  RETURN;\n END_REPEAT;\n EXIT;\nEND_FUNCTION_BLOCK", "broken-flow.scl").Diagnostics;
+            Check(brokenFlow.Any(d => d.Line == 3 && d.Column == 2 && d.Severity == "Error" && d.Message.Contains("THEN")) &&
+                brokenFlow.Any(d => d.Line == 5 && d.Message.Contains("ELSE")) && brokenFlow.Any(d => d.Line == 7 && d.Message.Contains("UNTIL")) &&
+                brokenFlow.Any(d => d.Line == 10 && d.Message.Contains("循环之外")), "Missing separators, repeat conditions and illegal branches get precise diagnostics");
+            var crossed = PlcEngineering.ReviewScl("FUNCTION_BLOCK Walk\nBEGIN\n IF TRUE THEN\n WHILE TRUE DO\n END_IF;\n" +
+                " END_WHILE;\n IF FALSE THEN\n END_IF;\nEND_FUNCTION_BLOCK", "crossed.scl").Diagnostics;
+            Check(crossed.Count == 3 && crossed.All(d => d.Line <= 6) && crossed.Any(d => d.Line == 4 && d.Message.Contains("未找到 END_WHILE")),
+                "Mismatched nesting reports the evidence and recovers before later valid statements");
+            var largeFlow = PlcEngineering.ReviewScl("FUNCTION_BLOCK Walk\nBEGIN\n" + string.Concat(Enumerable.Repeat(" IF TRUE THEN\n", 129)) +
+                string.Concat(Enumerable.Repeat(" END_IF;\n", 129)) + "END_FUNCTION_BLOCK", "deep-flow.scl");
+            Check(largeFlow.Diagnostics.Count == 1 && largeFlow.Diagnostics[0].Severity == "Warning", "Deeply nested input has an explicit static review limit");
             const string brackets = "(\"port[ignore]\" + '[ignore]' (* nested (* [ *) ] *) + [1])";
             var pairs = SclEditing.Brackets(brackets);
             Check(pairs.Count == 4 && pairs[0] == brackets.Length - 1, "SCL brackets skip comments, strings and quoted identifiers");
@@ -278,6 +295,13 @@ public static class TiaEngineerAcceptance
         var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增模板并编译");
         Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode and write approval gate");
         await Capture(form, evidence, "tia-empty.png");
+        var detect = Children(view).OfType<DarkButton>().Single(b => b.Text == "检测环境");
+        await Click(detect);
+        var detectionDeadline = DateTime.UtcNow.AddSeconds(12);
+        while (!mode.Enabled && DateTime.UtcNow < detectionDeadline) await Task.Delay(50);
+        Check(mode.Enabled && tabs.SelectedIndex == 6 && Children(view).OfType<RichTextBox>()
+            .Single(area => area.AccessibleName == "编译和操作日志").Text.Contains("连接状态"), "Environment detection publishes actionable status for the actual Windows host");
+        await Capture(form, evidence, "tia-environment.png");
         view.LoadExports(files);
         var until = DateTime.UtcNow.AddSeconds(12);
         while (!mode.Enabled && DateTime.UtcNow < until) await Task.Delay(50);
@@ -339,6 +363,10 @@ public static class TiaEngineerAcceptance
         Children(view).OfType<CheckBox>().Single(x => x.Text.Contains("语音") || x.Text.Contains("查阅已加载")).Checked = true;
         var lookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
         Check(lookup.Ok && lookup.Output.Contains("export.xml:") && tabs.SelectedIndex == 1, "Approved voice lookup returns provenance and selects analysis tab " + lookup.Error);
+        var sourceNode = blocks.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("FB_AnalogScale "));
+        tree.SelectedNode = sourceNode;
+        Check(Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "程序分析").Text.Contains("最大嵌套"),
+            "SCL objects expose the actual control-flow summary in program analysis");
         await ExerciseRequirement(form, store, view, tabs, listener, evidence);
         Check(tabs.Width > 350, "Main work area retains room at narrow width");
     }

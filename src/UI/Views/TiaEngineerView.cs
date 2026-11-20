@@ -883,7 +883,7 @@ namespace DeskBox.UI.Views
         private string Describe(PlcObject item, int limit)
         {
             return Limit(item.Identity + "  ·  " + item.Language + "\r\n来源 " + item.Source + "\r\n" + item.Address + " " + item.DataType + "\r\n\r\n" +
-                item.Interface + "\r\n\r\n" + item.Content + "\r\n\r\n引用线索 · " + string.Join(", ", item.References) +
+                (item.ControlFlow.Length == 0 ? "" : item.ControlFlow + "\r\n\r\n") + item.Interface + "\r\n\r\n" + item.Content + "\r\n\r\n引用线索 · " + string.Join(", ", item.References) +
                 "\r\n" + PlcEngineering.Related(snapshot, item), limit);
         }
         private static string Limit(string text, int limit) { return text.Length <= limit ? text : text.Substring(0, limit) + "\r\n（已截断）"; }

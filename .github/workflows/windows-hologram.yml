@@ -193,6 +193,6 @@ jobs:
             '.\installer\installed-tia-input.png'
             '.\native-preview\hologram-qa\hologram-motion.gif'
           )
-          $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png') | ForEach-Object { Join-Path $tia $_ }
+          $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png', 'tia-environment.png') | ForEach-Object { Join-Path $tia $_ }
           gh release create ('v'+$env:RELEASE_VERSION) @attachments --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

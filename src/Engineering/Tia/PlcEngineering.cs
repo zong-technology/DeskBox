@@ -18,6 +18,7 @@ namespace DeskBox.Engineering.Tia
         public string Kind = "", Name = "", Scope = "", Controller = "", Source = "", Language = "", Content = "", Address = "", DataType = "", Signal = "", OrderNumber = "", Interface = "", Fingerprint = "";
         public List<string> References = new List<string>();
         public List<string> Calls = new List<string>();
+        public string ControlFlow = "";
         public string AssetId = "", ParentAssetId = "", HardwareType = "", Firmware = "", Slot = "";
         public string Identity { get { return Scope + " / " + Kind + " / " + Name; } }
     }
@@ -258,8 +259,21 @@ namespace DeskBox.Engineering.Tia
                         issue(block.Index + unused.First().Index, "Warning", "正文未发现局部引用 #" + unused.Key + "，核对外部使用和接口约定。");
                 }
 
-                if (!Regex.IsMatch(code, @"(?im)^\s*END_" + header + @"\b"))
+                var closing = Regex.Match(code, @"(?im)^\s*END_" + header + @"\b");
+                if (!closing.Success)
                     issue(block.Groups[1].Index, "Error", "未找到 END_" + header);
+                if (item.Kind == "FB" || item.Kind == "FC" || item.Kind == "OB")
+                {
+                    var opening = Regex.Match(code, @"(?im)^[ \t]*BEGIN\b");
+                    if (opening.Success)
+                    {
+                        int start = opening.Index + opening.Length;
+                        int finish = closing.Success ? closing.Index : code.Length;
+                        if (finish >= start)
+                            item.ControlFlow = SclEditing.ReviewControlFlow(code.Substring(start, finish - start),
+                                (offset, severity, message) => issue(block.Index + start + offset, severity, message));
+                    }
+                }
                 snapshot.Objects.Add(item);
             }
         }
