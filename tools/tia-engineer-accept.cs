@@ -48,6 +48,8 @@ public static class TiaEngineerAcceptance
             File.WriteAllText(scl, PlcEngineering.AnalogScale("FB_AnalogScale"));
             var data = PlcEngineering.ReadExports(new[] { xml, csv, scl }, CancellationToken.None);
             Check(data.Objects.Count == 8, "Read devices, SimaticML block, CSV tags and actual SCL source");
+            Check(data.Objects.Single(o => o.Name == "CPU_Test").ParentAssetId == data.Objects.Single(o => o.Name == "PLC_1").AssetId &&
+                data.Objects.Single(o => o.Name == "CPU_Test").Slot == "", "SimaticML hardware preserves explicit nesting and leaves missing positions unassigned");
             var ladder = data.Objects.Single(x => x.Name == "CheckValve");
             Check(ladder.Language == "LAD" && ladder.References.Contains("Feedback") && ladder.Content.Contains("Contact") && ladder.Interface.Contains("Bool"), "LAD network elements, interface and references");
             Check(ladder.Source.StartsWith("export.xml:"), "Report retains object provenance");
@@ -81,6 +83,10 @@ public static class TiaEngineerAcceptance
             const string fixture = @"<CAEXFile xmlns='urn:deskbox-test:caex'>
   <InstanceHierarchy Name='Project'>
     <InternalElement ID='station' Name='Station A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Device'/>
+      <InternalElement ID='di' Name='Digital input'>
+        <Attribute Name='PositionNumber'><Value>10</Value></Attribute>
+        <SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/DeviceItem'/>
+      </InternalElement>
       <InternalElement ID='cpu' Name='CPU A'>
         <Attribute Name='PositionNumber'><Value>1</Value></Attribute>
         <Attribute Name='TypeIdentifier'><Value>OrderNumber:6ES7 TEST/V2.0</Value></Attribute>
@@ -89,6 +95,18 @@ public static class TiaEngineerAcceptance
           <ExternalInterface Name='CommunicationPortInterface'/></InternalElement>
         <InternalElement ID='node' Name='Ethernet A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Node'/>
           <ExternalInterface Name='LogicalEndPoint_Node'/></InternalElement>
+      </InternalElement>
+      <InternalElement ID='ai' Name='Analog input'>
+        <Attribute Name='PositionNumber'><Value>2</Value></Attribute>
+        <Attribute Name='OrderNumber'><Value>TEST-ANALOG</Value></Attribute>
+        <SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/DeviceItem'/>
+        <InternalElement ID='sub' Name='Input submodule'>
+          <Attribute Name='PositionNumber'><Value>1</Value></Attribute>
+          <SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/DeviceItem'/>
+        </InternalElement>
+      </InternalElement>
+      <InternalElement ID='unassigned' Name='Unpositioned module'>
+        <SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/DeviceItem'/>
       </InternalElement>
     </InternalElement>
     <InternalElement ID='station-b' Name='Station B'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Device'/>
@@ -273,6 +291,27 @@ public static class TiaEngineerAcceptance
         var topologyList = Children(view).OfType<ListView>().Single(list => list.AccessibleName == "拓扑连接");
         Check(hardwareList.Items.Cast<ListViewItem>().Any(row => row.Text == "CPU A" && row.SubItems[2].Text == "6ES7 TEST") &&
             topologyList.Items.Count == 2, "Hardware and topology panels expose only source-backed inventory and connections");
+        tabs.SelectedIndex = 2;
+        var containers = Children(view).OfType<ComboBox>().Single(c => c.AccessibleName == "机架容器");
+        var rack = Children(view).Single(c => c.AccessibleName == "机架槽位视图");
+        var modules = Children(rack).OfType<Button>().ToArray();
+        Check(((PlcObject)containers.SelectedItem).Name == "Station A" && modules.Select(m => ((PlcObject)m.Tag).Name)
+            .SequenceEqual(new[] { "CPU A", "Analog input", "Digital input", "Unpositioned module" }) && modules.Last().Text.StartsWith("未记录槽位"),
+            "Rack shows numerically ordered direct modules and retains unknown positions without merging nested modules");
+        await Click(modules[1]);
+        var hardwareDetails = Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "硬件目录及建议");
+        Check(hardwareList.SelectedItems.Count == 1 && hardwareList.SelectedItems[0].Text == "Analog input" &&
+            hardwareDetails.Text.Contains("TEST-ANALOG") && hardwareDetails.Text.Contains("hardware.aml:"), "Physical rack clicks synchronize the inventory and show original module properties");
+        await Capture(form, evidence, "tia-rack-layout.png");
+        var lowerLevel = containers.Items.Cast<PlcObject>().Single(o => o.Name == "Analog input");
+        containers.SelectedItem = lowerLevel;
+        Check(Children(rack).OfType<Button>().Single().AccessibleName.Contains("Input submodule"), "Selecting a nested container reveals its own slot level");
+        var hardwareRoot = tree.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Devices"));
+        var stationBranch = hardwareRoot.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Station A  "));
+        stationBranch.Expand();
+        tree.SelectedNode = stationBranch.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Digital input  "));
+        Check(tabs.SelectedIndex == 2 && ((PlcObject)containers.SelectedItem).Name == "Station A" &&
+            hardwareList.SelectedItems[0].Text == "Digital input", "Opening a hardware tree node locates its actual rack and module row");
         tabs.SelectedIndex = 3;
         topologyList.Items[0].Selected = true;
         Check(Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "网络与设备").Text.Contains("hardware.aml:"),

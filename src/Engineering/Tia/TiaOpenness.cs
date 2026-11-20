@@ -418,7 +418,7 @@ namespace DeskBox.Engineering.Tia
             private void ReadDevices(object owner, string scope, string dir, PlcSnapshot snapshot, Dictionary<string, object> cpus, int depth)
             {
                 RequireDepth(depth);
-                foreach (var device in Items(Prop(owner, "Devices"))) ReadDevice(device, scope, dir, snapshot, cpus, depth + 1, true);
+                foreach (var device in Items(Prop(owner, "Devices"))) ReadDevice(device, scope, dir, snapshot, cpus, depth + 1, "");
                 foreach (var group in Items(Prop(owner, depth == 0 ? "DeviceGroups" : "Groups", false)))
                     ReadDevices(group, scope + "/" + Text(group, "Name"), dir, snapshot, cpus, depth + 1);
                 if (depth == 0)
@@ -428,14 +428,16 @@ namespace DeskBox.Engineering.Tia
                 }
             }
 
-            private void ReadDevice(object device, string scope, string dir, PlcSnapshot snapshot, Dictionary<string, object> cpus, int depth, bool top)
+            private void ReadDevice(object device, string scope, string dir, PlcSnapshot snapshot, Dictionary<string, object> cpus, int depth, string parentId)
             {
                 RequireDepth(depth);
                 var name = Text(device, "Name");
                 var id = scope + "/" + name;
+                bool top = parentId.Length == 0;
                 var hardware = new PlcObject
                 {
                     Name = name, Kind = top ? "Device" : "DeviceItem", Scope = scope, Source = "Openness/" + id,
+                    AssetId = "v20:" + snapshot.Objects.Count, ParentAssetId = parentId,
                     HardwareType = Text(device, "TypeIdentifier"), Slot = top ? "" : Text(device, "PositionNumber")
                 };
                 AmlTopology.ApplyTypeIdentifier(hardware);
@@ -453,7 +455,7 @@ namespace DeskBox.Engineering.Tia
                         ReadPlcGroup(Prop(software, "TagTableGroup"), id + "/Tags", id, "TagTables", dir, snapshot, 0);
                     }
                 }
-                foreach (var child in Items(Prop(device, "DeviceItems"))) ReadDevice(child, id, dir, snapshot, cpus, depth + 1, false);
+                foreach (var child in Items(Prop(device, "DeviceItems"))) ReadDevice(child, id, dir, snapshot, cpus, depth + 1, hardware.AssetId);
             }
 
             private void ReadPlcGroup(object group, string scope, string controller, string composition, string dir, PlcSnapshot snapshot, int depth)

@@ -27,7 +27,9 @@ namespace DeskBox.UI.Views
         private readonly ComboBox cpu = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 275, AccessibleName = "目标 PLC" };
         private readonly RichTextBox requirement, editor, analysis, hardware, topology, tags, diff, output, assistant;
         private readonly ListView diagnosticList = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "工程诊断列表" };
-        private readonly ListView hardwareInventory = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "硬件清单" };
+        private readonly ListView hardwareInventory = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, AccessibleName = "硬件清单" };
+        private readonly TiaRackView rack = new TiaRackView();
+        private readonly Dictionary<PlcObject, ListViewItem> hardwareRows = new Dictionary<PlcObject, ListViewItem>();
         private readonly ListView networkLinks = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "拓扑连接" };
         private readonly ListView referenceGraph = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "程序关系" };
         private readonly Label networkFrom = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
@@ -117,7 +119,7 @@ namespace DeskBox.UI.Views
             modelStatus.Name = "tia-model-status";
             BuildProgrammingPage(configureModel);
             Page("程序分析", "选择程序块或变量查看调用及引用。双击唯一匹配的关系可打开目标。", BuildReferencePanel(), Button("解释所选对象", Explain), Button("检查工程", Check));
-            Page("硬件组态", "打开 CAx AML 查看设备、槽位和订货号，或使用本机 V20 硬件目录。", BuildHardwarePanel(), catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware), Button("导出硬件清单", ExportHardware));
+            Page("硬件组态", "从机架选择模块查看槽位、订货号和来源。可加载 CAx AML 或查询本机 V20 硬件目录。", BuildHardwarePanel(), catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware), Button("导出硬件清单", ExportHardware));
             Page("网络拓扑", "选择连接查看端点和来源。CAx AML 中明确记录的关系才会显示为连接。", BuildNetworkPanel());
             Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
             applyDraft = Button("应用已预览草稿", ApplyDraft);
@@ -365,22 +367,36 @@ namespace DeskBox.UI.Views
         }
         private Control BuildHardwarePanel()
         {
+            FormatCombo(rack.Containers);
+            rack.AssetSelected += item => FocusHardware(item, true);
             foreach (var col in new[] { "名称", "槽位", "订货号", "固件", "所属设备" })
                 hardwareInventory.Columns.Add(col, col == "槽位" || col == "固件" ? 65 : 165);
             hardwareInventory.SelectedIndexChanged += delegate
             {
                 if (hardwareInventory.SelectedItems.Count == 1)
-                {
-                    var item = hardwareInventory.SelectedItems[0].Tag as PlcObject;
-                    if (item != null) hardware.Text = DescribeHardware(item);
-                }
+                    FocusHardware((PlcObject)hardwareInventory.SelectedItems[0].Tag, false);
             };
-            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
-            panel.Controls.Add(hardwareInventory, 0, 0);
-            panel.Controls.Add(hardware, 0, 1);
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 133)));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
+            panel.Controls.Add(rack, 0, 0);
+            panel.Controls.Add(hardwareInventory, 0, 1);
+            panel.Controls.Add(hardware, 0, 2);
             return panel;
+        }
+
+        private void FocusHardware(PlcObject item, bool selectRow)
+        {
+            selected = item;
+            rack.FocusAsset(item);
+            hardware.Text = DescribeHardware(item);
+            ListViewItem row;
+            if (selectRow && hardwareRows.TryGetValue(item, out row))
+            {
+                if (!row.Selected) row.Selected = true;
+                row.EnsureVisible();
+            }
         }
         private Control BuildNetworkPanel()
         {
@@ -442,16 +458,24 @@ namespace DeskBox.UI.Views
                 "\r\n型号 " + item.HardwareType + " · 订货号 " + item.OrderNumber + " · 固件 " + item.Firmware +
                 " · 槽位 " + item.Slot + (item.Address.Length == 0 ? "" : " · 地址 " + item.Address) + "\r\n" + item.Content;
         }
-        private static bool IsHardware(PlcObject item) { return item.Kind == "Device" || item.Kind == "DeviceItem"; }
         private void FillHardware(PlcSnapshot value)
         {
+            var hardwareAssets = value.Objects.Where(PlcEngineering.IsHardware).ToList();
+            hardwareRows.Clear();
             hardwareInventory.BeginUpdate();
-            hardwareInventory.Items.Clear();
-            foreach (var item in value.Objects.Where(IsHardware).Take(2000))
-                hardwareInventory.Items.Add(new ListViewItem(new[] { item.Name, item.Slot, item.OrderNumber, item.Firmware, item.Scope }) { Tag = item });
-            hardwareInventory.EndUpdate();
+            try
+            {
+                hardwareInventory.Items.Clear();
+                foreach (var item in hardwareAssets.Take(2000))
+                {
+                    var row = hardwareInventory.Items.Add(new ListViewItem(new[] { item.Name, item.Slot, item.OrderNumber, item.Firmware, item.Scope }) { Tag = item });
+                    hardwareRows.Add(item, row);
+                }
+            }
+            finally { hardwareInventory.EndUpdate(); }
+            rack.LoadAssets(hardwareAssets);
             hardware.Text = hardwareInventory.Items.Count == 0 ? "请加载 CAx AML 或 TIA 工程。当前资料没有设备清单。" :
-                "选择设备查看源数据。列表最多显示前 2000 个硬件对象，导出包含全部已读取硬件。";
+                "选择模块查看源数据。列表最多显示前 2000 个硬件对象，导出包含全部已读取硬件。";
 
             var endpoints = value.Objects.Where(o => o.AssetId.Length != 0).ToDictionary(o => o.AssetId);
             networkLinks.BeginUpdate();
@@ -471,9 +495,9 @@ namespace DeskBox.UI.Views
         }
         private void ExportHardware()
         {
-            if (snapshot == null || !snapshot.Objects.Any(IsHardware)) throw new InvalidOperationException("请先加载含设备的 CAx AML 或工程资料。");
+            if (snapshot == null || !snapshot.Objects.Any(PlcEngineering.IsHardware)) throw new InvalidOperationException("请先加载含设备的 CAx AML 或工程资料。");
             Save("Markdown 清单 (*.md)|*.md", "DeskBox-Hardware.md", "# 工程硬件清单\r\n\r\n" +
-                string.Join("\r\n\r\n", snapshot.Objects.Where(IsHardware).Select(DescribeHardware)));
+                string.Join("\r\n\r\n", snapshot.Objects.Where(PlcEngineering.IsHardware).Select(DescribeHardware)));
         }
         private void SetDiagnostics(IList<PlcDiagnostic> issues, string source = null)
         {
@@ -605,7 +629,7 @@ namespace DeskBox.UI.Views
                 if (e.Index < 0) return;
                 bool selected = (e.State & DrawItemState.Selected) != 0;
                 using (var fill = new SolidBrush(selected ? Palette.Hover : Palette.PanelAlt)) e.Graphics.FillRectangle(fill, e.Bounds);
-                TextRenderer.DrawText(e.Graphics, Convert.ToString(box.Items[e.Index]), box.Font, e.Bounds, Palette.Text,
+                TextRenderer.DrawText(e.Graphics, box.GetItemText(box.Items[e.Index]), box.Font, e.Bounds, Palette.Text,
                     TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
                 e.DrawFocusRectangle();
             };
@@ -682,6 +706,7 @@ namespace DeskBox.UI.Views
             foreach (var list in new[] { diagnosticList, hardwareInventory, networkLinks, referenceGraph })
             { list.BackColor = palette.CardBg; list.ForeColor = palette.Text; }
             networkFrom.BackColor = networkTo.BackColor = palette.PanelAlt;
+            rack.ApplyPalette(palette);
             foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, voiceAccess, useProjectContext }) { control.BackColor = palette.CardBg; control.ForeColor = palette.Text; }
         }
         private async void Work<T>(string action, Func<CancellationToken, T> work, Action<T> display,
@@ -842,6 +867,12 @@ namespace DeskBox.UI.Views
             selected = item;
             referenceGraph.Items.Clear();
             if (item == null) return;
+            if (!stayInAnalysis && PlcEngineering.IsHardware(item))
+            {
+                SelectTab(2);
+                FocusHardware(item, true);
+                return;
+            }
             if (snapshot != null)
                 foreach (var link in PlcEngineering.ReferenceGraph(snapshot, item))
                     referenceGraph.Items.Add(new ListViewItem(new[] { link.Relationship, link.Symbol,

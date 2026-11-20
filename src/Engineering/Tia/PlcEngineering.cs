@@ -55,6 +55,8 @@ namespace DeskBox.Engineering.Tia
         private static readonly Regex SclBlock = new Regex(@"(?im)^[ \t]*(FUNCTION_BLOCK|FUNCTION|DATA_BLOCK|TYPE|ORGANIZATION_BLOCK)[ \t]+(?:""([^""\r\n]+)""|([A-Za-z_][A-Za-z0-9_]*))[^\r\n]*");
         private static readonly HashSet<string> XmlKinds = new HashSet<string> { "SW.Blocks.FB", "SW.Blocks.FC", "SW.Blocks.OB", "SW.Blocks.GlobalDB", "SW.Blocks.InstanceDB", "SW.Types.PlcStruct", "SW.Tags.PlcTagTable", "SW.Tags.PlcTag", "HW.Device", "HW.DeviceItem", "HW.Subnet" };
 
+        internal static bool IsHardware(PlcObject item) { return item.Kind == "Device" || item.Kind == "DeviceItem"; }
+
         public static string FullLocalPath(string path)
         {
             if ((path ?? "").StartsWith(@"\\", StringComparison.Ordinal))
@@ -120,6 +122,7 @@ namespace DeskBox.Engineering.Tia
         {
             var doc = ReadExportXml(path);
             int count = snapshot.Objects.Count;
+            var hardwareIds = new Dictionary<XElement, string>();
             foreach (var element in doc.Descendants().Where(x => XmlKinds.Contains(x.Name.LocalName)))
             {
                 var attributes = element.Elements().FirstOrDefault(x => x.Name.LocalName == "AttributeList");
@@ -131,6 +134,13 @@ namespace DeskBox.Engineering.Tia
                     HardwareType = Value(attributes, "TypeIdentifier"), Firmware = Value(attributes, "FirmwareVersion"),
                     OrderNumber = Value(attributes, "OrderNumber"), Slot = Value(attributes, "PositionNumber") };
                 item.Scope = string.Join("/", element.Ancestors().Where(x => XmlKinds.Contains(x.Name.LocalName)).Reverse().Select(x => Value(x.Elements().FirstOrDefault(a => a.Name.LocalName == "AttributeList"), "Name")));
+                if (IsHardware(item))
+                {
+                    var parent = element.Ancestors().FirstOrDefault(hardwareIds.ContainsKey);
+                    item.AssetId = "xml:" + snapshot.Objects.Count;
+                    item.ParentAssetId = parent == null ? "" : hardwareIds[parent];
+                    hardwareIds.Add(element, item.AssetId);
+                }
                 AmlTopology.ApplyTypeIdentifier(item);
                 var members = element.Descendants().Where(x => x.Name.LocalName == "Member").ToList();
                 item.Interface = string.Join("\n", members.Select(m => (string)m.Attribute("Name") + " : " + (string)m.Attribute("Datatype")));
