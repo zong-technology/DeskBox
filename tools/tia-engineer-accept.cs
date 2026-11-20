@@ -69,10 +69,59 @@ public static class TiaEngineerAcceptance
             Check(PlcEngineering.PlanIo(controller, 0, 0).Contains("In2 · BOOL · I0.1"), "Tags in different tables share the address space of their controller");
             Check(data.Objects.Single(x => x.Kind == "FB" && x.Language == "SCL").References.Contains("#Raw"), "SCL variables extracted from source");
             Check(data.Notes.Count == 0, "SCL template boundaries and scoped references are complete");
+            var aml = Path.Combine(temp, "hardware.aml");
+            const string fixture = @"<CAEXFile xmlns='urn:deskbox-test:caex'>
+  <InstanceHierarchy Name='Project'>
+    <InternalElement ID='station' Name='Station A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Device'/>
+      <InternalElement ID='cpu' Name='CPU A'>
+        <Attribute Name='PositionNumber'><Value>1</Value></Attribute>
+        <Attribute Name='TypeIdentifier'><Value>OrderNumber:6ES7 TEST/V2.0</Value></Attribute>
+        <SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/DeviceItem'/>
+        <InternalElement ID='port-a' Name='Port A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/CommunicationPort'/>
+          <ExternalInterface Name='CommunicationPortInterface'/></InternalElement>
+        <InternalElement ID='node' Name='Ethernet A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Node'/>
+          <ExternalInterface Name='LogicalEndPoint_Node'/></InternalElement>
+      </InternalElement>
+    </InternalElement>
+    <InternalElement ID='station-b' Name='Station B'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Device'/>
+      <InternalElement ID='port-b' Name='Port B'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/CommunicationPort'/>
+        <ExternalInterface Name='CommunicationPortInterface'/></InternalElement>
+    </InternalElement>
+    <InternalElement ID='subnet' Name='Network 1'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Subnet'/>
+      <ExternalInterface Name='LogicalEndPoint_Subnet'/></InternalElement>
+    <InternalLink Name='LinkToPort' RefPartnerSideA='port-a:CommunicationPortInterface' RefPartnerSideB='port-b:CommunicationPortInterface'/>
+    <InternalLink Name='Member' RefPartnerSideA='node:LogicalEndPoint_Node' RefPartnerSideB='subnet:LogicalEndPoint_Subnet'/>
+    <InternalLink Name='MissingPort' RefPartnerSideA='port-a:CommunicationPortInterface' RefPartnerSideB='port-b:Missing'/>
+  </InstanceHierarchy>
+</CAEXFile>";
+            File.WriteAllText(aml, fixture);
+            var caX = PlcEngineering.ReadExports(new[] { aml }, CancellationToken.None);
+            var cpuAsset = caX.Objects.Single(o => o.Name == "CPU A");
+            Check(cpuAsset.OrderNumber == "6ES7 TEST" && cpuAsset.Firmware == "V2.0" && cpuAsset.Slot == "1" &&
+                cpuAsset.ParentAssetId == caX.Objects.Single(o => o.Name == "Station A").AssetId, "CAx AML preserves hardware part, firmware, slot and parent evidence");
+            Check(caX.TopologyLinks.Count == 2 && caX.TopologyLinks.All(l => l.Source.StartsWith("hardware.aml:")) &&
+                caX.TopologyLinks.Any(l => l.Kind == "端口连线") && caX.TopologyLinks.Any(l => l.Kind == "子网成员") &&
+                caX.Notes.Any(n => n.Contains("未展示 1 条")), "Only explicitly resolved CAx port links and subnet members are displayed");
+            File.WriteAllText(aml, fixture.Replace("RefPartnerSideB='port-b:CommunicationPortInterface'", "RefPartnerSideB='port-b:Missing'"));
+            Check(PlcEngineering.Diff(caX, PlcEngineering.ReadExports(new[] { aml }, CancellationToken.None)).Contains("删除连接 · 端口连线"),
+                "Project comparison detects a removed CAx connection while all hardware stays the same");
+            File.WriteAllText(aml, fixture);
             var invalidScl = Path.Combine(temp, "invalid.scl");
             File.WriteAllText(invalidScl, "FUNCTION_BLOCK FB_Review\nVAR_OUTPUT\n Result : Real;\n Spare : Bool;\n Spare : Bool;\nEND_VAR\nBEGIN\n #Result := #Unknown;\nEND_FUNCTION_BLOCK\n");
             var invalidNotes = PlcEngineering.ReadExports(new[] { invalidScl }, CancellationToken.None).Notes;
             Check(invalidNotes.Any(x => x.Contains("重复局部变量 Spare")) && invalidNotes.Any(x => x.Contains("#Unknown")) && invalidNotes.Any(x => x.Contains("#Spare")), "Static SCL detects duplicate, unresolved and unused locals");
+            var located = PlcEngineering.ReviewScl(File.ReadAllText(invalidScl), "editor").Diagnostics;
+            Check(located.Any(d => d.Severity == "Error" && d.Line == 5 && d.Column == 2) &&
+                located.Any(d => d.Message.Contains("#Unknown") && d.Line == 8 && d.Column == 13), "Static diagnostics point to the duplicate declaration and unresolved reference");
+            const string brackets = "(\"port[ignore]\" + '[ignore]' (* nested (* [ *) ] *) + [1])";
+            var pairs = SclEditing.Brackets(brackets);
+            Check(pairs.Count == 4 && pairs[0] == brackets.Length - 1, "SCL brackets skip comments, strings and quoted identifiers");
+            Check(PlcEngineering.ReviewScl("FUNCTION_BLOCK Test\nBEGIN\n (\nEND_FUNCTION_BLOCK", "editor").Diagnostics
+                .Any(d => d.Severity == "Error" && d.Line == 3 && d.Column == 2), "Unmatched source bracket has a precise diagnostic");
+            Check(SclEditing.ReplaceLiteral("Foo . foo", "FOO", "$1") == "$1 . $1", "SCL replacement is literal and case insensitive");
+            string lineDiff = SclEditing.Diff("One\r\nOld\r\nThree", "One\nNew\nThree");
+            Check(lineDiff.Contains("@@ -2,1 +2,1 @@") && lineDiff.Contains("-Old") && lineDiff.Contains("+New") && !lineDiff.Contains("Three"),
+                "SCL preview reports the changed lines and excludes unchanged prefix and suffix");
             var draft = PlcEngineering.ReviewScl("// fixture\n\n" + PlcEngineering.AnalogScale("FB_AnalogScale"), "editor");
             Check(draft.Objects.Single().Source == "editor:3" && draft.Notes.Count == 0, "Editor checks actual line numbers using the source parser");
             Check(PlcEngineering.ScaleTests.Contains("12 → 50") && draft.Objects.Single().Interface.Contains("OutOfRange"), "Scaling template includes interface and expected test results");
@@ -114,7 +163,7 @@ public static class TiaEngineerAcceptance
             var jsonDraft = Json.ToJson(new PlcDraft { Kind = "FB", Name = "FB_AnalogScale", Purpose = "Scale", Scl = PlcEngineering.AnalogScale("FB_AnalogScale") });
             Check(TiaPlanning.ParseDraft(jsonDraft).Name == "FB_AnalogScale", "Model JSON accepts one matching SCL draft");
             Reject(() => TiaPlanning.ParseDraft(jsonDraft.Replace("END_FUNCTION_BLOCK", "// END_FUNCTION_BLOCK")), "A commented closing marker cannot validate an incomplete draft");
-            Native(temp, evidence, new[] { xml, csv, scl });
+            Native(temp, evidence, new[] { xml, csv, scl, aml });
 #endif
             Console.WriteLine("PASS " + passed + " DeskBox TIA checks. Synthetic inputs; no TIA Portal or PLC connection used.");
         }
@@ -171,6 +220,14 @@ public static class TiaEngineerAcceptance
         Check(mode.Enabled, "Export job reaches its completion callback before UI assertions");
         Check(view.Visible && tabs.TabPages.Count == 7, "Native workbench displays all seven work tabs");
         Check(tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Blocks")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("Devices")) && tree.Nodes.Cast<TreeNode>().Any(n => n.Text.StartsWith("PLC Tags")), "Native workbench loads block, device and tag objects");
+        var hardwareList = Children(view).OfType<ListView>().Single(list => list.AccessibleName == "硬件清单");
+        var topologyList = Children(view).OfType<ListView>().Single(list => list.AccessibleName == "拓扑连接");
+        Check(hardwareList.Items.Cast<ListViewItem>().Any(row => row.Text == "CPU A" && row.SubItems[2].Text == "6ES7 TEST") &&
+            topologyList.Items.Count == 2, "Hardware and topology panels expose only source-backed inventory and connections");
+        tabs.SelectedIndex = 3;
+        topologyList.Items[0].Selected = true;
+        Check(Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "网络与设备").Text.Contains("hardware.aml:"),
+            "Selecting a completed wire shows the original hardware export evidence");
         var scopedTags = tree.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("PLC Tags")).Nodes[0];
         Check(scopedTags.Nodes.Count == 1 && scopedTags.Nodes[0].Tag == null, "Scoped tree nodes defer materializing their objects until expanded");
         scopedTags.Expand();
@@ -267,11 +324,30 @@ public static class TiaEngineerAcceptance
             Check(tabs.SelectedIndex == 0 && draft.Text.Contains("FB_SecondDraft"), "Applying the preview explicitly replaces the editor draft");
         }
         await Capture(form, evidence, "tia-workbench-1600.png");
+        string goodSource = draft.Text;
+        draft.Text = "FUNCTION_BLOCK Test\nVAR_INPUT\n Known : Bool;\nEND_VAR\nBEGIN\n IF #Unknown THEN\n END_IF;\nEND_FUNCTION_BLOCK";
+        await Click(button("静态检查草稿"));
+        var list = Children(view).OfType<ListView>().Single(item => item.AccessibleName == "工程诊断列表");
+        var severity = Children(view).OfType<ComboBox>().Single(item => item.AccessibleName == "诊断级别");
+        Check(tabs.SelectedIndex == 6 && list.Items.Count == 2, "Static source review produces two diagnostic rows");
+        severity.SelectedIndex = 1;
+        Check(list.Items.Count == 0, "Error filter excludes warnings");
+        severity.SelectedIndex = 2;
+        var unknown = list.Items.Cast<ListViewItem>().Single(item => item.SubItems[2].Text.Contains("#Unknown"));
+        unknown.Selected = true;
+        list.Focus();
+        await Capture(form, evidence, "tia-diagnostics.png");
+        SendKeys.SendWait("{ENTER}");
+        Check(tabs.SelectedIndex == 0 && draft.SelectionStart == draft.GetFirstCharIndexFromLine(5) + 4,
+            "Activating a warning lands on the SCL reference column");
+        severity.SelectedIndex = 0;
+        draft.Text = goodSource;
+        await Click(button("高亮"));
         var pages = new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" };
         for (int i = 0; i < pages.Length; i++)
         {
             tabs.SelectedIndex = i + 1;
-            if (i != 4) await Capture(form, evidence, pages[i] + ".png");
+            if (i != 4 && i != 5) await Capture(form, evidence, pages[i] + ".png");
         }
         form.Bounds = new Rectangle(0, 0, 1920, 1080);
         await Task.Delay(100);

@@ -23,6 +23,7 @@ namespace DeskBox.Engineering.Tia
         public bool Saved, Compiled;
         public PlcSnapshot Snapshot;
         public List<string> Cpus = new List<string>();
+        public List<PlcDiagnostic> Diagnostics = new List<PlcDiagnostic>();
     }
 
     public static class TiaOpenness
@@ -307,7 +308,7 @@ namespace DeskBox.Engineering.Tia
                 int errors = Convert.ToInt32(Prop(compiled, "ErrorCount"));
                 result.Compiled = errors == 0 && (result.CompileState == "Success" || result.CompileState == "Warning");
                 var messages = new List<string> { "PLC · " + job.Cpu, "编译状态 · " + result.CompileState + " · 错误 " + errors + " · 警告 " + Text(compiled, "WarningCount") };
-                AddMessages(compiled, 0, messages);
+                AddMessages(compiled, 0, messages, result.Diagnostics);
                 result.Report = string.Join(Environment.NewLine, messages);
                 if (job.Operation == "scale" && result.Compiled)
                 {
@@ -321,14 +322,16 @@ namespace DeskBox.Engineering.Tia
                 result.Report += Environment.NewLine + "保存副本 · " + (result.Saved ? "已保存" : "未保存修改") + "。仿真、工程师审核、现场验证未执行。";
             }
 
-            private static void AddMessages(object node, int depth, List<string> lines)
+            private static void AddMessages(object node, int depth, List<string> lines, List<PlcDiagnostic> diagnostics)
             {
                 if (depth > 20) return;
                 foreach (var m in Items(Prop(node, "Messages", false)))
                 {
                     if (lines.Count >= 1000) return;
-                    lines.Add(new string(' ', depth * 2) + Text(m, "State") + " · " + Text(m, "Path") + " · " + Text(m, "Description"));
-                    AddMessages(m, depth + 1, lines);
+                    var issue = new PlcDiagnostic { Severity = Text(m, "State"), Source = Text(m, "Path"), Message = Text(m, "Description") };
+                    diagnostics.Add(issue);
+                    lines.Add(new string(' ', depth * 2) + issue.Severity + " · " + issue);
+                    AddMessages(m, depth + 1, lines, diagnostics);
                 }
             }
 
@@ -359,7 +362,14 @@ namespace DeskBox.Engineering.Tia
                 RequireDepth(depth);
                 var name = Text(device, "Name");
                 var id = scope + "/" + name;
-                Add(snapshot, new PlcObject { Name = name, Kind = top ? "Device" : "DeviceItem", Scope = scope, Source = "Openness/" + id, Content = Text(device, "TypeIdentifier") });
+                var hardware = new PlcObject
+                {
+                    Name = name, Kind = top ? "Device" : "DeviceItem", Scope = scope, Source = "Openness/" + id,
+                    HardwareType = Text(device, "TypeIdentifier"), Slot = top ? "" : Text(device, "PositionNumber")
+                };
+                AmlTopology.ApplyTypeIdentifier(hardware);
+                hardware.Content = hardware.HardwareType + (hardware.Slot.Length == 0 ? "" : "\n槽位 " + hardware.Slot);
+                Add(snapshot, hardware);
                 if (!top)
                 {
                     var container = Service(device, "HW.Features.SoftwareContainer");

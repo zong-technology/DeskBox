@@ -185,5 +185,14 @@ jobs:
           RELEASE_VERSION: ${{ needs.native.outputs.version }}
         shell: powershell
         run: |
-          gh release create ('v'+$env:RELEASE_VERSION) ('.\installer\DeskBox-'+$env:RELEASE_VERSION+'-Setup.exe') .\installer\SHA256SUMS.txt .\installer\INSTALL-TEST-REPORT.md .\installer\installed-tia-input.png .\native-preview\hologram-qa\hologram-motion.gif .\native-preview\hologram-qa\tia\tia-workbench-1920.png .\native-preview\hologram-qa\tia\tia-workbench-1600.png .\native-preview\hologram-qa\tia\tia-workbench-1024.png --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
+          $tia = '.\native-preview\hologram-qa\tia'
+          $attachments = @(
+            ('.\installer\DeskBox-'+$env:RELEASE_VERSION+'-Setup.exe')
+            '.\installer\SHA256SUMS.txt'
+            '.\installer\INSTALL-TEST-REPORT.md'
+            '.\installer\installed-tia-input.png'
+            '.\native-preview\hologram-qa\hologram-motion.gif'
+          )
+          $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-networks.png', 'tia-diff.png') | ForEach-Object { Join-Path $tia $_ }
+          gh release create ('v'+$env:RELEASE_VERSION) @attachments --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

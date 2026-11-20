@@ -17,6 +17,7 @@ namespace DeskBox.Engineering.Tia
     {
         public string Kind = "", Name = "", Scope = "", Controller = "", Source = "", Language = "", Content = "", Address = "", DataType = "", Signal = "", OrderNumber = "", Interface = "", Fingerprint = "";
         public List<string> References = new List<string>();
+        public string AssetId = "", ParentAssetId = "", HardwareType = "", Firmware = "", Slot = "";
         public string Identity { get { return Scope + " / " + Kind + " / " + Name; } }
     }
 
@@ -25,12 +26,15 @@ namespace DeskBox.Engineering.Tia
         public string Name = "", Origin = "导出文件";
         public List<PlcObject> Objects = new List<PlcObject>();
         public List<string> Notes = new List<string>();
+        public List<PlcDiagnostic> Diagnostics = new List<PlcDiagnostic>();
+        public List<PlcTopologyLink> TopologyLinks = new List<PlcTopologyLink>();
 
         public string Report()
         {
             var report = new StringBuilder().AppendLine(Name + " · " + Origin);
             foreach (var group in Objects.GroupBy(x => x.Kind))
                 report.AppendLine(group.Key + " · " + group.Count());
+            if (TopologyLinks.Count != 0) report.AppendLine("已读取的连接 · " + TopologyLinks.Count);
             foreach (var note in Notes.Concat(PlcEngineering.Check(this))) report.AppendLine("• " + note);
             report.AppendLine("检查范围为导出和已读取内容。编译、仿真、工程师审核和现场验证需分别记录。");
             return report.ToString();
@@ -88,20 +92,26 @@ namespace DeskBox.Engineering.Tia
                     throw new InvalidDataException("每个文件最多 8 MB，一批最多 32 MB。");
                 string ext = file.Extension.ToLowerInvariant();
                 if (ext == ".xml") ReadXml(full, result);
+                else if (ext == ".aml") AmlTopology.Read(ReadExportXml(full), file.Name, result, token);
                 else if (ext == ".scl" || ext == ".udt" || ext == ".db") ReadScl(File.ReadAllText(full), file.Name, result);
                 else if (ext == ".csv") ReadIo(full, result);
                 else throw new InvalidDataException("没有对应的导出文件读取器：" + ext);
+                if (result.Objects.Count > 50000) throw new InvalidDataException("对象数量超过 50000。");
             }
             if (result.Objects.Count > 50000) throw new InvalidDataException("对象数量超过 50000。");
-            if (result.Objects.Count == 0) throw new InvalidDataException("没有找到受支持的工程对象。请提供 Siemens SimaticML、SCL 源文件或带表头的 IO CSV。");
+            if (result.Objects.Count == 0) throw new InvalidDataException("没有找到受支持的工程对象。请提供 CAx AML、Siemens SimaticML、SCL 源文件或 IO CSV。");
             return result;
+        }
+
+        private static XDocument ReadExportXml(string path)
+        {
+            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = MaxFile };
+            using (var reader = XmlReader.Create(path, settings)) return XDocument.Load(reader, LoadOptions.SetLineInfo);
         }
 
         private static void ReadXml(string path, PlcSnapshot snapshot)
         {
-            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = MaxFile };
-            XDocument doc;
-            using (var reader = XmlReader.Create(path, settings)) doc = XDocument.Load(reader, LoadOptions.SetLineInfo);
+            var doc = ReadExportXml(path);
             int count = snapshot.Objects.Count;
             foreach (var element in doc.Descendants().Where(x => XmlKinds.Contains(x.Name.LocalName)))
             {
@@ -110,8 +120,11 @@ namespace DeskBox.Engineering.Tia
                 if (name.Length == 0) continue;
                 var line = (IXmlLineInfo)element;
                 var item = new PlcObject { Kind = element.Name.LocalName.Split('.').Last(), Name = name, Source = Path.GetFileName(path) + ":" + line.LineNumber,
-                    Language = Value(attributes, "ProgrammingLanguage"), Address = Value(attributes, "LogicalAddress"), DataType = Value(attributes, "DataTypeName") };
+                    Language = Value(attributes, "ProgrammingLanguage"), Address = Value(attributes, "LogicalAddress"), DataType = Value(attributes, "DataTypeName"),
+                    HardwareType = Value(attributes, "TypeIdentifier"), Firmware = Value(attributes, "FirmwareVersion"),
+                    OrderNumber = Value(attributes, "OrderNumber"), Slot = Value(attributes, "PositionNumber") };
                 item.Scope = string.Join("/", element.Ancestors().Where(x => XmlKinds.Contains(x.Name.LocalName)).Reverse().Select(x => Value(x.Elements().FirstOrDefault(a => a.Name.LocalName == "AttributeList"), "Name")));
+                AmlTopology.ApplyTypeIdentifier(item);
                 var members = element.Descendants().Where(x => x.Name.LocalName == "Member").ToList();
                 item.Interface = string.Join("\n", members.Select(m => (string)m.Attribute("Name") + " : " + (string)m.Attribute("Datatype")));
                 var networks = element.Descendants().Where(x => x.Name.LocalName == "CompileUnit" || x.Name.LocalName == "SW.Blocks.CompileUnit").ToList();
@@ -175,12 +188,23 @@ namespace DeskBox.Engineering.Tia
             var snapshot = new PlcSnapshot { Name = file, Origin = "SCL 草稿静态检查" };
             ReadScl(text, file, snapshot);
             if (snapshot.Objects.Count == 0) throw new InvalidDataException("未发现可识别的 SCL 工程对象。");
+            var lines = SclEditing.LineStarts(text);
+            SclEditing.Brackets(text, (offset, message) => AddDiagnostic(snapshot, SclEditing.At(file, "Error", lines, offset, message)));
             return snapshot;
+        }
+
+        private static void AddDiagnostic(PlcSnapshot snapshot, PlcDiagnostic issue)
+        {
+            if (snapshot.Diagnostics.Count >= 5000) return;
+            snapshot.Diagnostics.Add(issue);
+            snapshot.Notes.Add(issue.ToString());
         }
 
         private static void ReadScl(string text, string file, PlcSnapshot snapshot)
         {
-            var masked = Regex.Replace(text, @"\(\*[\s\S]*?\*\)|//[^\r\n]*|/\*[\s\S]*?\*/|'(?:''|[^'\r\n])*'", m => Regex.Replace(m.Value, @"[^\r\n]", " "));
+            var masked = SclEditing.Mask(text, true);
+            var lines = SclEditing.LineStarts(text);
+            Action<int, string, string> issue = (offset, severity, message) => AddDiagnostic(snapshot, SclEditing.At(file, severity, lines, offset, message));
             var blocks = SclBlock.Matches(masked).Cast<Match>().ToArray();
             for (int i = 0; i < blocks.Length; i++)
             {
@@ -191,24 +215,30 @@ namespace DeskBox.Engineering.Tia
                 var header = block.Groups[1].Value.ToUpperInvariant();
                 var item = new PlcObject { Kind = header == "FUNCTION_BLOCK" ? "FB" : header == "FUNCTION" ? "FC" : header == "DATA_BLOCK" ? "DB" : header == "TYPE" ? "UDT" : "OB",
                     Name = block.Groups[2].Success ? block.Groups[2].Value : block.Groups[3].Value, Language = "SCL", Content = content,
-                    Source = file + ":" + (1 + text.Take(block.Index).Count(c => c == '\n')), Fingerprint = Hash(content) };
-                item.References = Regex.Matches(code, @"#[A-Za-z_][A-Za-z0-9_]*|""[^""\r\n]+""").Cast<Match>().SkipWhile(m => m.Index < block.Length).Select(m => m.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    Source = file + ":" + (SclEditing.LineIndex(lines, block.Index) + 1), Fingerprint = Hash(content) };
+                var references = Regex.Matches(code, @"#[A-Za-z_][A-Za-z0-9_]*|""[^""\r\n]+""").Cast<Match>().SkipWhile(m => m.Index < block.Length).ToList();
+                item.References = references.Select(m => m.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 var declarations = Regex.Matches(code, @"(?ims)^\s*VAR(?:_[A-Z_]+)?\b(.*?)\bEND_VAR\b").Cast<Match>().ToList();
                 item.Interface = string.Join("\n", declarations.Select(x => x.Value.Trim()));
-                var declared = declarations.SelectMany(d => Regex.Matches(d.Groups[1].Value, @"(?im)^\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:")
-                    .Cast<Match>().SelectMany(m => m.Groups[1].Value.Split(',').Select(n => n.Trim()))).ToList();
-                foreach (var duplicate in declared.GroupBy(n => n, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
-                    snapshot.Notes.Add(item.Source + " · 重复局部变量 " + duplicate.Key);
+                var declared = declarations.SelectMany(d => Regex.Matches(d.Groups[1].Value, @"(?im)^[ \t]*([A-Za-z_][A-Za-z0-9_]*(?:[ \t]*,[ \t]*[A-Za-z_][A-Za-z0-9_]*)*)[ \t]*:")
+                    .Cast<Match>().SelectMany(m => Regex.Matches(m.Groups[1].Value, @"[A-Za-z_][A-Za-z0-9_]*").Cast<Match>()
+                        .Select(n => new { Name = n.Value, Index = d.Groups[1].Index + m.Groups[1].Index + n.Index })))
+                    .ToLookup(n => n.Name, StringComparer.OrdinalIgnoreCase);
+                foreach (var duplicate in declared)
+                    foreach (var entry in duplicate.Skip(1))
+                        issue(block.Index + entry.Index, "Error", "重复局部变量 " + entry.Name);
                 if (declarations.Count != 0)
                 {
-                    var locals = item.References.Where(r => r.StartsWith("#", StringComparison.Ordinal)).Select(r => r.Substring(1)).ToList();
-                    foreach (var missing in locals.Except(declared, StringComparer.OrdinalIgnoreCase))
-                        snapshot.Notes.Add(item.Source + " · 未匹配到局部声明 #" + missing + "，核对接口或源文件范围。");
-                    foreach (var unused in declared.Except(locals, StringComparer.OrdinalIgnoreCase))
-                        snapshot.Notes.Add(item.Source + " · 正文未发现局部引用 #" + unused + "，核对外部使用和接口约定。");
+                    var locals = references.Where(r => r.Value.StartsWith("#", StringComparison.Ordinal))
+                        .ToLookup(r => r.Value.Substring(1), StringComparer.OrdinalIgnoreCase);
+                    foreach (var missing in locals.Where(n => !declared.Contains(n.Key)))
+                        issue(block.Index + missing.First().Index, "Warning", "未匹配到局部声明 #" + missing.Key + "，核对接口或源文件范围。");
+                    foreach (var unused in declared.Where(n => !locals.Contains(n.Key)))
+                        issue(block.Index + unused.First().Index, "Warning", "正文未发现局部引用 #" + unused.Key + "，核对外部使用和接口约定。");
                 }
 
-                if (!Regex.IsMatch(code, @"(?im)^\s*END_" + header + @"\b")) snapshot.Notes.Add(item.Source + " · 未找到 END_" + header);
+                if (!Regex.IsMatch(code, @"(?im)^\s*END_" + header + @"\b"))
+                    issue(block.Groups[1].Index, "Error", "未找到 END_" + header);
                 snapshot.Objects.Add(item);
             }
         }
@@ -379,8 +409,26 @@ namespace DeskBox.Engineering.Tia
                     output.Add(change);
                 }
             }
+            if (before.Objects.Any(x => x.AssetId.Length != 0) && after.Objects.Any(x => x.AssetId.Length != 0))
+            {
+                var oldLinks = LinkKeys(before);
+                var newLinks = LinkKeys(after);
+                output.AddRange(oldLinks.Except(newLinks).OrderBy(x => x).Select(x => "删除连接 · " + x));
+                output.AddRange(newLinks.Except(oldLinks).OrderBy(x => x).Select(x => "新增连接 · " + x));
+            }
             if (output.Count == 1) output.Add("所提供对象未发现指纹变化。");
             return string.Join(Environment.NewLine, output);
+        }
+
+        private static IEnumerable<string> LinkKeys(PlcSnapshot snapshot)
+        {
+            var assets = snapshot.Objects.Where(o => o.AssetId.Length != 0).ToDictionary(o => o.AssetId);
+            foreach (var link in snapshot.TopologyLinks)
+            {
+                string first = assets[link.First].Identity, second = assets[link.Second].Identity;
+                if (string.CompareOrdinal(first, second) > 0) { string swap = first; first = second; second = swap; }
+                yield return link.Kind + " · " + first + " ⟷ " + second;
+            }
         }
 
         public static string AnalogScale(string name)
