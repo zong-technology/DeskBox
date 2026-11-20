@@ -58,6 +58,14 @@ public static class TiaEngineerAcceptance
             var callee = network.Objects.Single(x => x.Name == "Worker");
             Check(caller.Content.Contains("NameCon 21 EN") && caller.References.Contains("Worker"), "FBD reports exported wire endpoints and called block");
             Check(PlcEngineering.Related(network, caller).Contains(callee.Source) && PlcEngineering.Related(network, callee).Contains(caller.Source), "Project cross references include source evidence in both directions");
+            Check(PlcEngineering.ReferenceGraph(network, caller).Single().Target == callee &&
+                PlcEngineering.ReferenceGraph(network, callee).Single().Relationship == "被调用", "Structured FBD graph identifies both directions of an explicit call");
+            var duplicateTarget = new PlcObject { Kind = "FC", Name = "Worker", Controller = "Another PLC" };
+            network.Objects.Add(duplicateTarget);
+            Check(PlcEngineering.ReferenceGraph(network, caller).Single().Target == null, "Ambiguous call names do not create a link to either target");
+            caller.Controller = callee.Controller = "First PLC";
+            Check(PlcEngineering.ReferenceGraph(network, caller).Single().Target == callee, "A known controller avoids cross-PLC name matches");
+            network.Objects.Remove(duplicateTarget);
             var checks = PlcEngineering.Check(data);
             Check(checks.Any(x => x.Contains("地址重叠")) && checks.Any(x => x.Contains("宽度不一致")) && checks.Any(x => x.Contains("地址待确认")), "IO overlap, width mismatch and unresolved address");
             var ioPlan = PlcEngineering.PlanIo(data, 0, 0);
@@ -163,7 +171,7 @@ public static class TiaEngineerAcceptance
             var jsonDraft = Json.ToJson(new PlcDraft { Kind = "FB", Name = "FB_AnalogScale", Purpose = "Scale", Scl = PlcEngineering.AnalogScale("FB_AnalogScale") });
             Check(TiaPlanning.ParseDraft(jsonDraft).Name == "FB_AnalogScale", "Model JSON accepts one matching SCL draft");
             Reject(() => TiaPlanning.ParseDraft(jsonDraft.Replace("END_FUNCTION_BLOCK", "// END_FUNCTION_BLOCK")), "A commented closing marker cannot validate an incomplete draft");
-            Native(temp, evidence, new[] { xml, csv, scl, aml });
+            Native(temp, evidence, new[] { xml, csv, scl, aml, graph });
 #endif
             Console.WriteLine("PASS " + passed + " DeskBox TIA checks. Synthetic inputs; no TIA Portal or PLC connection used.");
         }
@@ -236,6 +244,13 @@ public static class TiaEngineerAcceptance
         query.Text = "CheckValve";
         Check(tree.Nodes.Count == 1 && tree.Nodes[0].Nodes[0].Text.Contains("CheckValve"), "Engineering tree search filters by object name");
         query.Text = "";
+        var blocks = tree.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("PLC Blocks"));
+        tree.SelectedNode = blocks.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Caller "));
+        var references = Children(view).OfType<ListView>().Single(list => list.AccessibleName == "程序关系");
+        var callRow = references.Items.Cast<ListViewItem>().Single(row => row.SubItems[1].Text == "Worker");
+        Check(callRow.Text == "调用" && callRow.SubItems[3].Text.Contains("network.xml:"),
+            "Program analysis exposes source-backed call rows");
+        await Capture(form, evidence, "tia-references.png");
         var voice = new ToolContext { Store = store, TiaRead = view.ReadForVoice };
         var call = new Dictionary<string, string> { { "name", "CheckValve" } };
         var denied = ToolRegistry.Instance.Invoke("tia.read", call, voice);
@@ -341,6 +356,22 @@ public static class TiaEngineerAcceptance
         Check(tabs.SelectedIndex == 0 && draft.SelectionStart == draft.GetFirstCharIndexFromLine(5) + 4,
             "Activating a warning lands on the SCL reference column");
         severity.SelectedIndex = 0;
+        string diagnosedSource = draft.Text;
+        string correctedSource = diagnosedSource.Replace("#Unknown", "#Known");
+        tabs.SelectedIndex = 6;
+        using (var received = new ManualResetEventSlim())
+        using (var reply = new ManualResetEventSlim(true))
+        {
+            var repair = Task.Run(() => ServePlan(listener, received, reply, "Test", correctedSource));
+            await Click(button("生成修复草稿"));
+            var until = DateTime.UtcNow.AddSeconds(10);
+            while ((!repair.IsCompleted || tabs.SelectedIndex != 5) && DateTime.UtcNow < until) await Task.Delay(30);
+            Check(repair.IsCompleted && tabs.SelectedIndex == 5 && draft.Text == diagnosedSource,
+                "Repair sends the diagnosed block and returns a preview without changing source");
+            Check((await repair).Contains("#Unknown"), "Repair request carries the exact unresolved symbol");
+            await Click(button("应用已预览草稿"));
+            Check(draft.Text == correctedSource && tabs.SelectedIndex == 0, "The reviewed repair applies only upon explicit approval");
+        }
         draft.Text = goodSource;
         await Click(button("高亮"));
         var pages = new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" };
@@ -371,7 +402,7 @@ public static class TiaEngineerAcceptance
         Check(draft.Focused && draft.Height >= 100, "The narrow programming page scrolls to a usable SCL editor");
         await Capture(form, evidence, "tia-editor-narrow.png");
     }
-    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale")
+    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null)
     {
         using (var client = listener.AcceptTcpClient())
         using (var stream = client.GetStream())
@@ -401,7 +432,7 @@ public static class TiaEngineerAcceptance
             }
             requestReceived.Set();
             if (!canReply.Wait(TimeSpan.FromSeconds(4))) throw new TimeoutException("Waiting for editor input");
-            var plan = new PlcDraft { Kind = "FB", Name = name, Purpose = "审查模拟量缩放", Scl = PlcEngineering.AnalogScale(name), Tests = new[] { "验证上下限、越界和无效量程" } };
+            var plan = new PlcDraft { Kind = "FB", Name = name, Purpose = "审查草稿", Scl = source ?? PlcEngineering.AnalogScale(name), Tests = new[] { "复核静态诊断及预期行为" } };
             var reply = Encoding.UTF8.GetBytes(Json.ToJson(new { choices = new[] { new { message = new { content = Json.ToJson(plan) } } } }));
             var header = Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + reply.Length + "\r\nConnection: close\r\n\r\n");
             stream.Write(header, 0, header.Length);

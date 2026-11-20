@@ -421,6 +421,7 @@ namespace DeskBox.Engineering.Tia
                     if (exported == null) return;
                     summary.Kind = exported.Kind; summary.Interface = exported.Interface; summary.Content = exported.Content;
                     summary.References = exported.References; summary.Fingerprint = exported.Fingerprint;
+                    summary.Calls = exported.Calls;
                     summary.Source += " · exports/" + exported.Source;
                 }
                 catch (Exception e) { summary.Content += " · 正文未读取：" + (e.InnerException ?? e).Message; }

@@ -17,8 +17,15 @@ namespace DeskBox.Engineering.Tia
     {
         public string Kind = "", Name = "", Scope = "", Controller = "", Source = "", Language = "", Content = "", Address = "", DataType = "", Signal = "", OrderNumber = "", Interface = "", Fingerprint = "";
         public List<string> References = new List<string>();
+        public List<string> Calls = new List<string>();
         public string AssetId = "", ParentAssetId = "", HardwareType = "", Firmware = "", Slot = "";
         public string Identity { get { return Scope + " / " + Kind + " / " + Name; } }
+    }
+
+    public sealed class PlcReference
+    {
+        public PlcObject Target;
+        public string Relationship = "", Symbol = "", Evidence = "";
     }
 
     public sealed class PlcSnapshot
@@ -138,6 +145,7 @@ namespace DeskBox.Engineering.Tia
                             .Select(x => string.Join(".", x.Elements().Where(c => c.Name.LocalName == "Component").Select(c => (string)c.Attribute("Name"))))
                             .Where(x => x.Length != 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                         var calls = network.Descendants().Where(x => x.Name.LocalName == "CallInfo").Select(x => (string)x.Attribute("Name")).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+                        item.Calls.AddRange(calls);
                         item.References.AddRange(symbols.Concat(calls));
                         var parts = network.Descendants().Where(x => x.Name.LocalName == "Part").Select(x => (string)x.Attribute("Name")).Where(x => x != null).ToArray();
                         details.AppendLine("网络 " + (++number) + " · " + string.Join(", ", parts)).AppendLine("引用 · " + string.Join(", ", symbols));
@@ -154,6 +162,7 @@ namespace DeskBox.Engineering.Tia
                 }
                 else item.Content = (attributes == null ? element : attributes).ToString(SaveOptions.DisableFormatting);
                 item.References = item.References.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                item.Calls = item.Calls.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 item.Fingerprint = Hash(element.ToString(SaveOptions.DisableFormatting));
                 snapshot.Objects.Add(item);
             }
@@ -218,6 +227,8 @@ namespace DeskBox.Engineering.Tia
                     Source = file + ":" + (SclEditing.LineIndex(lines, block.Index) + 1), Fingerprint = Hash(content) };
                 var references = Regex.Matches(code, @"#[A-Za-z_][A-Za-z0-9_]*|""[^""\r\n]+""").Cast<Match>().SkipWhile(m => m.Index < block.Length).ToList();
                 item.References = references.Select(m => m.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                item.Calls = references.Where(m => m.Value[0] == '"' && FollowedByCall(code, m.Index + m.Length))
+                    .Select(m => GlobalSymbol(m.Value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 var declarations = Regex.Matches(code, @"(?ims)^\s*VAR(?:_[A-Z_]+)?\b(.*?)\bEND_VAR\b").Cast<Match>().ToList();
                 item.Interface = string.Join("\n", declarations.Select(x => x.Value.Trim()));
                 var declared = declarations.SelectMany(d => Regex.Matches(d.Groups[1].Value, @"(?im)^[ \t]*([A-Za-z_][A-Za-z0-9_]*(?:[ \t]*,[ \t]*[A-Za-z_][A-Za-z0-9_]*)*)[ \t]*:")
@@ -241,6 +252,12 @@ namespace DeskBox.Engineering.Tia
                     issue(block.Groups[1].Index, "Error", "未找到 END_" + header);
                 snapshot.Objects.Add(item);
             }
+        }
+
+        private static bool FollowedByCall(string source, int offset)
+        {
+            while (offset < source.Length && char.IsWhiteSpace(source[offset])) offset++;
+            return offset < source.Length && source[offset] == '(';
         }
 
         private static void ReadIo(string path, PlcSnapshot snapshot)
@@ -283,6 +300,43 @@ namespace DeskBox.Engineering.Tia
             if (truncated) links.RemoveAt(20);
             if (links.Count == 0) return "";
             return "工程交叉引用候选（按可见符号匹配）\r\n" + string.Join("\r\n", links) + (truncated ? "\r\n仅显示前 20 项。" : "");
+        }
+
+        public static List<PlcReference> ReferenceGraph(PlcSnapshot snapshot, PlcObject item)
+        {
+            var candidates = snapshot.Objects.Where(o => o != item && (item.Controller.Length == 0 ||
+                o.Controller.Length == 0 || string.Equals(item.Controller, o.Controller, StringComparison.OrdinalIgnoreCase))).ToList();
+            var byName = candidates.ToLookup(o => o.Name, StringComparer.OrdinalIgnoreCase);
+            var graph = new List<PlcReference>();
+            var calls = new HashSet<string>(item.Calls, StringComparer.OrdinalIgnoreCase);
+            foreach (string symbol in item.References.Select(GlobalSymbol).Concat(item.Calls).Where(s => s.Length != 0).Distinct(StringComparer.OrdinalIgnoreCase).Take(100))
+            {
+                bool call = calls.Contains(symbol);
+                var matches = byName[symbol].Where(o => !call || o.Kind == "FB" || o.Kind == "FC").Take(2).ToList();
+                graph.Add(new PlcReference
+                {
+                    Target = matches.Count == 1 ? matches[0] : null,
+                    Relationship = call ? "调用" : "引用",
+                    Symbol = symbol,
+                    Evidence = item.Source + (matches.Count == 0 ? " · 未载入目标" : matches.Count == 2 ? " · 同名目标不唯一" : "")
+                });
+            }
+            foreach (var candidate in candidates.Where(o => o.References.Any(r => string.Equals(GlobalSymbol(r), item.Name, StringComparison.OrdinalIgnoreCase)) ||
+                o.Calls.Contains(item.Name, StringComparer.OrdinalIgnoreCase)).Take(100))
+            {
+                bool call = candidate.Calls.Contains(item.Name, StringComparer.OrdinalIgnoreCase);
+                if (call && item.Kind != "FB" && item.Kind != "FC") continue;
+                int matches = snapshot.Objects.Where(o => string.Equals(o.Name, item.Name, StringComparison.OrdinalIgnoreCase) &&
+                    (!call || o.Kind == "FB" || o.Kind == "FC") &&
+                    (candidate.Controller.Length == 0 || o.Controller.Length == 0 || string.Equals(candidate.Controller, o.Controller, StringComparison.OrdinalIgnoreCase)))
+                    .Take(2).Count();
+                graph.Add(new PlcReference
+                {
+                    Target = candidate, Relationship = call ? "被调用" : "被引用",
+                    Symbol = candidate.Name, Evidence = candidate.Source + (matches > 1 ? " · 目标不唯一，需核对" : "")
+                });
+            }
+            return graph;
         }
 
         private static string GlobalSymbol(string symbol)

@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -59,6 +60,20 @@ namespace DeskBox.Engineering.Tia
                     review.Notes.Any(n => n.Contains("未找到 END_")))
                     throw new InvalidOperationException("输出的 SCL 与计划块类型、名称或边界不一致，已阻止接收该草稿。");
             }
+            return draft;
+        }
+
+        public static PlcDraft Repair(AiProvider provider, string source, IEnumerable<PlcDiagnostic> diagnostics, CancellationToken token)
+        {
+            var review = PlcEngineering.ReviewScl(source, "当前草稿");
+            if (review.Objects.Count != 1) throw new InvalidOperationException("请先将需要修复的单个 SCL 块放入编辑器。");
+            var original = review.Objects[0];
+            string evidence = string.Join("\n", diagnostics.Take(20).Select(issue => issue.ToString()));
+            var draft = Plan(provider,
+                "依据已提供的静态诊断修复现有单块 SCL 草稿。保留块名称和类型，仅建议有证据的最小修改。无法确定时返回 PLAN 和待复核项。",
+                "静态检查结果\n" + evidence + "\n\n当前 SCL\n" + source, token);
+            if (draft.Scl.Length != 0 && (draft.Kind != original.Kind || !string.Equals(draft.Name, original.Name, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("修复草稿改变了原块名称或类型，无法进入替换预览。");
             return draft;
         }
 

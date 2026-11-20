@@ -29,6 +29,7 @@ namespace DeskBox.UI.Views
         private readonly ListView diagnosticList = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "工程诊断列表" };
         private readonly ListView hardwareInventory = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "硬件清单" };
         private readonly ListView networkLinks = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "拓扑连接" };
+        private readonly ListView referenceGraph = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "程序关系" };
         private readonly Label networkFrom = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
         private readonly Label networkTo = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
         private readonly ComboBox diagnosticFilter = new ComboBox { Width = 105, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "诊断级别" };
@@ -51,7 +52,7 @@ namespace DeskBox.UI.Views
         private string apFile, template, templateName;
         private string pendingScl, reviewedEditor, pendingTemplateName, diagnosticDraft;
         private IList<PlcDiagnostic> currentDiagnostics = new List<PlcDiagnostic>();
-        private DarkButton applyDraft;
+        private DarkButton applyDraft, repairDraft;
         private CancellationTokenSource operation;
         private CancellationToken voiceScope;
         private Phase phase;
@@ -112,13 +113,14 @@ namespace DeskBox.UI.Views
             modelStatus = Caption("");
             modelStatus.Name = "tia-model-status";
             BuildProgrammingPage(configureModel);
-            Page("程序分析", "打开工程资料后，在左侧选择程序块。这里显示接口、来源和引用。AI 解释需配置服务商。", analysis, Button("解释所选对象", Explain), Button("检查工程", Check));
+            Page("程序分析", "选择程序块或变量查看调用及引用。双击唯一匹配的关系可打开目标。", BuildReferencePanel(), Button("解释所选对象", Explain), Button("检查工程", Check));
             Page("硬件组态", "打开 CAx AML 查看设备、槽位和订货号，或使用本机 V20 硬件目录。", BuildHardwarePanel(), catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware), Button("导出硬件清单", ExportHardware));
             Page("网络拓扑", "选择连接查看端点和来源。CAx AML 中明确记录的关系才会显示为连接。", BuildNetworkPanel());
-            Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
+            Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
             applyDraft = Button("应用已预览草稿", ApplyDraft);
             Page("工程对比", "查看草稿的逐行变更，或用当前工程和另一份同类资料对比。", diff, applyDraft, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
-            Page("测试验证", "离线编译需 V20 Openness。双击诊断可定位有证据的位置。", BuildValidationPanel(), cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
+            repairDraft = Button("生成修复草稿", RepairDraft);
+            Page("测试验证", "离线编译需 V20 Openness。双击诊断可定位有证据的位置。", BuildValidationPanel(), cpu, Button("编译副本", delegate { Compile(false); }), Button("批准新增模板并编译", delegate { Compile(true); }), Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
             var left = new Panel { Dock = DockStyle.Left, Width = 260, Padding = new Padding(0, 0, 4, 0) };
             left.Controls.Add(tree); left.Controls.Add(treeQuery); left.Controls.Add(Caption("工程浏览器"));
             tree.ShowNodeToolTips = true;
@@ -410,6 +412,26 @@ namespace DeskBox.UI.Views
             panel.Controls.Add(topology, 0, 2);
             return panel;
         }
+        private Control BuildReferencePanel()
+        {
+            referenceGraph.Columns.Add("关系", 75);
+            referenceGraph.Columns.Add("符号", 155);
+            referenceGraph.Columns.Add("目标对象", 240);
+            referenceGraph.Columns.Add("引用方来源", 250);
+            referenceGraph.ItemActivate += delegate
+            {
+                if (referenceGraph.SelectedItems.Count != 1) return;
+                var item = referenceGraph.SelectedItems[0].Tag as PlcObject;
+                if (item != null) ShowObject(item, true);
+            };
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 43));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 57));
+            panel.Controls.Add(referenceGraph, 0, 0);
+            panel.Controls.Add(analysis, 0, 1);
+            return panel;
+        }
         private static string DescribeHardware(PlcObject item)
         {
             return item.Kind + " · " + item.Scope + " / " + item.Name + "\r\n来源 " + item.Source +
@@ -454,6 +476,7 @@ namespace DeskBox.UI.Views
             currentDiagnostics = issues ?? new List<PlcDiagnostic>();
             diagnosticDraft = source;
             RefreshDiagnostics();
+            UpdateButtons();
         }
         private void RefreshDiagnostics()
         {
@@ -594,6 +617,7 @@ namespace DeskBox.UI.Views
             useProjectContext.Enabled = operation == null && snapshot != null;
             useProjectContext.Visible = snapshot != null;
             if (applyDraft != null) applyDraft.Enabled = operation == null && pendingScl != null && mode.SelectedIndex > 0;
+            if (repairDraft != null) repairDraft.Enabled = operation == null && diagnosticDraft != null && currentDiagnostics.Count > 0 && SameSource(diagnosticDraft, editor.Text);
             cancel.Enabled = operation != null;
             mode.Enabled = operation == null; cpu.Enabled = operation == null;
             editor.ReadOnly = operation != null || mode.SelectedIndex == 0;
@@ -642,7 +666,7 @@ namespace DeskBox.UI.Views
             { box.BackColor = palette.CardBg; box.ForeColor = palette.Text; }
             requirement.BackColor = requirement.Focused ? UiKit.Mix(palette.PanelAlt, palette.Accent, 0.12) : palette.PanelAlt;
             tree.BackColor = palette.CardBg; tree.ForeColor = palette.Text; tree.LineColor = palette.Line;
-            foreach (var list in new[] { diagnosticList, hardwareInventory, networkLinks })
+            foreach (var list in new[] { diagnosticList, hardwareInventory, networkLinks, referenceGraph })
             { list.BackColor = palette.CardBg; list.ForeColor = palette.Text; }
             networkFrom.BackColor = networkTo.BackColor = palette.PanelAlt;
             foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, voiceAccess, useProjectContext }) { control.BackColor = palette.CardBg; control.ForeColor = palette.Text; }
@@ -751,6 +775,7 @@ namespace DeskBox.UI.Views
         {
             snapshot = value; selected = null; voiceAccess.Checked = false; useProjectContext.Checked = false; RefreshHeading();
             RefreshTree();
+            referenceGraph.Items.Clear();
             analysis.Text = value.Report(); assistant.Text = analysis.Text;
             tags.Text = string.Join(Environment.NewLine, value.Objects.Where(x => x.Kind == "PlcTag").Take(1500).Select(x => x.Name + "  " + x.DataType + "  " + x.Address + "  · " + x.Content + "  · " + x.Source));
             FillHardware(value);
@@ -799,11 +824,17 @@ namespace DeskBox.UI.Views
             if (kind == "PlcStruct" || kind == "UDT" || kind == "PlcType") return "Data Types";
             return "PLC Blocks";
         }
-        private void ShowObject(PlcObject item)
+        private void ShowObject(PlcObject item, bool stayInAnalysis = false)
         {
-            selected = item; if (item == null) return;
+            selected = item;
+            referenceGraph.Items.Clear();
+            if (item == null) return;
+            if (snapshot != null)
+                foreach (var link in PlcEngineering.ReferenceGraph(snapshot, item))
+                    referenceGraph.Items.Add(new ListViewItem(new[] { link.Relationship, link.Symbol,
+                        link.Target == null ? "" : link.Target.Identity, link.Evidence }) { Tag = link.Target });
             analysis.Text = Describe(item, 16000);
-            SelectTab(item.Kind == "PlcTag" ? 4 : 1);
+            SelectTab(!stayInAnalysis && item.Kind == "PlcTag" ? 4 : 1);
         }
         private string Describe(PlcObject item, int limit)
         {
@@ -874,7 +905,22 @@ namespace DeskBox.UI.Views
             var model = ApproveModel(context); if (model == null) return;
             submittedRequirement = prompt;
             if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
-            Work("生成结构化工程任务与草稿", t => TiaPlanning.Plan(model, prompt, context, t), draft =>
+            RequestPlan("生成结构化工程任务与草稿", t => TiaPlanning.Plan(model, prompt, context, t));
+        }
+        private void RepairDraft()
+        {
+            if (diagnosticDraft == null || !SameSource(diagnosticDraft, editor.Text) || currentDiagnostics.Count == 0)
+                throw new InvalidOperationException("请先对当前草稿执行静态检查。");
+            string source = editor.Text;
+            var evidence = currentDiagnostics.ToList();
+            var model = ApproveModel(source + "\n" + string.Join("\n", evidence.Take(20)));
+            if (model == null) return;
+            if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
+            RequestPlan("依据静态诊断生成修复草稿", token => TiaPlanning.Repair(model, source, evidence, token));
+        }
+        private void RequestPlan(string action, Func<CancellationToken, PlcDraft> factory)
+        {
+            Work(action, factory, draft =>
             {
                 assistant.Text = draft.Plan();
                 pendingScl = null;
