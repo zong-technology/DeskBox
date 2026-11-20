@@ -91,10 +91,16 @@ public static class TiaEngineerAcceptance
         <Attribute Name='PositionNumber'><Value>1</Value></Attribute>
         <Attribute Name='TypeIdentifier'><Value>OrderNumber:6ES7 TEST/V2.0</Value></Attribute>
         <SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/DeviceItem'/>
-        <InternalElement ID='port-a' Name='Port A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/CommunicationPort'/>
-          <ExternalInterface Name='CommunicationPortInterface'/></InternalElement>
-        <InternalElement ID='node' Name='Ethernet A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Node'/>
-          <ExternalInterface Name='LogicalEndPoint_Node'/></InternalElement>
+        <InternalElement ID='iface-a' Name='PROFINET A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/CommunicationInterface'/>
+          <InternalElement ID='port-a' Name='Port A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/CommunicationPort'/>
+            <ExternalInterface Name='CommunicationPortInterface'/></InternalElement>
+          <InternalElement ID='node' Name='Ethernet A'><SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/Node'/>
+            <ExternalInterface Name='LogicalEndPoint_Node'/></InternalElement>
+          <InternalElement ID='adapter' Name='Pluggable adapter'>
+            <Attribute Name='PositionNumber'><Value>5</Value></Attribute>
+            <SupportedRoleClass RefRoleClassPath='AutomationProjectConfigurationRoleClassLib/DeviceItem'/>
+          </InternalElement>
+        </InternalElement>
       </InternalElement>
       <InternalElement ID='ai' Name='Analog input'>
         <Attribute Name='PositionNumber'><Value>2</Value></Attribute>
@@ -125,6 +131,8 @@ public static class TiaEngineerAcceptance
             var cpuAsset = caX.Objects.Single(o => o.Name == "CPU A");
             Check(cpuAsset.OrderNumber == "6ES7 TEST" && cpuAsset.Firmware == "V2.0" && cpuAsset.Slot == "1" &&
                 cpuAsset.ParentAssetId == caX.Objects.Single(o => o.Name == "Station A").AssetId, "CAx AML preserves hardware part, firmware, slot and parent evidence");
+            Check(caX.Objects.Single(o => o.Name == "Pluggable adapter").ParentAssetId == caX.Objects.Single(o => o.Name == "PROFINET A").AssetId,
+                "CAx records a pluggable module under its explicit communications interface");
             Check(caX.TopologyLinks.Count == 2 && caX.TopologyLinks.All(l => l.Source.StartsWith("hardware.aml:")) &&
                 caX.TopologyLinks.Any(l => l.Kind == "端口连线") && caX.TopologyLinks.Any(l => l.Kind == "子网成员") &&
                 caX.Notes.Any(n => n.Contains("未展示 1 条")), "Only explicitly resolved CAx port links and subnet members are displayed");
@@ -330,6 +338,10 @@ public static class TiaEngineerAcceptance
         var lowerLevel = containers.Items.Cast<PlcObject>().Single(o => o.Name == "Analog input");
         containers.SelectedItem = lowerLevel;
         Check(Children(rack).OfType<Button>().Single().AccessibleName.Contains("Input submodule"), "Selecting a nested container reveals its own slot level");
+        containers.SelectedItem = containers.Items.Cast<PlcObject>().Single(o => o.Name == "PROFINET A");
+        await Click(Children(rack).OfType<Button>().Single());
+        Check(hardwareList.SelectedItems[0].Text == "Pluggable adapter" && ((PlcObject)containers.SelectedItem).Name == "PROFINET A",
+            "A communications-interface container exposes its adapter without moving it into the surrounding rack");
         var hardwareRoot = tree.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Devices"));
         var stationBranch = hardwareRoot.Nodes.Cast<TreeNode>().Single(n => n.Tag is List<PlcObject> && n.Text.StartsWith("Station A  "));
         stationBranch.Expand();
@@ -340,6 +352,16 @@ public static class TiaEngineerAcceptance
         topologyList.Items[0].Selected = true;
         Check(Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "网络与设备").Text.Contains("hardware.aml:"),
             "Selecting a completed wire shows the original hardware export evidence");
+        var endpointA = Children(view).OfType<DarkButton>().Single(b => b.AccessibleName == "定位拓扑端点 A 的硬件");
+        var endpointB = Children(view).OfType<DarkButton>().Single(b => b.AccessibleName == "定位拓扑端点 B 的硬件");
+        await Capture(form, evidence, "tia-network-endpoints.png");
+        await Click(endpointA);
+        Check(tabs.SelectedIndex == 2 && hardwareList.SelectedItems[0].Text == "CPU A" && hardwareDetails.Text.Contains("hardware.aml:") &&
+            hardwareDetails.Text.Contains("6ES7 TEST"), "An endpoint click navigates through the recorded interface to its source-backed hardware owner");
+        tabs.SelectedIndex = 3;
+        Check(topologyList.Items[0].Selected, "Returning to topology keeps the current connection selected");
+        topologyList.Items[1].Selected = true;
+        Check(endpointA.Enabled && !endpointB.Enabled && endpointB.Text.Contains("Network 1"), "An unowned subnet endpoint has evidence but no hardware shortcut");
         var scopedTags = tree.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("PLC Tags")).Nodes[0];
         Check(scopedTags.Nodes.Count == 1 && scopedTags.Nodes[0].Tag == null, "Scoped tree nodes defer materializing their objects until expanded");
         scopedTags.Expand();

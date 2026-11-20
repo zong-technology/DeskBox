@@ -45,12 +45,13 @@ namespace DeskBox.UI.Views
             RenderModules();
         }
 
-        internal void LoadAssets(IEnumerable<PlcObject> hardware)
+        internal void LoadAssets(IEnumerable<PlcObject> objects)
         {
             selected = null;
-            assets = hardware.Where(x => x.AssetId.Length != 0).ToDictionary(x => x.AssetId);
-            children = assets.Values.Where(x => assets.ContainsKey(x.ParentAssetId)).ToLookup(x => x.ParentAssetId);
-            var containers = hardware.Where(x => x.AssetId.Length != 0 && (x.Kind == "Device" || children.Contains(x.AssetId))).ToArray();
+            var supported = objects.Where(x => x.AssetId.Length != 0 && (PlcEngineering.IsHardware(x) || x.Kind == "NetworkInterface")).ToArray();
+            assets = supported.ToDictionary(x => x.AssetId);
+            children = supported.Where(x => PlcEngineering.IsHardware(x) && assets.ContainsKey(x.ParentAssetId)).ToLookup(x => x.ParentAssetId);
+            var containers = supported.Where(x => x.Kind == "Device" || children.Contains(x.AssetId)).ToArray();
             Containers.Items.Clear();
             Containers.Items.AddRange(containers);
             Containers.Enabled = containers.Length != 0;

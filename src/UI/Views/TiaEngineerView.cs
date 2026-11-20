@@ -32,8 +32,8 @@ namespace DeskBox.UI.Views
         private readonly Dictionary<PlcObject, ListViewItem> hardwareRows = new Dictionary<PlcObject, ListViewItem>();
         private readonly ListView networkLinks = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "拓扑连接" };
         private readonly ListView referenceGraph = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "程序关系" };
-        private readonly Label networkFrom = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
-        private readonly Label networkTo = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
+        private readonly DarkButton networkFrom = new DarkButton("") { Dock = DockStyle.Fill, Visible = false, AccessibleName = "定位拓扑端点 A 的硬件" };
+        private readonly DarkButton networkTo = new DarkButton("") { Dock = DockStyle.Fill, Visible = false, AccessibleName = "定位拓扑端点 B 的硬件" };
         private readonly ComboBox diagnosticFilter = new ComboBox { Width = 105, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "诊断级别" };
         private readonly TextBox scaleName = new TextBox { Text = "FB_AnalogScale", Width = 128, AccessibleName = "缩放块名称" };
         private readonly TextBox catalogQuery = new TextBox { Width = 140, AccessibleName = "硬件目录型号或订货号" };
@@ -47,6 +47,7 @@ namespace DeskBox.UI.Views
         private readonly Panel side;
         private Panel programmingScroll;
         private readonly Dictionary<string, string> unsent = new Dictionary<string, string>();
+        private Dictionary<string, PlcObject> assets = new Dictionary<string, PlcObject>();
         private string draftEnvironment, submittedRequirement;
         private PlcSnapshot snapshot, baseline;
         private PlcObject selected;
@@ -120,7 +121,7 @@ namespace DeskBox.UI.Views
             BuildProgrammingPage(configureModel);
             Page("程序分析", "选择程序块或变量查看调用及引用。双击唯一匹配的关系可打开目标。", BuildReferencePanel(), Button("解释所选对象", Explain), Button("检查工程", Check));
             Page("硬件组态", "从机架选择模块查看槽位、订货号和来源。可加载 CAx AML 或查询本机 V20 硬件目录。", BuildHardwarePanel(), catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware), Button("导出硬件清单", ExportHardware));
-            Page("网络拓扑", "选择连接查看端点和来源。CAx AML 中明确记录的关系才会显示为连接。", BuildNetworkPanel());
+            Page("网络拓扑", "选择一条已记录的连接，查看来源或点击端点定位所属硬件。", BuildNetworkPanel());
             Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
             applyDraft = Button("应用已预览草稿", ApplyDraft);
             Page("工程对比", "查看草稿的逐行变更，或用当前工程和另一份同类资料对比。", diff, applyDraft, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
@@ -392,11 +393,13 @@ namespace DeskBox.UI.Views
             rack.FocusAsset(item);
             hardware.Text = DescribeHardware(item);
             ListViewItem row;
-            if (selectRow && hardwareRows.TryGetValue(item, out row))
+            if (!selectRow) return;
+            if (hardwareRows.TryGetValue(item, out row))
             {
                 if (!row.Selected) row.Selected = true;
                 row.EnsureVisible();
             }
+            else hardwareInventory.SelectedIndices.Clear();
         }
         private Control BuildNetworkPanel()
         {
@@ -412,13 +415,19 @@ namespace DeskBox.UI.Views
             diagram.Controls.Add(networkFrom, 0, 0);
             diagram.Controls.Add(connection, 1, 0);
             diagram.Controls.Add(networkTo, 2, 0);
+            foreach (var button in new[] { networkFrom, networkTo })
+                button.Click += delegate(object sender, EventArgs e)
+                {
+                    var owner = ((Control)sender).Tag as PlcObject;
+                    if (owner != null) ShowObject(owner);
+                };
             networkLinks.SelectedIndexChanged += delegate
             {
                 var pair = networkLinks.SelectedItems.Count == 1
                     ? networkLinks.SelectedItems[0].Tag as Tuple<PlcTopologyLink, PlcObject, PlcObject> : null;
                 connection.Text = pair == null ? "" : "⟷";
-                networkFrom.Text = pair == null ? "" : pair.Item2.Scope + " / " + pair.Item2.Name;
-                networkTo.Text = pair == null ? "" : pair.Item3.Scope + " / " + pair.Item3.Name;
+                ShowNetworkEndpoint(networkFrom, pair == null ? null : pair.Item2);
+                ShowNetworkEndpoint(networkTo, pair == null ? null : pair.Item3);
                 if (pair != null)
                     topology.Text = pair.Item1.Kind + " · 来源 " + pair.Item1.Source + "\r\n\r\n" +
                         DescribeHardware(pair.Item2) + "\r\n\r\n" + DescribeHardware(pair.Item3);
@@ -431,6 +440,19 @@ namespace DeskBox.UI.Views
             panel.Controls.Add(diagram, 0, 1);
             panel.Controls.Add(topology, 0, 2);
             return panel;
+        }
+
+        private void ShowNetworkEndpoint(DarkButton button, PlcObject endpoint)
+        {
+            PlcObject owner = endpoint;
+            for (int depth = 0; owner != null && !PlcEngineering.IsHardware(owner) && depth < 64; depth++)
+                assets.TryGetValue(owner.ParentAssetId, out owner);
+            if (owner != null && !PlcEngineering.IsHardware(owner)) owner = null;
+            button.Tag = owner;
+            button.Visible = endpoint != null;
+            button.Enabled = owner != null;
+            button.Text = endpoint == null ? "" : endpoint.Scope + " / " + endpoint.Name;
+            button.AccessibleDescription = owner == null ? "未找到端点所属硬件。" : "定位 " + owner.Name + " · " + endpoint.Source;
         }
         private Control BuildReferencePanel()
         {
@@ -473,17 +495,17 @@ namespace DeskBox.UI.Views
                 }
             }
             finally { hardwareInventory.EndUpdate(); }
-            rack.LoadAssets(hardwareAssets);
+            rack.LoadAssets(value.Objects);
             hardware.Text = hardwareInventory.Items.Count == 0 ? "请加载 CAx AML 或 TIA 工程。当前资料没有设备清单。" :
                 "选择模块查看源数据。列表最多显示前 2000 个硬件对象，导出包含全部已读取硬件。";
 
-            var endpoints = value.Objects.Where(o => o.AssetId.Length != 0).ToDictionary(o => o.AssetId);
+            assets = value.Objects.Where(o => o.AssetId.Length != 0).ToDictionary(o => o.AssetId);
             networkLinks.BeginUpdate();
             networkLinks.Items.Clear();
             foreach (var link in value.TopologyLinks.Take(2000))
             {
-                var a = endpoints[link.First];
-                var b = endpoints[link.Second];
+                var a = assets[link.First];
+                var b = assets[link.Second];
                 networkLinks.Items.Add(new ListViewItem(new[] { link.Kind, a.Scope + " / " + a.Name, b.Scope + " / " + b.Name, link.Source })
                     { Tag = Tuple.Create(link, a, b) });
             }
@@ -705,7 +727,6 @@ namespace DeskBox.UI.Views
             tree.BackColor = palette.CardBg; tree.ForeColor = palette.Text; tree.LineColor = palette.Line;
             foreach (var list in new[] { diagnosticList, hardwareInventory, networkLinks, referenceGraph })
             { list.BackColor = palette.CardBg; list.ForeColor = palette.Text; }
-            networkFrom.BackColor = networkTo.BackColor = palette.PanelAlt;
             rack.ApplyPalette(palette);
             foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, voiceAccess, useProjectContext }) { control.BackColor = palette.CardBg; control.ForeColor = palette.Text; }
         }
