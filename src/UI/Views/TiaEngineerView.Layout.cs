@@ -33,9 +33,9 @@ namespace DeskBox.UI.Views
             var shell = new Panel { Dock = DockStyle.Fill, Name = "tia-workbench-zones" };
             shell.Controls.AddRange(new Control[] { workArea, assistantDivider, assistantPane, navigationDivider, navigationPane });
 
-            toggleAssistant = Button("收起助手", ToggleAssistant);
+            toggleAssistant = Button("收起助手", ToggleAssistant, false);
             toggleAssistant.Name = "tia-toggle-assistant";
-            var reset = Button("恢复默认布局", ResetLayout);
+            var reset = Button("恢复默认布局", ResetLayout, false);
             reset.Name = "tia-reset-layout";
             toolbar.Controls.AddRange(new Control[] { toggleAssistant, reset });
             FormatCombo(mode);
@@ -75,9 +75,9 @@ namespace DeskBox.UI.Views
             connectionStatus.Dock = DockStyle.Right;
             connectionStatus.Width = Dpi.D(this, 174);
             connectionStatus.TextAlign = ContentAlignment.MiddleRight;
-            toggleTree = Button("收起导航", () => { Store.Settings.TiaTreeCollapsed = !Store.Settings.TiaTreeCollapsed; SaveLayout(); });
+            toggleTree = Button("收起导航", () => { Store.Settings.TiaTreeCollapsed = !Store.Settings.TiaTreeCollapsed; SaveLayout(); }, false);
             toggleTree.Name = "tia-toggle-tree";
-            toggleOutput = Button("收起输出", () => { Store.Settings.TiaLogCollapsed = !Store.Settings.TiaLogCollapsed; SaveLayout(); });
+            toggleOutput = Button("收起输出", () => { Store.Settings.TiaLogCollapsed = !Store.Settings.TiaLogCollapsed; SaveLayout(); }, false);
             toggleOutput.Name = "tia-toggle-output";
             foreach (var button in new[] { toggleTree, toggleOutput })
             {
@@ -154,7 +154,7 @@ namespace DeskBox.UI.Views
 
         private void BuildProgrammingPage()
         {
-            var page = new TabPage("AI 编程") { Padding = new Padding(5, 4, 5, 4) };
+            var page = new TabPage("程序编辑") { Padding = new Padding(5, 4, 5, 4) };
             var toolbar = Bar();
             toolbar.Controls.AddRange(new Control[] { Button("保存 SCL", ExportScl), Button("静态检查草稿", CheckDraft), Button("查找 SCL", FindCode),
                 Button("撤销", UndoCode), Button("替换 SCL", ReplaceCode), Button("匹配括号", MatchBracket), Button("高亮", Highlight),
@@ -177,6 +177,12 @@ namespace DeskBox.UI.Views
             editor.SelectionChanged += delegate { UpdateEditorStatus(); };
             editor.TextChanged += delegate { UpdateEditorStatus(); };
             editor.ReadOnlyChanged += delegate { UpdateEditorStatus(); };
+            editor.Enter += delegate
+            {
+                if (!compact || !compactAssistant) return;
+                compactAssistant = false;
+                LayoutWorkbench();
+            };
         }
 
         private Panel BuildOutputPane()
@@ -187,7 +193,7 @@ namespace DeskBox.UI.Views
             toolbar.Padding = new Padding(0, 1, 0, 1);
             toolbar.AutoSize = false;
             toolbar.Height = Dpi.D(this, TiaWorkbenchStyle.ToolbarHeight);
-            outputTabs = new[] { "编译结果", "诊断", "操作日志" }.Select((name, index) => Button(name, () => { OpenOutput(index); })).ToArray();
+            outputTabs = new[] { "编译结果", "诊断", "操作日志" }.Select((name, index) => Button(name, () => OpenOutput(index), false)).ToArray();
             foreach (var button in outputTabs) { button.Height = Dpi.D(this, 27); toolbar.Controls.Add(button); }
             diagnosisCount = Caption("无诊断记录");
             diagnosisCount.Name = "tia-diagnosis-count";
@@ -257,6 +263,7 @@ namespace DeskBox.UI.Views
             toggleTree.Text = treeOpen ? "收起导航" : "展开导航";
             toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
             toggleOutput.Text = settings.TiaLogCollapsed ? "展开输出" : "收起输出";
+            foreach (var button in new[] { toggleTree, toggleAssistant, toggleOutput }) button.AccessibleName = button.Text;
         }
 
         private void SaveLayout() { LayoutWorkbench(); Store.SaveSettingsOnly(); }
@@ -318,6 +325,18 @@ namespace DeskBox.UI.Views
         {
             if (!editor.ReadOnly && editor.CanUndo) editor.Undo();
             editor.Focus();
+        }
+
+        internal void FocusWorkbenchSearch()
+        {
+            if (editor.Focused) { RunAction(FindCode); return; }
+            if (Store.Settings.TiaTreeCollapsed)
+            {
+                Store.Settings.TiaTreeCollapsed = false;
+                SaveLayout();
+            }
+            treeQuery.Inner.Focus();
+            treeQuery.Inner.SelectAll();
         }
 
         private void UpdateWorkbenchContext()

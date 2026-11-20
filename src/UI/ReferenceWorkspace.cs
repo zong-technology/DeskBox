@@ -34,6 +34,9 @@ namespace DeskBox.UI
         private Palette _p;
         private Panel _content,_rail;
         private Label _heading,_cloudLabel,_status;
+        private Label _railHeading;
+        private readonly ToolTip _railTips = new ToolTip { ShowAlways = true };
+        private bool _compactRail;
         private DarkInput _globalSearch;
         private Image _factory;
         private Image _brand;
@@ -91,7 +94,7 @@ namespace DeskBox.UI
             {
                 string id=items[i,0];var button=Button(items[i,2],()=>Navigate(id),false,176);button.SetBounds(4,35+i*44,176,40);button.Font=FontOf(10.5f);button.Name="nav-"+id;button.Navigation=true;button.Symbol=items[i,1];_rail.Controls.Add(button);_nav[id]=button;
             }
-            var section=TextLabel("WORKSPACE  /  工作空间",8,false,_p.TextFaint);section.SetBounds(18,10,170,20);_rail.Controls.Add(section);
+            _railHeading=TextLabel("WORKSPACE  /  工作空间",8,false,_p.TextFaint);_railHeading.SetBounds(18,10,170,20);_rail.Controls.Add(_railHeading);
             var more=Button("功能与设置",()=>ShowMore(),false,176);more.SetBounds(4,635,176,38);more.Navigation=true;more.Symbol="\uE713";_rail.Controls.Add(more);
             var classic=Button("切换经典模式",()=>{if(ClassicRequested!=null)ClassicRequested();},false,176);classic.SetBounds(4,679,176,34);classic.Navigation=true;classic.Symbol="\uE8A9";_rail.Controls.Add(classic);
             _content=new Panel{Dock=DockStyle.Fill,BackColor=_p.Bg};_status=TextLabel("",8,false,_p.TextDim);_status.Dock=DockStyle.Bottom;_status.Height=25;_status.Padding=new Padding(18,3,0,0);
@@ -101,6 +104,7 @@ namespace DeskBox.UI
         {
             if(!ReferencePages.Contains(page)&&page!="project-detail"&&page!="calculator"&&page!="tool-workspace"&&page!="tia"){ShowLegacy(page);return;}
             _current=page;
+            UpdateNavigationRail(page == "tia");
             _globalSearch.UseDrawnPlaceholder = page == "desktop" || page == "home" || page == "engineering" || page == "ai";
             if(PageChanged!=null)PageChanged(page);
             if(!_pages.ContainsKey(page))
@@ -113,6 +117,20 @@ namespace DeskBox.UI
             foreach(var item in _nav){item.Value.Primary=item.Key==page||(page=="project-detail"&&item.Key=="projects")||((page=="calculator"||page=="tool-workspace")&&item.Key=="engineering");item.Value.Invalidate();}
             var currentProject=CurrentProject();_heading.Text=currentProject==null?"工程智能工作台":currentProject.Name;
             Action reload;if(_reload.TryGetValue(page,out reload))reload();var view=_pages[page] as Views.ViewBase;if(view!=null)view.Activate();RefreshStatus();
+        }
+        private void UpdateNavigationRail(bool compact)
+        {
+            if (_compactRail == compact) return;
+            _compactRail = compact;
+            _rail.Width = Dpi.D(this, compact ? 68 : 200);
+            _railHeading.Visible = !compact;
+            foreach (var button in _rail.Controls.OfType<DarkButton>())
+            {
+                button.CompactNavigation = compact;
+                button.Width = Dpi.D(this, compact ? 48 : 176);
+                _railTips.SetToolTip(button, compact ? button.Text : null);
+                button.Invalidate();
+            }
         }
         public void RefreshStatus(){if(_status==null)return;RefreshDashboardCounts();_cloudLabel.Text=_cloud.Connected?"● 云同步在线":_cloud.LoggedIn?"● 云同步连接中":"○ 未登录云账号";_status.Text="DeskBox  /  Win+F 呼出    ·    "+_store.Tasks.Count(x=>!x.Done)+" 项待办    ·    "+_sync.Incidents.Count+" 项现场事件    ·    "+_cloud.Status;}
         public void RefreshData(){DataChanged();}
@@ -136,7 +154,7 @@ namespace DeskBox.UI
         private void OpenPath(string path){if(!File.Exists(path)&&!Directory.Exists(path)){_status.Text="路径已不存在："+path;return;}Win32.OpenPath(path);if(File.Exists(path))_library.Touch(path);}
         private EngineerWorkspace CurrentProject(){return _projects.Current??_projects.Items.FirstOrDefault(p=>p.Id==_selectedProject)??_projects.Items.FirstOrDefault();}
         private void ShowProject(EngineerWorkspace project){_selectedProject=project.Id;_projects.SetCurrent(project.Id);Navigate("project-detail");}
-        protected override void Dispose(bool disposing){if(disposing){_projects.Changed-=DataChanged;_sync.Changed-=DataChanged;_cloud.Changed-=CloudChanged;}base.Dispose(disposing);if(disposing){if(_factory!=null)_factory.Dispose();if(_brand!=null)_brand.Dispose();foreach(var font in _fonts)font.Dispose();}}
+        protected override void Dispose(bool disposing){if(disposing){_projects.Changed-=DataChanged;_sync.Changed-=DataChanged;_cloud.Changed-=CloudChanged;_railTips.Dispose();}base.Dispose(disposing);if(disposing){if(_factory!=null)_factory.Dispose();if(_brand!=null)_brand.Dispose();foreach(var font in _fonts)font.Dispose();}}
     }
 
     internal class ReferenceCard : Panel

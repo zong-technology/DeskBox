@@ -92,6 +92,11 @@ public static class DeskBoxInstallCapture {
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+    public static bool SizeWorkbench(IntPtr window) {
+        Rect bounds;
+        return SetWindowPos(window, new IntPtr(-1), 0, 0, 1920, 1080, 0x0040) && GetWindowRect(window, out bounds)
+            && bounds.Right - bounds.Left == 1920 && bounds.Bottom - bounds.Top == 1080;
+    }
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window,StringBuilder name,int size);
@@ -225,6 +230,7 @@ public static class DeskBoxInstallCapture {
 
 try {
     $env:DESKBOX_HOME = $profile
+    if ($env:GITHUB_ACTIONS -eq 'true') { & (Join-Path $root 'tools\prepare-ci-display.ps1') }
     $app = Start-Process -FilePath $installed -WorkingDirectory $target -PassThru
     $until = [DateTime]::UtcNow.AddSeconds(30)
     do {
@@ -237,6 +243,9 @@ try {
     Check ([string]::Equals($app.MainModule.FileName, $installed, [StringComparison]::OrdinalIgnoreCase)) 'Running path is the installed candidate'
     Check ((Get-FileHash -LiteralPath $app.MainModule.FileName).Hash -eq $expected) 'Running executable hash matches the build'
     Start-Sleep -Milliseconds 300
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Check ([DeskBoxInstallCapture]::SizeWorkbench($window)) 'The actual installed workbench is 1920 by 1080 before capture'
+    }
     $dpi = [DeskBoxInstallCapture]::GetDpiForWindow($window)
     Check ($dpi -eq $ExpectedDpi) ('Actual installed window reports ' + $ExpectedDpi + ' DPI')
     $capture = [DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-main-window.png'))
@@ -309,7 +318,6 @@ $nativeResult = [regex]::Match([IO.File]::ReadAllText((Join-Path $output 'instal
 if (-not $nativeResult.Success) { throw 'Native check count was not recorded.' }
 
 # UI matrix uses an identical copy of the installed payload, with synthetic fixtures only.
-if ($env:GITHUB_ACTIONS -eq 'true') { & (Join-Path $root 'tools\prepare-ci-display.ps1') }
 & (Join-Path $root 'tools\ui-regression.ps1') -ExpectedDpi $ExpectedDpi -SourceExe $installed
 Check ($?) ('Installed-payload 12-page navigation and three-layout matrix at ' + $ExpectedDpi + ' DPI')
 

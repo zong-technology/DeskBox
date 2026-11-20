@@ -418,35 +418,61 @@ public static class TiaEngineerAcceptance
         tree.SelectedNode = sourceNode;
         Check(Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "程序分析").Text.Contains("最大嵌套"),
             "SCL objects expose the actual control-flow summary in program analysis");
+        await Click(Children(view).OfType<DarkButton>().Single(button => button.Text == "创建 SCL 草稿"));
+        var selectedDraft = Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "SCL 草稿");
+        Check(tabs.SelectedIndex == 0 && selectedDraft.Text.Contains("FUNCTION_BLOCK") && selectedDraft.Text.Contains("FB_AnalogScale"),
+            "A user action opens the complete selected SCL block as a local draft");
+        selectedDraft.Clear();
         await ExerciseRequirement(form, store, view, tabs, listener, evidence);
         Check(tabs.Width > 350, "Main work area retains room at narrow width");
         form.Bounds = new Rectangle(0, 0, 1600, 900);
         await Task.Delay(100);
-        var logDivider = view.Controls.Find("tia-log-divider", true).Single();
         var logPane = view.Controls.Find("tia-log-pane", true).Single();
         var previousHeight = logPane.Height;
-        var position = logDivider.PointToScreen(new Point(logDivider.Width / 2, logDivider.Height / 2));
-        Check(WindowFromPoint(position) == logDivider.Handle, "The installed-layout log divider is directly reachable by pointer");
+        await DragDivider(view.Controls.Find("tia-log-divider", true).Single(), 0, -30);
+        var persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
+        Check(logPane.Height > previousHeight && persisted.Settings.TiaLogHeight == store.Settings.TiaLogHeight && store.Settings.TiaLogHeight > 152,
+            "Dragging the native log divider persists its adjusted height");
+        var navigation = view.Controls.Find("tia-tree-pane", true).Single();
+        var assistant = view.Controls.Find("tia-assistant-pane", true).Single();
+        int oldNavigation = navigation.Width, oldAssistant = assistant.Width;
+        await DragDivider(view.Controls.Find("tia-tree-divider", true).Single(), 24, 0);
+        await DragDivider(view.Controls.Find("tia-assistant-divider", true).Single(), -24, 0);
+        persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
+        Check(navigation.Width > oldNavigation && assistant.Width > oldAssistant && persisted.Settings.TiaTreeWidth > 260 && persisted.Settings.TiaAssistantWidth > 350,
+            "Navigation and assistant dividers move independently and persist their widths");
+        await Click(view.Controls.Find("tia-toggle-tree", true).Single());
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
+        await Click(view.Controls.Find("tia-toggle-output", true).Single());
+        persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
+        Check(!navigation.Visible && !assistant.Visible && logPane.Height < previousHeight && persisted.Settings.TiaTreeCollapsed
+            && persisted.Settings.TiaAssistantCollapsed && persisted.Settings.TiaLogCollapsed, "All three workspace areas collapse and persist independently");
+        await Click(view.Controls.Find("tia-reset-layout", true).Single());
+        persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
+        Check(persisted.Settings.TiaLogHeight == 152 && persisted.Settings.TiaTreeWidth == 260 && persisted.Settings.TiaAssistantWidth == 350 && logPane.Height == previousHeight,
+            "Reset restores and persists the default workbench dimensions");
+        await Click(Children(view).OfType<DarkButton>().Single(button => button.Text == "操作日志"));
+        var workLog = Children(view).OfType<RichTextBox>().Single(box => box.AccessibleName == "工程操作日志");
+        Check(workLog.Visible && workLog.Text.Contains("开始 · 检测本机 TIA"), "The output dock shows recorded engineering operations instead of filler content");
+        await Capture(form, evidence, "tia-operation-history.png");
+    }
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    private static async Task DragDivider(Control divider, int dx, int dy)
+    {
+        var position = divider.PointToScreen(new Point(divider.Width / 2, divider.Height / 2));
+        Check(WindowFromPoint(position) == divider.Handle, divider.Name + " is reachable by the native pointer");
         Cursor.Position = position;
         mouse_event(2, 0, 0, 0, UIntPtr.Zero);
         try
         {
             await Task.Delay(60);
-            Cursor.Position = new Point(position.X, position.Y - 30);
+            Cursor.Position = new Point(position.X + dx, position.Y + dy);
             await Task.Delay(100);
         }
         finally { mouse_event(4, 0, 0, 0, UIntPtr.Zero); }
         await Task.Delay(160);
-        var persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
-        Check(logPane.Height > previousHeight && persisted.Settings.TiaLogHeight == store.Settings.TiaLogHeight && store.Settings.TiaLogHeight > 152,
-            "Dragging the native log divider persists its adjusted height");
-        await Click(view.Controls.Find("tia-reset-layout", true).Single());
-        persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
-        Check(persisted.Settings.TiaLogHeight == 152 && persisted.Settings.TiaTreeWidth == 260 && persisted.Settings.TiaAssistantWidth == 350 && logPane.Height == previousHeight,
-            "Reset restores and persists the default workbench dimensions");
     }
-    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
-    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     private static async Task Click(Control control)
     {
         var point = control.PointToScreen(new Point(control.ClientSize.Width / 2, control.ClientSize.Height / 2));
@@ -462,6 +488,7 @@ public static class TiaEngineerAcceptance
         var button = new Func<string, DarkButton>(label => Children(view).OfType<DarkButton>().Single(b => b.Text == label));
         var prompt = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "工程需求");
         var draft = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "SCL 草稿");
+        Check(prompt.Parent.Name == "tia-composer" && !tabs.Contains(prompt), "The editable composer lives in the assistant, outside the SCL tab control");
         await Click(button("输入工程需求"));
         Check(tabs.SelectedIndex == 0 && prompt.Focused && prompt.TabStop && !prompt.ReadOnly, "Top entry focuses the visible editable native requirement input");
         await Click(prompt);
@@ -565,6 +592,17 @@ public static class TiaEngineerAcceptance
         }
         draft.Text = goodSource;
         await Click(button("高亮"));
+        draft.Focus();
+        draft.ClearUndo();
+        draft.Select(0, 0);
+        Clipboard.SetText("// edited through the clipboard\n");
+        SendKeys.SendWait("^v");
+        Check(draft.Text.StartsWith("// edited through the clipboard"), "The SCL editor pastes from the native clipboard");
+        SendKeys.SendWait("^z");
+        Check(draft.Text == goodSource, "The SCL editor undoes the actual paste");
+        draft.Select(0, 14);
+        SendKeys.SendWait("^c");
+        Check(Clipboard.GetText() == draft.Text.Substring(0, 14), "SCL selection copies actual source text");
         var pages = new[] { "tia-analysis", "tia-hardware", "tia-networks", "tia-variables", "tia-diff", "tia-diagnostics" };
         for (int i = 0; i < pages.Length; i++)
         {

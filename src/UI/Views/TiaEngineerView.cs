@@ -541,12 +541,13 @@ namespace DeskBox.UI.Views
             if (Json.Load(path, (string)null) != requirement.Text) throw new IOException("未能保存需求草稿。");
             assistant.Text = "工程需求草稿已保存在当前 AI 环境的本机资料目录。";
         }
-        private DarkButton Button(string label, Action action)
+        private DarkButton Button(string label, Action action, bool blocksDuringOperation = true)
         {
             var button = new DarkButton(label) { Height = 32, Palette = Palette, AccessibleName = label };
             button.Width = Math.Max(90, TextRenderer.MeasureText(label, button.Font).Width + 24);
             button.Click += delegate { RunAction(action); };
-            actions.Add(button); return button;
+            if (blocksDuringOperation) actions.Add(button);
+            return button;
         }
         private void RunAction(Action action)
         {
@@ -1053,8 +1054,14 @@ namespace DeskBox.UI.Views
             try
             {
                 editor.SelectAll(); editor.SelectionColor = Palette.Text;
-                foreach (Match match in Regex.Matches(editor.Text, @"(?i)\b(?:FUNCTION_BLOCK|FUNCTION|DATA_BLOCK|ORGANIZATION_BLOCK|TYPE|END_[A-Z_]+|VAR(?:_[A-Z_]+)?|BEGIN|IF|THEN|ELSE|TRUE|FALSE|BOOL|REAL|INT|WORD|OR|AND)\b"))
-                { editor.Select(match.Index, match.Length); editor.SelectionColor = Palette.Accent; }
+                const string tokens = @"(?<comment>//[^\r\n]*|\(\*[\s\S]*?\*\))|(?<literal>""(?:""""|[^""\r\n])*""|'(?:''|[^'\r\n])*')|(?<number>\b\d+(?:\.\d+)?\b)|(?<type>\b(?:BOOL|BYTE|WORD|DWORD|SINT|INT|DINT|UINT|UDINT|REAL|LREAL|TIME|STRING|ARRAY|STRUCT)\b)|\b(?:FUNCTION_BLOCK|FUNCTION|DATA_BLOCK|ORGANIZATION_BLOCK|TYPE|END_[A-Z_]+|VAR(?:_[A-Z_]+)?|BEGIN|IF|THEN|ELSIF|ELSE|CASE|OF|FOR|WHILE|REPEAT|UNTIL|DO|TO|RETURN|TRUE|FALSE|OR|AND|NOT)\b";
+                foreach (Match match in Regex.Matches(editor.Text, tokens, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                {
+                    editor.Select(match.Index, match.Length);
+                    editor.SelectionColor = match.Groups["comment"].Success ? TiaWorkbenchStyle.Success(Palette) :
+                        match.Groups["literal"].Success || match.Groups["number"].Success ? TiaWorkbenchStyle.Warning(Palette) :
+                        match.Groups["type"].Success ? Palette.Accent : Palette.IsLight ? Color.FromArgb(100, 65, 160) : Color.FromArgb(205, 169, 249);
+                }
                 editor.Select(start, length);
             }
             finally { editor.ResumeLayout(); }
