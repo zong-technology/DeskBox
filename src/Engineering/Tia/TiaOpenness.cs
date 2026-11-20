@@ -149,17 +149,44 @@ namespace DeskBox.Engineering.Tia
                 throw new InvalidOperationException("缩放模板与已批准的源文件不匹配。");
         }
 
+        public static TiaResult ReadRecoveryReceipt(string path)
+        {
+            var receipt = PlcEngineering.FullLocalPath(path);
+            var directory = Path.GetDirectoryName(receipt);
+            if (!string.Equals(Path.GetFileName(receipt), ResponseFile, StringComparison.OrdinalIgnoreCase) || !IsJobDirectory(directory))
+                throw new InvalidOperationException("请选择当前资料目录中 TIA 作业的 result.json。");
+            var requestPath = PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile));
+            var storedResult = new FileInfo(receipt);
+            var storedRequest = new FileInfo(requestPath);
+            if (!storedResult.Exists || !storedRequest.Exists) throw new InvalidDataException("缺少作业回执或审批记录。");
+            if (storedResult.Length > 64L * 1024 * 1024 || storedRequest.Length > 64 * 1024)
+                throw new InvalidDataException("作业回执超过可读取大小。");
+            var result = Json.Load<TiaResult>(receipt, null);
+            var request = Json.Load<TiaJob>(requestPath, null);
+            ValidateJob(request);
+            var expectedCopy = Path.Combine(directory, CopyFolder, Path.GetFileName(request.ProjectFile));
+            if (result == null || !result.Saved || !result.Compiled || result.Error != "" || request.Operation != "scale" ||
+                result.SourceHash != request.ExpectedSource || !string.Equals(result.Copy, expectedCopy, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("回执必须与已审批、编译并保存的离线作业一致。");
+            return result;
+        }
+
+        private static bool IsJobDirectory(string directory)
+        {
+            var root = PlcEngineering.FullLocalPath(Path.Combine(AppPaths.DataDir, "tia-jobs"));
+            Guid id;
+            return !string.IsNullOrEmpty(directory) && Guid.TryParseExact(Path.GetFileName(directory), "N", out id) &&
+                string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase);
+        }
+
         public static string RestoreSnapshot(TiaResult job, CancellationToken token)
         {
-            if (job == null || string.IsNullOrWhiteSpace(job.Copy) || string.IsNullOrWhiteSpace(job.SourceHash))
+            if (job == null || !job.Saved || !job.Compiled || job.Error != "" || string.IsNullOrWhiteSpace(job.Copy) || string.IsNullOrWhiteSpace(job.SourceHash))
                 throw new InvalidOperationException("找不到可恢复的 TIA 作业快照。");
             var copy = PlcEngineering.FullLocalPath(job.Copy);
             var work = Path.GetDirectoryName(copy);
-            var directory = Path.GetDirectoryName(work);
-            var root = PlcEngineering.FullLocalPath(Path.Combine(AppPaths.DataDir, "tia-jobs"));
-            Guid id;
-            if (directory == null || Path.GetFileName(work) != CopyFolder || !Guid.TryParseExact(Path.GetFileName(directory), "N", out id) ||
-                !string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase) ||
+            var directory = work == null ? null : Path.GetDirectoryName(work);
+            if (!IsJobDirectory(directory) || Path.GetFileName(work) != CopyFolder ||
                 !string.Equals(Path.GetExtension(copy), ".ap20", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("只能恢复当前资料目录中已记录的 TIA 工程作业。");
             var snapshot = PlcEngineering.FullLocalPath(Path.Combine(directory, SnapshotFolder));

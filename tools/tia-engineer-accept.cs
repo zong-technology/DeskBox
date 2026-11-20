@@ -165,7 +165,26 @@ public static class TiaEngineerAcceptance
                 string modified = Path.Combine(work, "Unit.ap20");
                 File.WriteAllText(modified, "approved changes fixture");
                 File.WriteAllLines(Path.Combine(jobDir, "source-sha256.txt"), originalManifest);
-                var saved = new TiaResult { Copy = modified, SourceHash = PlcEngineering.Hash(string.Join("\n", originalManifest)), Saved = true };
+                var saved = new TiaResult { Copy = modified, SourceHash = PlcEngineering.Hash(string.Join("\n", originalManifest)), Saved = true, Compiled = true };
+#if NETFRAMEWORK || TIA_WINFORMS
+                var request = new TiaJob { Operation = "scale", ProjectFile = project, Cpu = "Rack/CPU", Block = "Approved", ExpectedSource = saved.SourceHash,
+                    ApprovedHash = PlcEngineering.Hash(PlcEngineering.AnalogScale("Approved")) };
+                string receiptPath = Path.Combine(jobDir, "result.json"), requestPath = Path.Combine(jobDir, "approved-operation.json");
+                File.WriteAllText(receiptPath, Json.ToJson(saved));
+                File.WriteAllText(requestPath, Json.ToJson(request));
+                var reloaded = TiaOpenness.ReadRecoveryReceipt(receiptPath);
+                Check(reloaded.Saved && reloaded.Copy == modified && reloaded.SourceHash == saved.SourceHash, "A saved offline job can be selected from its historical receipt");
+                Reject(() => TiaOpenness.ReadRecoveryReceipt(Path.Combine(temp, "result.json")), "Receipts outside the local TIA job root cannot be selected");
+                request.ExpectedSource = "wrong approval";
+                File.WriteAllText(requestPath, Json.ToJson(request));
+                Reject(() => TiaOpenness.ReadRecoveryReceipt(receiptPath), "Recovery receipt must match the approved source hash");
+                request.ExpectedSource = saved.SourceHash;
+                File.WriteAllText(requestPath, Json.ToJson(request));
+                saved.Saved = false;
+                File.WriteAllText(receiptPath, Json.ToJson(saved));
+                Reject(() => TiaOpenness.ReadRecoveryReceipt(receiptPath), "Unsaved job receipts cannot be used for recovery");
+                saved = reloaded;
+#endif
                 string restored = TiaOpenness.RestoreSnapshot(saved, CancellationToken.None);
                 Check(Path.GetDirectoryName(restored) != work && File.ReadAllText(modified) == "approved changes fixture" &&
                     TiaOpenness.CopyTree(Path.GetDirectoryName(restored), null, CancellationToken.None).SequenceEqual(originalManifest) &&

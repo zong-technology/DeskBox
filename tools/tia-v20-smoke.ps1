@@ -75,7 +75,7 @@ if ($Compile -or $ApprovedNewScaleBlock) {
     if ($ApprovedNewScaleBlock -and -not $result.Saved) { throw 'The approved working copy was not saved.' }
     $summary.Compile = $result.CompileState
     if ($ApprovedNewScaleBlock) {
-        $operationFolder = Split-Path (Split-Path -LiteralPath $result.Copy)
+        $operationFolder = Split-Path -LiteralPath (Split-Path -LiteralPath $result.Copy)
         if (-not (Test-Path -LiteralPath (Join-Path $operationFolder 'diff.txt'))) { throw 'The approved operation did not leave a diff.' }
         $reopenJob = New-Object DeskBox.Engineering.Tia.TiaJob
         $reopenJob.ProjectFile = $result.Copy
@@ -83,7 +83,8 @@ if ($Compile -or $ApprovedNewScaleBlock) {
         if ($reopened.Error) { throw $reopened.Error }
         [DeskBox.Engineering.Tia.TiaOpenness]::VerifyNewScaleBlock($inspection.Snapshot, $reopened.Snapshot, $TargetCpu, $ApprovedNewScaleBlock)
         $summary.SavedCopyReopened = $true
-        $restored = [DeskBox.Engineering.Tia.TiaOpenness]::RestoreSnapshot($result, $token)
+        $receipt = [DeskBox.Engineering.Tia.TiaOpenness]::ReadRecoveryReceipt((Join-Path $operationFolder 'result.json'))
+        $restored = [DeskBox.Engineering.Tia.TiaOpenness]::RestoreSnapshot($receipt, $token)
         $restoredManifest = [DeskBox.Engineering.Tia.TiaOpenness]::CopyTree((Split-Path -LiteralPath $restored), $null, $token)
         if ((Compare-Object -ReferenceObject $sourceBefore -DifferenceObject $restoredManifest -CaseSensitive)) { throw 'Restored copy does not match the original project files.' }
         $summary.SnapshotRestored = $true
