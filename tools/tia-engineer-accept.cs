@@ -188,6 +188,17 @@ public static class TiaEngineerAcceptance
             Reject(() => PlcEngineering.ReadExports(new[] { xml }, new CancellationToken(true)), "Read respects cancellation");
             var source = Path.Combine(temp, "source"); Directory.CreateDirectory(source); Directory.CreateDirectory(Path.Combine(source, "System"));
             var project = Path.Combine(source, "Unit.ap20"); File.WriteAllText(project, "original"); File.WriteAllText(Path.Combine(source, "System", "sample"), "fixture");
+            string approvedDraft = PlcEngineering.AnalogScale("FB_Reviewed") + "\n// 已人工复核\n";
+            var prepared = TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", approvedDraft);
+            Check(prepared.Block == "FB_Reviewed" && prepared.ApprovedHash == PlcEngineering.Hash(approvedDraft) && prepared.Source == approvedDraft,
+                "Approval binds the exact reviewed SCL source, including Unicode comments");
+            Reject(() => TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", approvedDraft + PlcEngineering.AnalogScale("Other")),
+                "Insertion rejects a second block before starting any native operation");
+            Reject(() => TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", "VERSION : 0.1\n" + approvedDraft),
+                "Insertion rejects source outside the single approved block");
+            prepared.Source += "// changed after approval";
+            try { TiaOpenness.Run(prepared, CancellationToken.None); Check(false, "Edited approved source must fail"); }
+            catch (InvalidOperationException ex) { Check(ex.Message.Contains("批准记录不一致"), "Changed approved source is rejected before TIA detection"); }
             var backup = Path.Combine(temp, "snapshot"); var copy = Path.Combine(temp, "work");
             var manifest = TiaOpenness.CopyTree(source, backup, CancellationToken.None);
             Check(manifest.SequenceEqual(TiaOpenness.CopyTree(backup, copy, CancellationToken.None)), "Binary copy and snapshot manifest match");
@@ -226,6 +237,14 @@ public static class TiaEngineerAcceptance
                 saved.Saved = false;
                 File.WriteAllText(receiptPath, Json.ToJson(saved));
                 Reject(() => TiaOpenness.ReadRecoveryReceipt(receiptPath), "Unsaved job receipts cannot be used for recovery");
+                var failed = TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", saved.SourceHash, approvedDraft);
+                File.WriteAllText(requestPath, Json.ToJson(failed));
+                saved.Compiled = false;
+                saved.WriteStarted = true;
+                saved.Error = "Import failure fixture";
+                File.WriteAllText(receiptPath, Json.ToJson(saved));
+                var recoverable = TiaOpenness.ReadRecoveryReceipt(receiptPath);
+                Check(recoverable.WriteStarted && !recoverable.Saved, "A failed write that has a confirmed snapshot can be recovered");
                 saved = reloaded;
 #endif
                 string restored = TiaOpenness.RestoreSnapshot(saved, CancellationToken.None);
@@ -300,7 +319,7 @@ public static class TiaEngineerAcceptance
         var view = form.Controls.Find("page-tia", true).OfType<TiaEngineerView>().Single();
         var tree = Children(view).OfType<TreeView>().Single(); var tabs = Children(view).OfType<TabControl>().Single();
         var mode = Children(view).OfType<ComboBox>().First(x => x.AccessibleName == "操作模式");
-        var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增模板并编译");
+        var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增 FB 并编译");
         Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode and write approval gate");
         await Capture(form, evidence, "tia-empty.png");
         var detect = Children(view).OfType<DarkButton>().Single(b => b.Text == "检测环境");

@@ -70,8 +70,8 @@ namespace DeskBox.Engineering.Tia
             var original = review.Objects[0];
             string evidence = string.Join("\n", diagnostics.Take(20).Select(issue => issue.ToString()));
             var draft = Plan(provider,
-                "依据已提供的静态诊断修复现有单块 SCL 草稿。保留块名称和类型，仅建议有证据的最小修改。无法确定时返回 PLAN 和待复核项。",
-                "静态检查结果\n" + evidence + "\n\n当前 SCL\n" + source, token);
+                "依据已提供的工程诊断修复现有单块 SCL 草稿。保留块名称和类型，仅建议有证据的最小修改。无法确定时返回 PLAN 和待复核项。",
+                "工程诊断结果\n" + evidence + "\n\n当前 SCL\n" + source, token);
             if (draft.Scl.Length != 0 && (draft.Kind != original.Kind || !string.Equals(draft.Name, original.Name, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException("修复草稿改变了原块名称或类型，无法进入替换预览。");
             return draft;

@@ -7,24 +7,28 @@ param(
     [string]$TargetCpu,
     [switch]$Compile,
     [string]$ApprovedNewScaleBlock,
+    [string]$ApprovedSclFile,
+    [string]$ApprovedSclSha256,
     [string[]]$ExpectedDevice = @(),
     [string[]]$ExpectedBlock = @(),
     [string[]]$ExpectedTag = @()
 )
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Desktop') { throw 'Use Windows PowerShell 5.1 and .NET Framework 4.8.' }
-if (($Compile -or $ApprovedNewScaleBlock) -and -not $TargetCpu) { throw 'Set -TargetCpu to the exact PLC path returned by an inspection.' }
-if ($Compile -and $ApprovedNewScaleBlock) { throw 'Select either compile-only or an approved template insertion.' }
+if (($Compile -or $ApprovedNewScaleBlock -or $ApprovedSclFile) -and -not $TargetCpu) { throw 'Set -TargetCpu to the exact PLC path returned by an inspection.' }
+if (($Compile -and ($ApprovedNewScaleBlock -or $ApprovedSclFile)) -or ($ApprovedNewScaleBlock -and $ApprovedSclFile)) { throw 'Select only one compile or insertion action.' }
+if ($ApprovedSclFile -and -not $ApprovedSclSha256) { throw 'Pass the SHA-256 of the exact SCL text reviewed and approved for insertion.' }
 [Reflection.Assembly]::LoadFrom((Resolve-Path -LiteralPath $DeskBoxExe).Path) | Out-Null
-$envInfo = [DeskBox.Engineering.Tia.TiaEnvironmentInspector]::Inspect()
-$envInfo.Describe() | Write-Output
-if (-not ($envInfo.Installations | Where-Object { $_.Version -eq 20 -and $_.AssemblyPath }) -or -not $envInfo.OpennessGroup) {
-    throw 'V20 PublicAPI and the active Siemens TIA Openness group are required.'
-}
 $folder = [DeskBox.Engineering.Tia.PlcEngineering]::FullLocalPath($EvidenceDirectory)
 if (Test-Path -LiteralPath $folder) { throw 'EvidenceDirectory must be a new directory for this run.' }
 [IO.Directory]::CreateDirectory($folder) | Out-Null
+$envInfo = [DeskBox.Engineering.Tia.TiaEnvironmentInspector]::Inspect()
+$envInfo.Describe() | Write-Output
 $envInfo.Describe() | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'environment.txt')
+if (-not ($envInfo.Installations | Where-Object { $_.Version -eq 20 -and $_.AssemblyPath }) -or -not $envInfo.OpennessGroup) {
+    'BLOCKED: V20 PublicAPI and the active Siemens TIA Openness group are required.' | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'status.txt')
+    throw 'BLOCKED: V20 PublicAPI and the active Siemens TIA Openness group are required.'
+}
 [DeskBox.Core.AppPaths]::DataDir = $folder
 $job = New-Object DeskBox.Engineering.Tia.TiaJob
 $job.ProjectFile = [DeskBox.Engineering.Tia.PlcEngineering]::FullLocalPath($ClosedOfflineProject)
@@ -48,6 +52,7 @@ Test-ExpectedObject $ExpectedBlock @('FB', 'FC', 'OB', 'GlobalDB', 'InstanceDB')
 Test-ExpectedObject $ExpectedTag @('PlcTag')
 $summary = [ordered]@{
     Project = $inspection.Snapshot.Name
+    OpennessVersion = $inspection.OpennessVersion
     Cpus = $inspection.Cpus
     ExpectedDevices = $ExpectedDevice
     ExpectedBlocks = $ExpectedBlock
@@ -58,7 +63,8 @@ $summary = [ordered]@{
     SnapshotRestored = $false
     SourceUnchanged = $false
 }
-if ($Compile -or $ApprovedNewScaleBlock) {
+try {
+if ($Compile -or $ApprovedNewScaleBlock -or $ApprovedSclFile) {
     if ($inspection.Cpus -cnotcontains $TargetCpu) { throw 'TargetCpu does not match a PLC in the inspected source.' }
     $job.Cpu = $TargetCpu
     $job.ExpectedSource = $inspection.SourceHash
@@ -67,22 +73,16 @@ if ($Compile -or $ApprovedNewScaleBlock) {
         $job.Block = $ApprovedNewScaleBlock
         $approvedSource = [DeskBox.Engineering.Tia.PlcEngineering]::AnalogScale($ApprovedNewScaleBlock)
         $job.ApprovedHash = [DeskBox.Engineering.Tia.PlcEngineering]::Hash($approvedSource)
+    } elseif ($ApprovedSclFile) {
+        $draft = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ApprovedSclFile).Path)
+        $job = [DeskBox.Engineering.Tia.TiaOpenness]::PrepareSclInsertion($job.ProjectFile, $TargetCpu, $inspection.SourceHash, $draft, '')
+        if ($job.ApprovedHash -cne $ApprovedSclSha256.ToLowerInvariant()) { throw 'Reviewed SCL hash does not match the supplied draft.' }
     } else { $job.Operation = 'compile' }
     $result = [DeskBox.Engineering.Tia.TiaOpenness]::Run($job, $token)
     $result.Report | Write-Output
-    if ($result.Error) { throw $result.Error }
-    if (-not $result.Compiled) { throw ('Native PLC compilation did not pass: ' + $result.CompileState) }
-    if ($ApprovedNewScaleBlock -and -not $result.Saved) { throw 'The approved working copy was not saved.' }
     $summary.Compile = $result.CompileState
-    if ($ApprovedNewScaleBlock) {
+    if ($result.Saved -or $result.WriteStarted) {
         $operationFolder = Split-Path -LiteralPath (Split-Path -LiteralPath $result.Copy)
-        if (-not (Test-Path -LiteralPath (Join-Path $operationFolder 'diff.txt'))) { throw 'The approved operation did not leave a diff.' }
-        $reopenJob = New-Object DeskBox.Engineering.Tia.TiaJob
-        $reopenJob.ProjectFile = $result.Copy
-        $reopened = [DeskBox.Engineering.Tia.TiaOpenness]::Run($reopenJob, $token)
-        if ($reopened.Error) { throw $reopened.Error }
-        [DeskBox.Engineering.Tia.TiaOpenness]::VerifyNewScaleBlock($inspection.Snapshot, $reopened.Snapshot, $TargetCpu, $ApprovedNewScaleBlock)
-        $summary.SavedCopyReopened = $true
         $receipt = [DeskBox.Engineering.Tia.TiaOpenness]::ReadRecoveryReceipt((Join-Path $operationFolder 'result.json'))
         $restored = [DeskBox.Engineering.Tia.TiaOpenness]::RestoreSnapshot($receipt, $token)
         $restoredManifest = [DeskBox.Engineering.Tia.TiaOpenness]::CopyTree((Split-Path -LiteralPath $restored), $null, $token)
@@ -90,10 +90,24 @@ if ($Compile -or $ApprovedNewScaleBlock) {
         $summary.SnapshotRestored = $true
         Write-Output ('Restored copy: ' + $restored)
     }
+    if ($result.Error) { throw $result.Error }
+    if (-not $result.Compiled) { throw ('Native PLC compilation did not pass: ' + $result.CompileState) }
+    if ($job.Block -and -not $result.Saved) { throw 'The approved working copy was not saved.' }
+    if ($job.Block) {
+        if (-not (Test-Path -LiteralPath (Join-Path $operationFolder 'diff.txt'))) { throw 'The approved operation did not leave a diff.' }
+        $reopenJob = New-Object DeskBox.Engineering.Tia.TiaJob
+        $reopenJob.ProjectFile = $result.Copy
+        $reopened = [DeskBox.Engineering.Tia.TiaOpenness]::Run($reopenJob, $token)
+        if ($reopened.Error) { throw $reopened.Error }
+        [DeskBox.Engineering.Tia.TiaOpenness]::VerifyNewScaleBlock($inspection.Snapshot, $reopened.Snapshot, $TargetCpu, $job.Block)
+        $summary.SavedCopyReopened = $true
+    }
     Write-Output ('Copy: ' + $result.Copy)
 }
-$sourceAfter = [DeskBox.Engineering.Tia.TiaOpenness]::CopyTree($sourceFolder, $null, $token)
-if ((Compare-Object -ReferenceObject $sourceBefore -DifferenceObject $sourceAfter -CaseSensitive)) { throw 'The original project files changed.' }
-$summary.SourceUnchanged = $true
-$summary | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'acceptance-summary.json')
-Write-Output ('Evidence: ' + $folder)
+} finally {
+    $sourceAfter = [DeskBox.Engineering.Tia.TiaOpenness]::CopyTree($sourceFolder, $null, $token)
+    $summary.SourceUnchanged = -not (Compare-Object -ReferenceObject $sourceBefore -DifferenceObject $sourceAfter -CaseSensitive)
+    $summary | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'acceptance-summary.json')
+    Write-Output ('Evidence: ' + $folder)
+    if (-not $summary.SourceUnchanged) { throw 'The original project files changed.' }
+}
