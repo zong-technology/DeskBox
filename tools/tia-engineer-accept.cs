@@ -307,7 +307,7 @@ public static class TiaEngineerAcceptance
         containers.SelectedItem = lowerLevel;
         Check(Children(rack).OfType<Button>().Single().AccessibleName.Contains("Input submodule"), "Selecting a nested container reveals its own slot level");
         var hardwareRoot = tree.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Devices"));
-        var stationBranch = hardwareRoot.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Station A  "));
+        var stationBranch = hardwareRoot.Nodes.Cast<TreeNode>().Single(n => n.Tag is List<PlcObject> && n.Text.StartsWith("Station A  "));
         stationBranch.Expand();
         tree.SelectedNode = stationBranch.Nodes.Cast<TreeNode>().Single(n => n.Text.StartsWith("Digital input  "));
         Check(tabs.SelectedIndex == 2 && ((PlcObject)containers.SelectedItem).Name == "Station A" &&
