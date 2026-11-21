@@ -188,7 +188,10 @@ public static class DeskBoxInstallCapture {
             Clipboard.SetText(input);
             SendKeys.SendWait("^v");
         }
-        Click(Find(dialog, "1", "Open"));
+        var openButton = Find(dialog, "file-picker-open-button", "Open");
+        object invoke;
+        if (openButton.TryGetCurrentPattern(InvokePattern.Pattern, out invoke)) ((InvokePattern)invoke).Invoke();
+        else Click(openButton);
     }
     private static void ImportFixtures(IntPtr window, string directory, string destination) {
         string[] files = Directory.GetFiles(directory, "fixture-*");
