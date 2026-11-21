@@ -130,15 +130,18 @@ public static class DeskBoxInstallCapture {
         SetThreadDpiAwarenessContext(new IntPtr(-4));
         // DeskBox normally sits at the bottom of the desktop. Keep this isolated
         // window above runner windows while delivering real pointer input.
-        if (!SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0043)) throw new InvalidOperationException("Could not raise the installed test window.");
-        SetForegroundWindow(window);
-        Thread.Sleep(180);
-        var navigation = Find(window, "nav-tia", "\u535a\u56fe AI \u5de5\u7a0b\u5e08");
-        var bounds = navigation.Current.BoundingRectangle;
-        IntPtr navHit = WindowFromPoint(new Point((int)(bounds.Left + bounds.Width/2), (int)(bounds.Top + bounds.Height/2)));
-        uint hitProcess, appProcess;
-        GetWindowThreadProcessId(navHit, out hitProcess);
+        uint hitProcess = 0, appProcess;
         GetWindowThreadProcessId(window, out appProcess);
+        AutomationElement navigation = null;
+        for (int attempt = 0; attempt < 8 && hitProcess != appProcess; attempt++) {
+            if (!SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0043)) throw new InvalidOperationException("Could not raise the installed test window.");
+            SetForegroundWindow(window);
+            Thread.Sleep(240);
+            navigation = Find(window, "nav-tia", "\u535a\u56fe AI \u5de5\u7a0b\u5e08");
+            var bounds = navigation.Current.BoundingRectangle;
+            IntPtr navHit = WindowFromPoint(new Point((int)(bounds.Left + bounds.Width/2), (int)(bounds.Top + bounds.Height/2)));
+            GetWindowThreadProcessId(navHit, out hitProcess);
+        }
         if (hitProcess != appProcess) throw new InvalidOperationException("The installed navigation point is obscured by another process.");
         Click(navigation);
         Click(Find(window, "tia-focus-requirement", "\u8f93\u5165\u5de5\u7a0b\u9700\u6c42"));
@@ -407,6 +410,7 @@ try {
                 $result.ObservedDpi = $actual
                 if ($actual -ne $level) { $result.Evidence = 'Installed window reported ' + $actual + ' DPI'; continue }
                 $result.Status = 'FAIL'
+                Start-Sleep -Milliseconds 400
                 $text = [DeskBoxInstallCapture]::ExerciseTiaPrompt($scaledWindow)
                 if ($text -notmatch 'S71500[\r\n]+\p{IsCJKUnifiedIdeographs}{4}') { throw 'The scaled input did not retain the multiline text' }
                 $fileName = 'installed-tia-dpi-' + $level + '.png'
