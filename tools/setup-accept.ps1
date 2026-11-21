@@ -2,12 +2,14 @@ param(
     [Parameter(Mandatory=$true)][string]$SetupPath,
     [string]$SourceExe = 'dist\DeskBox.exe',
     [string]$OutputDir = 'dist\installer-qa',
-    [ValidateSet(96,120,144)][int]$ExpectedDpi = 96
+    [ValidateSet(96,120,144)][int]$ExpectedDpi = 96,
+    [string]$TiaFixtureDir = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $setup = (Resolve-Path -LiteralPath $SetupPath).Path
 $source = (Resolve-Path -LiteralPath $SourceExe).Path
+if ($TiaFixtureDir) { $TiaFixtureDir = (Resolve-Path -LiteralPath $TiaFixtureDir).Path }
 $output = [IO.Path]::GetFullPath((Join-Path $root $OutputDir))
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $target = Join-Path $output 'test install\DeskBox'
@@ -53,6 +55,7 @@ $state | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $profile 
 $oldHome = $env:DESKBOX_HOME
 $app = $null
 $initialDisplay = $null
+$dpiMatrix = New-Object 'Collections.Generic.List[Object]'
     Add-Type -ReferencedAssemblies System.Drawing,System.Windows.Forms,UIAutomationClient,UIAutomationTypes,WindowsBase -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -92,6 +95,7 @@ public static class DeskBoxInstallCapture {
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
     public static bool SizeWorkbench(IntPtr window) {
         Rect bounds;
@@ -123,6 +127,7 @@ public static class DeskBoxInstallCapture {
         Thread.Sleep(180);
     }
     public static string ExerciseTiaPrompt(IntPtr window) {
+        SetThreadDpiAwarenessContext(new IntPtr(-4));
         // DeskBox normally sits at the bottom of the desktop. Keep this isolated
         // window above runner windows while delivering real pointer input.
         if (!SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0043)) throw new InvalidOperationException("Could not raise the installed test window.");
@@ -137,19 +142,13 @@ public static class DeskBoxInstallCapture {
         if (hitProcess != appProcess) throw new InvalidOperationException("The installed navigation point is obscured by another process.");
         Click(navigation);
         Click(Find(window, "tia-focus-requirement", "\u8f93\u5165\u5de5\u7a0b\u9700\u6c42"));
-        IntPtr editor = IntPtr.Zero;
-        EnumChildWindows(window, delegate(IntPtr handle, IntPtr state) {
-            var name = new StringBuilder(128);
-            GetClassName(handle, name, name.Capacity);
-            if (IsWindowVisible(handle) && name.ToString().IndexOf("RichEdit", StringComparison.OrdinalIgnoreCase) >= 0 && (GetWindowLong(handle,-16) & 0x0800) == 0)
-            {
-                editor = handle;
-                return false;
-            }
-            return true;
-        }, IntPtr.Zero);
+        IntPtr editor = new IntPtr(AutomationElement.FocusedElement.Current.NativeWindowHandle);
+        var name = new StringBuilder(128);
+        GetClassName(editor, name, name.Capacity);
         Rect edit;
-        if (editor == IntPtr.Zero || !GetWindowRect(editor, out edit)) throw new InvalidOperationException("No visible editable Win32 Rich Edit window exists on the installed TIA page.");
+        if (editor == IntPtr.Zero || !IsWindowVisible(editor) || name.ToString().IndexOf("RichEdit", StringComparison.OrdinalIgnoreCase) < 0 ||
+            (GetWindowLong(editor,-16) & 0x0800) != 0 || !GetWindowRect(editor, out edit))
+            throw new InvalidOperationException("The installed requirement shortcut did not focus an editable Win32 Rich Edit window.");
         Click((edit.Left+edit.Right)/2, (edit.Top+edit.Bottom)/2);
         if (AutomationElement.FocusedElement.Current.NativeWindowHandle != editor.ToInt32())
             throw new InvalidOperationException("The installed requirement editor did not receive mouse focus.");
@@ -168,7 +167,66 @@ public static class DeskBoxInstallCapture {
         return text.ToString();
     }
     private static string Normalize(string value) { return value.Replace("\r\n", "\n").TrimEnd('\r','\n'); }
-    public static int CaptureTiaPages(IntPtr window, string destination) {
+    private static void SelectTab(IntPtr window, string id, string label) {
+        var tab = Find(window, id, label);
+        object pattern;
+        if (tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) ((SelectionItemPattern)pattern).Select();
+        else Click(tab);
+        Thread.Sleep(160);
+    }
+    private static void ImportFixtures(IntPtr window, string directory) {
+        string[] files = Directory.GetFiles(directory, "fixture-*");
+        if (files.Length != 5) throw new InvalidOperationException("Expected the five labeled TIA export fixtures.");
+        Click(Find(window, "tia-open-exports", "\u6253\u5f00\u5bfc\u51fa\u8d44\u6599"));
+        uint process;
+        GetWindowThreadProcessId(window, out process);
+        var end = DateTime.UtcNow.AddSeconds(6);
+        IntPtr dialog = IntPtr.Zero;
+        do {
+            EnumWindows(delegate(IntPtr handle, IntPtr state) {
+                uint owner;
+                GetWindowThreadProcessId(handle, out owner);
+                var className = new StringBuilder(48);
+                GetClassName(handle, className, className.Capacity);
+                if (owner == process && IsWindowVisible(handle) && className.ToString() == "#32770") dialog = handle;
+                return dialog == IntPtr.Zero;
+            }, IntPtr.Zero);
+            if (dialog == IntPtr.Zero) Thread.Sleep(100);
+        } while (dialog == IntPtr.Zero && DateTime.UtcNow < end);
+        if (dialog == IntPtr.Zero) throw new InvalidOperationException("The installed file picker did not open.");
+        var fileName = AutomationElement.FromHandle(dialog).FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+            new OrCondition(new PropertyCondition(AutomationElement.AutomationIdProperty, "1148"),
+                new PropertyCondition(AutomationElement.NameProperty, "File name:"))));
+        if (fileName == null) throw new InvalidOperationException("The installed Windows file picker did not expose its file name field.");
+        var selected = string.Join(" ", Array.ConvertAll(files, path => "\"" + path + "\""));
+        SetForegroundWindow(dialog);
+        Click(fileName);
+        SendKeys.SendWait("^a");
+        Clipboard.SetText(selected);
+        SendKeys.SendWait("^v");
+        SendKeys.SendWait("{ENTER}");
+        const string heading = "\u5de5\u7a0b\u5bfc\u51fa\u8d44\u6599\uff085 \u4e2a\u6587\u4ef6\uff09";
+        end = DateTime.UtcNow.AddSeconds(10);
+        do {
+            Thread.Sleep(150);
+            try { if (Find(window, "tia-project-heading", heading).Current.Name == heading) return; }
+            catch (InvalidOperationException) { }
+        } while (DateTime.UtcNow < end);
+        throw new InvalidOperationException("The installed workbench never reported the five imported fixture files.");
+    }
+    private static void BuildDiffPreview(IntPtr window) {
+        SelectTab(window, "tia-tab-programming", "\u7a0b\u5e8f\u7f16\u8f91");
+        const string template = "\u8f7d\u5165\u7f29\u653e\u6a21\u677f";
+        Click(Find(window, "tia-scl-template", template));
+        var blockName = Find(window, "tia-scl-name", "\u7f29\u653e\u5757\u540d\u79f0");
+        Click(blockName);
+        SendKeys.SendWait("^a");
+        SendKeys.SendWait("FB_AnalogScaleReviewed");
+        Click(Find(window, "tia-scl-template", template));
+        Find(window, "tia-scl-diff-lines", "SCL \u53cc\u680f\u884c\u5dee\u5f02");
+    }
+    public static int CaptureTiaPages(IntPtr window, string destination, string fixtureDirectory) {
         var shots = new List<string>();
         Action<IntPtr, string> capture = delegate(IntPtr handle, string name) {
             if (!Save(handle, Path.Combine(destination, name + ".png"))) throw new InvalidOperationException("Could not capture " + name);
@@ -176,14 +234,17 @@ public static class DeskBoxInstallCapture {
         };
         SendKeys.SendWait("^a");
         capture(window, "installed-tia-input-selection");
+        bool hasFixtures = !string.IsNullOrEmpty(fixtureDirectory);
+        if (hasFixtures) ImportFixtures(window, fixtureDirectory);
         string[] labels = { "\u7a0b\u5e8f\u5206\u6790", "\u786c\u4ef6\u7ec4\u6001", "\u7f51\u7edc\u62d3\u6251", "\u53d8\u91cf\u7ba1\u7406", "\u5de5\u7a0b\u5bf9\u6bd4", "\u6d4b\u8bd5\u9a8c\u8bc1" };
         string[] names = { "analysis", "hardware", "topology", "variables", "diff", "validation" };
         for (int i = 0; i < labels.Length; i++) {
-            var tab = Find(window, "tia-tab-" + names[i], labels[i]);
-            object pattern;
-            if (tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern)) ((SelectionItemPattern)pattern).Select();
-            else Click(tab);
-            Thread.Sleep(160);
+            if (hasFixtures && names[i] == "diff") BuildDiffPreview(window);
+            else SelectTab(window, "tia-tab-" + names[i], labels[i]);
+            if (hasFixtures && names[i] == "validation") {
+                SelectTab(window, "tia-tab-programming", "\u7a0b\u5e8f\u7f16\u8f91");
+                Click(Find(window, "tia-scl-check", "\u9759\u6001\u68c0\u67e5\u8349\u7a3f"));
+            }
             capture(window, "installed-tia-" + names[i]);
         }
         Click(Find(window, "tia-inspect", "\u67e5\u770b\u80fd\u529b\u4e0e\u73af\u5883"));
@@ -192,6 +253,7 @@ public static class DeskBoxInstallCapture {
         Click(Find(window, "tia-toggle-assistant", "\u6536\u8d77\u52a9\u624b"));
         capture(window, "installed-tia-assistant-collapsed");
         Click(Find(window, "tia-reset-layout", "\u6062\u590d\u9ed8\u8ba4\u5e03\u5c40"));
+        if (hasFixtures) SelectTab(window, "tia-tab-programming", "\u7a0b\u5e8f\u7f16\u8f91");
         capture(window, "installed-tia-layout-default");
         Click(Find(window, "tia-voice", "\u5de5\u7a0b\u8bed\u97f3"));
         uint process;
@@ -252,25 +314,96 @@ try {
     }
     $dpi = [DeskBoxInstallCapture]::GetDpiForWindow($window)
     Check ($dpi -eq $ExpectedDpi) ('Actual installed window reports ' + $ExpectedDpi + ' DPI')
+    $dpiMatrix.Add(@{Dpi=$dpi; Status='PASS'; Evidence='Installed window, input gestures, and TIA screenshots'})
     $capture = [DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-main-window.png'))
     Check $capture 'Native capture of the real installed window'
     $typed = [DeskBoxInstallCapture]::ExerciseTiaPrompt($window)
     Check ($typed -match 'S71500[\r\n]+\p{IsCJKUnifiedIdeographs}{4}') 'Installed TIA input receives mouse focus, English typing, line breaks and Chinese clipboard text'
     Check ([DeskBoxInstallCapture]::Save($window, (Join-Path $output 'installed-tia-input.png'))) 'Native capture of the installed TIA input'
-    $tiaScreenshotCount = [DeskBoxInstallCapture]::CaptureTiaPages($window, $output)
+    $tiaScreenshotCount = [DeskBoxInstallCapture]::CaptureTiaPages($window, $output, $TiaFixtureDir)
     Check ($tiaScreenshotCount -eq 12) 'Twelve TIA screenshots captured directly from the installed DeskBox process'
-    @('installed-tia-input') + (Get-Content -LiteralPath (Join-Path $output 'installed-tia-screenshots.txt')) |
-        ForEach-Object { Join-Path $output ($_ + '.png') } |
-        Compress-Archive -DestinationPath (Join-Path $output 'installed-tia-screenshots.zip') -Force
+    $pngs = @('installed-tia-input') + (Get-Content -LiteralPath (Join-Path $output 'installed-tia-screenshots.txt')) |
+        ForEach-Object { Join-Path $output ($_ + '.png') }
+    $index = Join-Path $output 'SCREENSHOT-INDEX.md'
+    $dataState = if ($TiaFixtureDir) { 'Labeled export fixtures loaded in the real installed UI' } else { 'Empty state' }
+    @(
+        '# Installed DeskBox TIA screenshots', '',
+        ('Version ' + $version + ' at ' + $dpi + ' DPI. These PNGs come from the installed executable.'),
+        'TIA V20 project reads, compilation and connected provider audio are outside this screenshot evidence.', '',
+        '| PNG | Function | Test state |', '| --- | --- | --- |',
+        '| installed-tia-input.png | Programming and requirement input | PASS - mouse focus, typing and paste. Empty project. |',
+        '| installed-tia-input-selection.png | Requirement selection | PASS - keyboard selection. Empty project. |',
+        ('| installed-tia-analysis.png | Analysis | CAPTURED - ' + $dataState + ' |'),
+        ('| installed-tia-hardware.png | Rack, module inventory and details | CAPTURED - ' + $dataState + ' |'),
+        ('| installed-tia-topology.png | Zoomable topology and connection sources | CAPTURED - ' + $dataState + ' |'),
+        ('| installed-tia-variables.png | Variables and address table | CAPTURED - ' + $dataState + ' |'),
+        ('| installed-tia-diff.png | Draft difference | CAPTURED - ' + $(if ($TiaFixtureDir) { 'actual local template changes awaiting approval' } else { 'empty state' }) + ' |'),
+        ('| installed-tia-validation.png | Verification report | ' + $(if ($TiaFixtureDir) { 'PASS - local static check ran. TIA compile BLOCKED.' } else { 'CAPTURED - no run.' }) + ' |'),
+        '| installed-tia-environment.png | Installation and dependency inspection | CAPTURED - current machine. TIA round trip BLOCKED on the hosted runner. |',
+        '| installed-tia-assistant-collapsed.png | Assistant pane collapse | CAPTURED - collapsed. |',
+        '| installed-tia-layout-default.png | Default panes | CAPTURED - restored. |',
+        '| installed-tia-voice.png | Engineering voice window | CAPTURED - idle. Active provider and microphone BLOCKED. |'
+    ) | Set-Content -LiteralPath $index -Encoding UTF8
+    Compress-Archive -Path ($pngs + @($index)) -DestinationPath (Join-Path $output 'installed-tia-screenshots.zip') -Force
     $windows = Get-CimInstance -ClassName Win32_OperatingSystem
     $inputProfiles = @(if (Get-Command Get-WinUserLanguageList -ErrorAction SilentlyContinue) { (Get-WinUserLanguageList).InputMethodTips })
-    @{ Windows=$windows.Caption; Build=$windows.BuildNumber; DeviceDpi=$dpi; InputMethodTips=$inputProfiles; MicrosoftPinyinTested=$false } |
-        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-tia-environment.json') -Encoding UTF8
     @{ Path=$app.MainModule.FileName; SHA256=$expected; Version=$version; DeviceDpi=$dpi; SyntheticProfile=$profile } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installed-launch.json') -Encoding UTF8
     Check ([DeskBoxInstallCapture]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Installed window accepts a normal close request'
     Check ($app.WaitForExit(15000)) 'Application exits normally and releases the tray instance'
     Check ($app.ExitCode -eq 0) 'Installed application exits without a process error'
+
+    if ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted' -and $ExpectedDpi -eq 96) {
+        $displayScale = $null
+        $probeFailure = ''
+        try { $displayScale = [DeskBoxCIDisplay]::ReadScale() }
+        catch { $probeFailure = $_.Exception.GetBaseException().Message }
+        foreach ($level in 120,144) {
+            $scaledApp = $null
+            $scaleApplied = $false
+            $result = @{Dpi=$level; Status='BLOCKED'; Evidence=$probeFailure}
+            try {
+                if (-not $displayScale) { continue }
+                $relative = $displayScale.Minimum + ($level - 96) / 24
+                if ($relative -gt $displayScale.Maximum) { $result.Evidence = 'Requested scale is outside the runner display range'; continue }
+                $changed = [DeskBoxCIDisplay]::SetScale($displayScale, [int]$relative)
+                if ($changed -ne 0) { $result.Evidence = 'Windows display scale request returned ' + $changed; continue }
+                $scaleApplied = $true
+                Start-Sleep -Milliseconds 750
+                $scaledApp = Start-Process -FilePath $installed -WorkingDirectory $target -PassThru
+                $scaledWindow = [IntPtr]::Zero
+                for ($i=0; $i -lt 50 -and $scaledWindow -eq [IntPtr]::Zero -and -not $scaledApp.HasExited; $i++) {
+                    Start-Sleep -Milliseconds 100
+                    $scaledWindow = [DeskBoxInstallCapture]::FindMainWindow($scaledApp.Id)
+                }
+                if ($scaledWindow -eq [IntPtr]::Zero) { $result.Evidence = 'No installed owner window after changing scale'; continue }
+                $actual = [DeskBoxInstallCapture]::GetDpiForWindow($scaledWindow)
+                $result.ObservedDpi = $actual
+                if ($actual -ne $level) { $result.Evidence = 'Installed window reported ' + $actual + ' DPI'; continue }
+                $result.Status = 'FAIL'
+                $text = [DeskBoxInstallCapture]::ExerciseTiaPrompt($scaledWindow)
+                if ($text -notmatch 'S71500[\r\n]+\p{IsCJKUnifiedIdeographs}{4}') { throw 'The scaled input did not retain the multiline text' }
+                $fileName = 'installed-tia-dpi-' + $level + '.png'
+                if (-not [DeskBoxInstallCapture]::Save($scaledWindow, (Join-Path $output $fileName))) { throw 'The scaled workbench screenshot could not be written' }
+                $result.Status = 'PASS'
+                $result.Evidence = $fileName + ' / actual DPI and physical input verified'
+            } catch { $result.Evidence = $_.Exception.GetBaseException().Message }
+            finally {
+                if ($scaledApp -and -not $scaledApp.HasExited) { $scaledApp.Kill(); $scaledApp.WaitForExit() }
+                if ($scaleApplied) {
+                    $restoredScale = [DeskBoxCIDisplay]::SetScale($displayScale, $displayScale.Current)
+                    if ($restoredScale -ne 0) { throw ('Failed to restore the runner scale: ' + $restoredScale) }
+                }
+                $dpiMatrix.Add($result)
+                Write-Output ($result.Status + ' ' + $level + ' DPI: ' + $result.Evidence)
+            }
+        }
+    }
+    if ($dpiMatrix.Count -eq 1) {
+        foreach ($level in 120,144) { if ($level -ne $ExpectedDpi) { $dpiMatrix.Add(@{Dpi=$level; Status='BLOCKED'; Evidence='No hosted scale probe in this session'}) } }
+    }
+    @{ Windows=$windows.Caption; Build=$windows.BuildNumber; DeviceDpi=$dpi; InputMethodTips=$inputProfiles; MicrosoftPinyinTested=$false; DpiMatrix=$dpiMatrix.ToArray() } |
+        ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output 'installed-tia-environment.json') -Encoding UTF8
 } finally {
     if ($app -and -not $app.HasExited) { $app.Kill(); $app.WaitForExit() }
     $env:DESKBOX_HOME = $oldHome

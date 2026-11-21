@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using DeskBox.Native;
@@ -17,6 +18,7 @@ namespace DeskBox
         private static Thread _showThread;
         private static volatile bool _shuttingDown;
         private const string ShowEventName = "DeskBox.ShowCommand.7F3A";
+        [DllImport("user32.dll")] private static extern bool SetProcessDPIAware();
 
         [STAThread]
         private static void Main(string[] args)
@@ -67,6 +69,7 @@ namespace DeskBox
 
             _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
 
+            SetProcessDPIAware();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 

@@ -696,6 +696,7 @@ namespace DeskBox.UI.Views
             operation = CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token);
             var active = operation;
             lastWorkbenchError = null;
+            activeWorkbenchAction = action;
             SetPhase(running);
             UpdateButtons(); assistant.Text = "正在执行 · " + action;
             AppendOperation("开始 · " + action);
@@ -721,7 +722,7 @@ namespace DeskBox.UI.Views
                 }
             }
             catch (Exception e) { if (!IsDisposed) Failed(e.Message, keepPage); }
-            finally { operation = null; active.Dispose(); if (!IsDisposed) UpdateButtons(); }
+            finally { operation = null; activeWorkbenchAction = null; active.Dispose(); if (!IsDisposed) UpdateButtons(); }
         }
         private void Failed(string message, bool keepPage = false)
         {
@@ -889,8 +890,9 @@ namespace DeskBox.UI.Views
                 analysis.Text = "静态发现  ·  " + findings.Count(i => i.Severity == "Error") + " 错误  ·  " + findings.Count(i => i.Severity == "Warning") + " 警告\r\n" +
                     string.Join("\r\n", findings.Select(issue => issue.ToString())) + "\r\n\r\n" + analysis.Text;
             else analysis.Text = "当前对象暂无可直接匹配的诊断。请结合源码与引用复核。\r\n\r\n" + analysis.Text;
-            if (!stayInAnalysis && item.Kind == "PlcTag") DisplayTags(item);
-            SelectTab(!stayInAnalysis && item.Kind == "PlcTag" ? 4 : 1);
+            bool showTagTable = !stayInAnalysis && item.Kind == "PlcTag";
+            SelectTab(showTagTable ? 4 : 1);
+            if (showTagTable) DisplayTags(item);
         }
         private void OpenSelectedScl()
         {
@@ -911,16 +913,12 @@ namespace DeskBox.UI.Views
         private void DisplayTags(PlcObject focus = null)
         {
             FillVariableGrid(focus);
+            if (focus != null) return;
             var visible = snapshot.Objects.Where(x => x.Kind == "PlcTag").Take(1500).ToList();
-            if (focus != null && !visible.Contains(focus)) visible.Insert(0, focus);
             var rows = visible.Select(x => x.Name + "  " + x.DataType + "  " + x.Address + "  · " + x.Content + "  · " + x.Source).ToList();
             tags.Text = string.Join(Environment.NewLine, rows);
             tags.WordWrap = false;
             tags.HideSelection = false;
-            if (focus == null) return;
-            int row = visible.IndexOf(focus);
-            tags.Select(tags.GetFirstCharIndexFromLine(row), rows[row].Length);
-            tags.ScrollToCaret();
         }
         private string Describe(PlcObject item, int limit)
         {
@@ -1075,6 +1073,7 @@ namespace DeskBox.UI.Views
         {
             SetPhase(Phase.Validating);
             var review = PlcEngineering.ReviewScl(editor.Text, "SCL 草稿");
+            verifiedDraft = editor.Text;
             verificationStatic = review.Diagnostics.Count == 0 ? "已检查，当前规则未发现问题" : review.Diagnostics.Count + " 项诊断待复核";
             output.Text = DraftReview(review);
             SetDiagnostics(review.Diagnostics, editor.Text);

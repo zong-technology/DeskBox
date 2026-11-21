@@ -127,6 +127,12 @@ public static class TiaEngineerAcceptance
   </InstanceHierarchy>
 </CAEXFile>";
             File.WriteAllText(aml, fixture);
+            if (args.Length > 1 && args[1] == "--capture-inputs")
+            {
+                foreach (var file in new[] { xml, csv, scl, graph, aml })
+                    File.Copy(file, Path.Combine(evidence, "fixture-" + Path.GetFileName(file)), true);
+                return;
+            }
             var caX = PlcEngineering.ReadExports(new[] { aml }, CancellationToken.None);
             var cpuAsset = caX.Objects.Single(o => o.Name == "CPU A");
             Check(cpuAsset.OrderNumber == "6ES7 TEST" && cpuAsset.Firmware == "V2.0" && cpuAsset.Slot == "1" &&
@@ -419,8 +425,9 @@ public static class TiaEngineerAcceptance
         call["name"] = "Pressure";
         var tagLookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
         var variableLines = Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "变量与 IO");
-        Check(tagLookup.Ok && tabs.SelectedIndex == 4 && variableLines.SelectedText.StartsWith("Pressure  "), "Voice lookup highlights a variable row in the actual variable view");
         var variableRows = view.Controls.Find("tia-variable-table", true).OfType<ListView>().Single();
+        Check(tagLookup.Ok && tabs.SelectedIndex == 4 && variableRows.SelectedItems.Count == 1 && variableRows.SelectedItems[0].Text == "Pressure" &&
+            variableLines.Text.Contains("io.csv:"), "Voice lookup highlights a variable row in the actual variable view");
         var variableFilter = view.Controls.Find("tia-variable-filter", true).OfType<DarkInput>().Single();
         variableFilter.Text = "%I1.0";
         Check(variableRows.Items.Count == 1 && variableRows.Items[0].Text == "Duplicate,Bit" && variableRows.Items[0].SubItems[4].Text.StartsWith("io.csv"),

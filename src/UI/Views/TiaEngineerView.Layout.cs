@@ -199,7 +199,7 @@ namespace DeskBox.UI.Views
             AddWorkbenchPage(page, "选中一个程序块创建草稿，或载入模板。仅在副本审批后执行工程写入。");
             editor.SelectionChanged += delegate { UpdateEditorStatus(); };
             editor.TextChanged += delegate { UpdateEditorStatus(); RefreshPageStates(); };
-            editor.ReadOnlyChanged += delegate { UpdateEditorStatus(); };
+            editor.ReadOnlyChanged += delegate { UpdateEditorStatus(); RefreshPageStates(); };
             editor.Enter += delegate
             {
                 if (!compact || !compactAssistant) return;
@@ -224,11 +224,13 @@ namespace DeskBox.UI.Views
             diagnosisCount.Margin = new Padding(10, 8, 0, 0);
             toolbar.Controls.Add(diagnosisCount);
             history = TextArea("工程操作日志");
+            history.Text = "开始工程任务后会在此记录步骤和结果。" + Environment.NewLine;
             diagnosticPage = BuildValidationPanel();
             outputPages = new Panel { Dock = DockStyle.Fill };
             outputPages.Controls.AddRange(new[] { output, diagnosticPage, history });
             pane.Controls.AddRange(new Control[] { outputPages, toolbar });
             foreach (var list in new[] { diagnosticList, referenceGraph, hardwareInventory, networkLinks, variableGrid }) StyleDetails(list);
+            StyleDetails(lineChanges, false);
             SelectOutput(0);
             return pane;
         }
@@ -382,18 +384,18 @@ namespace DeskBox.UI.Views
             history.AppendText(DateTime.Now.ToString("HH:mm:ss") + "   " + action + Environment.NewLine);
         }
 
-        private void StyleDetails(ListView list)
+        private void StyleDetails(ListView list, bool fitLast = true)
         {
             var finalColumn = list.Columns[list.Columns.Count - 1];
             int minimumWidth = finalColumn.Width;
-            list.ClientSizeChanged += delegate
+            if (fitLast) list.ClientSizeChanged += delegate
             {
                 int otherColumns = list.Columns.Cast<ColumnHeader>().Take(list.Columns.Count - 1).Sum(column => column.Width);
                 int width = Math.Max(minimumWidth, list.ClientSize.Width - otherColumns - SystemInformation.VerticalScrollBarWidth);
                 if (finalColumn.Width != width) finalColumn.Width = width;
             };
             list.OwnerDraw = true;
-            list.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
+            if (fitLast) list.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
             list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e)
             {
                 using (var fill = new SolidBrush(Palette.HeaderBg)) e.Graphics.FillRectangle(fill, e.Bounds);
@@ -406,7 +408,8 @@ namespace DeskBox.UI.Views
                 var background = e.Item.Selected ? Palette.Hover : e.ItemIndex % 2 == 0 ? Palette.CardBg : Palette.Panel;
                 using (var fill = new SolidBrush(background)) e.Graphics.FillRectangle(fill, e.Bounds);
                 var text = e.SubItem.Text;
-                var color = list == diagnosticList && e.ColumnIndex == 0 ? (text == "错误" ? TiaWorkbenchStyle.Error(Palette) : text == "警告" ? TiaWorkbenchStyle.Warning(Palette) : Palette.TextDim) : Palette.Text;
+                var color = list == lineChanges ? e.Item.ForeColor : list == diagnosticList && e.ColumnIndex == 0
+                    ? (text == "错误" ? TiaWorkbenchStyle.Error(Palette) : text == "警告" ? TiaWorkbenchStyle.Warning(Palette) : Palette.TextDim) : Palette.Text;
                 TextRenderer.DrawText(e.Graphics, text, list.Font, Rectangle.Inflate(e.Bounds, -4, 0), color,
                     TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
             };
