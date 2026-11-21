@@ -199,7 +199,7 @@ namespace DeskBox.UI.Views
             codeInspector.Visible = false;
             AddWorkbenchPage(page, "选中一个程序块创建草稿，或载入模板。仅在副本审批后执行工程写入。");
             editor.SelectionChanged += delegate { UpdateEditorStatus(); };
-            editor.TextChanged += delegate { UpdateEditorStatus(); RefreshPageStates(); };
+            editor.TextChanged += delegate { UpdateEditorStatus(); RefreshPageStates(); RefreshValidation(); };
             editor.ReadOnlyChanged += delegate { UpdateEditorStatus(); RefreshPageStates(); };
             editor.Enter += delegate
             {
@@ -278,7 +278,8 @@ namespace DeskBox.UI.Views
             contextDetails.Visible = !compact;
             outputPages.Visible = outputDivider.Visible = !settings.TiaLogCollapsed;
             outputDivider.MinSize = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.MinimumOutputHeight);
-            int outputLimit = compact ? (assistantOpen ? 106 : Math.Min(156, height / 4)) : Math.Min(300, Math.Max(92, height / 3));
+            int outputLimit = compact ? (assistantOpen ? 106 : Math.Min(156, height / 4)) :
+                Math.Min(300, Math.Max(92, height < 690 ? height / 5 : height / 3));
             outputPane.Height = TiaWorkbenchStyle.Pixels(this, settings.TiaLogCollapsed ? TiaWorkbenchStyle.ToolbarHeight : Clamp(settings.TiaLogHeight, TiaWorkbenchStyle.MinimumOutputHeight, outputLimit));
             toggleTree.Text = treeOpen ? "收起导航" : "展开导航";
             toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";

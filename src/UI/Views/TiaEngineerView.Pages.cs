@@ -65,7 +65,7 @@ namespace DeskBox.UI.Views
                 tagsFound == 0 ? "没有匹配的 PLC 变量" : tagsFound + " 条可见 PLC 变量",
                 pendingScl != null ? "待确认  ·  SCL 行级差异" : diff.TextLength == 0 || diff.Text == EmptyDiff ? "未生成差异" :
                     diff.Text.StartsWith("待确认的 SCL 草稿替换", StringComparison.Ordinal) ? "上次 SCL 差异" : "已生成工程差异报告",
-                verificationCompile ?? verificationStatic ?? (environmentReport != null ? connectionStatus.Text : "尚未运行工程验证")
+                verificationCompile ?? StaticCheckStatus() ?? (environmentReport != null ? connectionStatus.Text : "尚未运行工程验证")
             };
             bool loading = phase == Phase.Planning || phase == Phase.Executing || phase == Phase.Validating;
             for (int i = 0; i < pageStates.Count; i++)
@@ -289,12 +289,18 @@ namespace DeskBox.UI.Views
 
         private void RefreshValidation()
         {
-            string draftCheck = verificationStatic == null ? "待检查" : SameSource(verifiedDraft, editor.Text) ? verificationStatic : "草稿已改，需重新检查";
+            if (validationSummary == null) return;
+            string draftCheck = StaticCheckStatus() ?? "待检查";
             var rows = new[] { "SCL 静态检查     " + draftCheck, "TIA 离线编译     " + (verificationCompile ?? (inspected == null ? "等待授权 V20 项目副本" : "尚未编译")),
                 "PLCSIM 仿真       未执行", "现场验证           未执行" };
             string details = environmentReport == null ? "使用「查看能力与环境」检查版本、Openness 和用户组。" : environmentReport.Describe();
             string text = "验证项目\r\n\r\n" + string.Join("\r\n", rows) + "\r\n\r\n本机环境\r\n" + details + "\r\n\r\n编译回执、诊断及操作记录在下方输出区。";
             if (validationSummary.Text != text) validationSummary.Text = text;
+        }
+
+        private string StaticCheckStatus()
+        {
+            return verificationStatic != null && !SameSource(verifiedDraft, editor.Text) ? "草稿已改，需重新检查" : verificationStatic;
         }
     }
 }

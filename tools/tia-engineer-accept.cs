@@ -620,6 +620,8 @@ public static class TiaEngineerAcceptance
             Check(draft.Text == correctedSource && tabs.SelectedIndex == 0, "The reviewed repair applies only upon explicit approval");
         }
         draft.Text = goodSource;
+        var verification = Children(view).OfType<RichTextBox>().Single(box => box.AccessibleName == "工程验证状态");
+        Check(verification.Text.Contains("需重新检查"), "Editing a checked draft marks its previous result as stale immediately");
         await Click(button("高亮"));
         draft.Focus();
         draft.ClearUndo();
