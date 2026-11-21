@@ -32,7 +32,8 @@ namespace DeskBox.UI.Views
             outputPane = BuildOutputPane();
             navigationDivider = new Splitter { Name = "tia-tree-divider", Dock = DockStyle.Left, Width = TiaWorkbenchStyle.RailGap };
             assistantDivider = new Splitter { Name = "tia-assistant-divider", Dock = DockStyle.Right, Width = TiaWorkbenchStyle.RailGap };
-            outputDivider = new Splitter { Name = "tia-log-divider", Dock = DockStyle.Bottom, Height = TiaWorkbenchStyle.RailGap, MinExtra = 205 };
+            outputDivider = new Splitter { Name = "tia-log-divider", Dock = DockStyle.Bottom,
+                Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.RailGap), MinExtra = TiaWorkbenchStyle.Pixels(this, 205) };
             var workArea = new Panel { Dock = DockStyle.Fill, Name = "tia-work-area" };
             workArea.Controls.AddRange(new Control[] { tabs, outputDivider, outputPane });
             var shell = new Panel { Dock = DockStyle.Fill, Name = "tia-workbench-zones" };
@@ -70,10 +71,10 @@ namespace DeskBox.UI.Views
 
         private Control BuildContextBar()
         {
-            var header = new Panel { Dock = DockStyle.Top, Height = Dpi.D(this, TiaWorkbenchStyle.ContextHeight), Name = "tia-context-bar" };
+            var header = new Panel { Dock = DockStyle.Top, Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ContextHeight), Name = "tia-context-bar" };
             var title = Heading("TIA AI 工程师");
             title.Dock = DockStyle.Left;
-            title.Width = Dpi.D(this, 176);
+            title.Width = TiaWorkbenchStyle.Pixels(this, 176);
             title.Font = UiKit.CachedFont("Microsoft YaHei UI", 14, FontStyle.Bold);
             projectHeading = Caption("");
             projectHeading.Name = "tia-project-heading";
@@ -82,14 +83,14 @@ namespace DeskBox.UI.Views
             projectHeading.Font = UiKit.CachedFont("Microsoft YaHei UI", 11, FontStyle.Bold);
             modeStatus = Caption("");
             modeStatus.Dock = DockStyle.Bottom;
-            modeStatus.Height = Dpi.D(this, 20);
+            modeStatus.Height = TiaWorkbenchStyle.Pixels(this, 20);
             modeStatus.TextAlign = ContentAlignment.MiddleLeft;
             var project = new Panel { Dock = DockStyle.Fill, Padding = new Padding(2, 0, 8, 0) };
             project.Controls.AddRange(new Control[] { projectHeading, modeStatus });
             connectionStatus = Caption("");
             connectionStatus.Name = "tia-connection-status";
             connectionStatus.Dock = DockStyle.Right;
-            connectionStatus.Width = Dpi.D(this, 195);
+            connectionStatus.Width = TiaWorkbenchStyle.Pixels(this, 195);
             connectionStatus.TextAlign = ContentAlignment.MiddleCenter;
             toggleTree = Button("收起导航", () => { Store.Settings.TiaTreeCollapsed = !Store.Settings.TiaTreeCollapsed; SaveLayout(); }, false);
             toggleTree.Name = "tia-toggle-tree";
@@ -98,9 +99,9 @@ namespace DeskBox.UI.Views
             foreach (var button in new[] { toggleTree, toggleOutput })
             {
                 button.Dock = DockStyle.Right;
-                button.Width = Dpi.D(this, 92);
+                button.Width = TiaWorkbenchStyle.Pixels(this, 92);
             }
-            header.Padding = new Padding(Dpi.D(this, DesignTokens.Space8), Dpi.D(this, 5), Dpi.D(this, DesignTokens.Space8), Dpi.D(this, 5));
+            header.Padding = new Padding(TiaWorkbenchStyle.Pixels(this, DesignTokens.Space8), TiaWorkbenchStyle.Pixels(this, 5), TiaWorkbenchStyle.Pixels(this, DesignTokens.Space8), TiaWorkbenchStyle.Pixels(this, 5));
             header.Controls.AddRange(new Control[] { project, title, connectionStatus, toggleOutput, toggleTree });
             return header;
         }
@@ -116,10 +117,10 @@ namespace DeskBox.UI.Views
             tree.Visible = false;
             pane.Controls.AddRange(new Control[] { tree, navigationEmpty, treeQuery, Heading("工程导航") });
             tree.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
-            tree.ItemHeight = Dpi.D(this, 24);
+            tree.ItemHeight = TiaWorkbenchStyle.Pixels(this, 24);
             tree.ShowNodeToolTips = true;
             tree.BorderStyle = BorderStyle.None;
-            treeQuery.Height = Dpi.D(this, TiaWorkbenchStyle.ToolbarHeight);
+            treeQuery.Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ToolbarHeight);
             tree.BeforeExpand += delegate(object sender, TreeViewCancelEventArgs e)
             {
                 var items = e.Node.Tag as System.Collections.Generic.List<PlcObject>;
@@ -144,12 +145,12 @@ namespace DeskBox.UI.Views
             var pane = new Panel { Name = "tia-assistant-pane", Dock = DockStyle.Right, Width = 350, Padding = new Padding(8, 0, 8, 5) };
             contextDetails = Caption("");
             contextDetails.Name = "tia-context-details";
-            contextDetails.Height = Dpi.D(this, 68);
+            contextDetails.Height = TiaWorkbenchStyle.Pixels(this, 68);
             contextDetails.TextAlign = ContentAlignment.TopLeft;
             contextDetails.Padding = new Padding(6, 5, 4, 4);
             assistant.TabStop = false;
             assistant.Margin = Padding.Empty;
-            modelStatus.Height = Dpi.D(this, 30);
+            modelStatus.Height = TiaWorkbenchStyle.Pixels(this, 30);
             var tools = Bar();
             tools.Dock = DockStyle.Bottom;
             tools.Controls.AddRange(new Control[] { generate, Button("添加工程资料", delegate { var files = SelectExports(); if (files != null) LoadExports(files, true); }),
@@ -162,7 +163,7 @@ namespace DeskBox.UI.Views
             composer.Controls.AddRange(new Control[] { requirement, choices, tools, Heading("工程需求") });
             Action fitComposer = delegate
             {
-                int target = Dpi.D(this, compact ? 96 : 150) + tools.Height + choices.Height;
+                int target = TiaWorkbenchStyle.Pixels(this, compact ? 96 : 150) + tools.Height + choices.Height;
                 if (composer.Height != target) composer.Height = target;
             };
             tools.SizeChanged += delegate { fitComposer(); };
@@ -185,16 +186,16 @@ namespace DeskBox.UI.Views
             blockDetails = TextArea("程序信息");
             blockDetails.TabStop = false;
             blockDetails.Margin = Padding.Empty;
-            codeInspector = new Panel { Dock = DockStyle.Right, Width = Dpi.D(this, 238), Padding = new Padding(8, 0, 0, 0), Name = "tia-block-inspector" };
+            codeInspector = new Panel { Dock = DockStyle.Right, Width = TiaWorkbenchStyle.Pixels(this, 238), Padding = new Padding(8, 0, 0, 0), Name = "tia-block-inspector" };
             codeInspector.Controls.AddRange(new Control[] { blockDetails, Heading("程序信息") });
             var editorBody = new Panel { Dock = DockStyle.Fill };
             editorBody.Controls.AddRange(new[] { BuildCodeEditor(), codeInspector });
             editorStatus = Caption("");
             editorStatus.Dock = DockStyle.Bottom;
             editorStatus.Name = "tia-editor-status";
-            editorStatus.Height = Dpi.D(this, 24);
+            editorStatus.Height = TiaWorkbenchStyle.Pixels(this, 24);
             page.Controls.AddRange(new Control[] { editorBody, editorStatus, toolbar });
-            page.SizeChanged += delegate { codeInspector.Visible = page.ClientSize.Width >= Dpi.D(this, 750); };
+            page.SizeChanged += delegate { codeInspector.Visible = page.ClientSize.Width >= TiaWorkbenchStyle.Pixels(this, 750); };
             codeInspector.Visible = false;
             AddWorkbenchPage(page, "选中一个程序块创建草稿，或载入模板。仅在副本审批后执行工程写入。");
             editor.SelectionChanged += delegate { UpdateEditorStatus(); };
@@ -210,14 +211,14 @@ namespace DeskBox.UI.Views
 
         private Panel BuildOutputPane()
         {
-            var pane = new Panel { Name = "tia-log-pane", Dock = DockStyle.Bottom, Height = Dpi.D(this, new AppSettings().TiaLogHeight) };
+            var pane = new Panel { Name = "tia-log-pane", Dock = DockStyle.Bottom, Height = TiaWorkbenchStyle.Pixels(this, new AppSettings().TiaLogHeight) };
             var toolbar = Bar();
             toolbar.WrapContents = false;
             toolbar.Padding = new Padding(0, 1, 0, 1);
             toolbar.AutoSize = false;
-            toolbar.Height = Dpi.D(this, TiaWorkbenchStyle.ToolbarHeight);
+            toolbar.Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ToolbarHeight);
             outputTabs = new[] { "编译结果", "诊断", "操作日志" }.Select((name, index) => Button(name, () => OpenOutput(index), false)).ToArray();
-            foreach (var button in outputTabs) { button.Height = Dpi.D(this, 32); toolbar.Controls.Add(button); }
+            foreach (var button in outputTabs) { button.Height = TiaWorkbenchStyle.Pixels(this, 32); toolbar.Controls.Add(button); }
             diagnosisCount = Caption("无诊断记录");
             diagnosisCount.Name = "tia-diagnosis-count";
             diagnosisCount.AutoSize = true;
@@ -238,13 +239,13 @@ namespace DeskBox.UI.Views
         private Label Heading(string title)
         {
             var header = Caption(title);
-            header.Height = Dpi.D(this, 34);
+            header.Height = TiaWorkbenchStyle.Pixels(this, 34);
             header.Font = UiKit.CachedFont("Microsoft YaHei UI", 11.5f, FontStyle.Bold);
             header.TextAlign = ContentAlignment.MiddleLeft;
             return header;
         }
 
-        private int LayoutUnits(int pixels) { return (int)Math.Round(pixels * 96.0 / DeviceDpi); }
+        private int LayoutUnits(int pixels) { return (int)Math.Round(pixels * 96.0 / TiaWorkbenchStyle.LogicalDpi(this)); }
         private static int Clamp(int value, int minimum, int maximum) { return Math.Max(minimum, Math.Min(maximum, value)); }
 
         private void LayoutWorkbench()
@@ -254,31 +255,31 @@ namespace DeskBox.UI.Views
             compact = width < TiaWorkbenchStyle.CompactWidth;
             bool assistantOpen = !settings.TiaAssistantCollapsed && (!compact || compactAssistant);
             bool treeOpen = !settings.TiaTreeCollapsed;
-            navigationPane.Width = Dpi.D(this, Clamp(settings.TiaTreeWidth, compact ? 154 : 240, compact ? 185 : Math.Min(420, width - (assistantOpen ? 750 : 435))));
-            navigationDivider.MinSize = Dpi.D(this, compact ? 154 : 240);
-            navigationDivider.MinExtra = Dpi.D(this, TiaWorkbenchStyle.MinimumCodeWidth + (!compact && assistantOpen ? 306 : 0));
+            navigationPane.Width = TiaWorkbenchStyle.Pixels(this, Clamp(settings.TiaTreeWidth, compact ? 154 : 240, compact ? 185 : Math.Min(420, width - (assistantOpen ? 750 : 435))));
+            navigationDivider.MinSize = TiaWorkbenchStyle.Pixels(this, compact ? 154 : 240);
+            navigationDivider.MinExtra = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.MinimumCodeWidth + (!compact && assistantOpen ? 306 : 0));
             navigationPane.Visible = navigationDivider.Visible = treeOpen;
             assistantPane.Dock = assistantDivider.Dock = compact ? DockStyle.Bottom : DockStyle.Right;
             if (compact)
             {
-                assistantDivider.Height = Dpi.D(this, TiaWorkbenchStyle.RailGap);
-                assistantDivider.MinSize = Dpi.D(this, 178);
-                assistantDivider.MinExtra = Dpi.D(this, 235);
-                assistantPane.Height = Dpi.D(this, Clamp(settings.TiaAssistantHeight, 178, Math.Min(350, height - 240)));
+                assistantDivider.Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.RailGap);
+                assistantDivider.MinSize = TiaWorkbenchStyle.Pixels(this, 178);
+                assistantDivider.MinExtra = TiaWorkbenchStyle.Pixels(this, 235);
+                assistantPane.Height = TiaWorkbenchStyle.Pixels(this, Clamp(settings.TiaAssistantHeight, 178, Math.Min(350, height - 240)));
             }
             else
             {
-                assistantDivider.Width = Dpi.D(this, TiaWorkbenchStyle.RailGap);
-                assistantDivider.MinSize = Dpi.D(this, 300);
-                assistantDivider.MinExtra = Dpi.D(this, TiaWorkbenchStyle.MinimumCodeWidth) + (treeOpen ? navigationPane.Width : 0);
-                assistantPane.Width = Dpi.D(this, Clamp(settings.TiaAssistantWidth, 300, Math.Min(520, width - (treeOpen ? LayoutUnits(navigationPane.Width) : 0) - TiaWorkbenchStyle.MinimumCodeWidth)));
+                assistantDivider.Width = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.RailGap);
+                assistantDivider.MinSize = TiaWorkbenchStyle.Pixels(this, 300);
+                assistantDivider.MinExtra = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.MinimumCodeWidth) + (treeOpen ? navigationPane.Width : 0);
+                assistantPane.Width = TiaWorkbenchStyle.Pixels(this, Clamp(settings.TiaAssistantWidth, 300, Math.Min(520, width - (treeOpen ? LayoutUnits(navigationPane.Width) : 0) - TiaWorkbenchStyle.MinimumCodeWidth)));
             }
             assistantPane.Visible = assistantDivider.Visible = assistantOpen;
             contextDetails.Visible = !compact;
             outputPages.Visible = outputDivider.Visible = !settings.TiaLogCollapsed;
-            outputDivider.MinSize = Dpi.D(this, TiaWorkbenchStyle.MinimumOutputHeight);
+            outputDivider.MinSize = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.MinimumOutputHeight);
             int outputLimit = compact ? (assistantOpen ? 106 : Math.Min(156, height / 4)) : Math.Min(300, Math.Max(92, height / 3));
-            outputPane.Height = Dpi.D(this, settings.TiaLogCollapsed ? TiaWorkbenchStyle.ToolbarHeight : Clamp(settings.TiaLogHeight, TiaWorkbenchStyle.MinimumOutputHeight, outputLimit));
+            outputPane.Height = TiaWorkbenchStyle.Pixels(this, settings.TiaLogCollapsed ? TiaWorkbenchStyle.ToolbarHeight : Clamp(settings.TiaLogHeight, TiaWorkbenchStyle.MinimumOutputHeight, outputLimit));
             toggleTree.Text = treeOpen ? "收起导航" : "展开导航";
             toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
             toggleOutput.Text = settings.TiaLogCollapsed ? "展开输出" : "收起输出";
@@ -426,6 +427,7 @@ namespace DeskBox.UI.Views
             foreach (var divider in new[] { navigationDivider, assistantDivider, outputDivider }) divider.BackColor = palette.Bg;
             tabs.Colors = palette;
             tabs.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
+            tabs.FitLabels();
             tabs.Invalidate();
             ApplyPagePalette();
             UpdateWorkbenchContext();

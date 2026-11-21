@@ -26,21 +26,21 @@ namespace DeskBox.UI.Views
 
         private void AddWorkbenchPage(TabPage page, string guidance)
         {
-            var band = new Panel { Dock = DockStyle.Top, Height = Dpi.D(this, 48), Padding = new Padding(8, 4, 8, 4), BackColor = Palette.HeaderBg };
+            var band = new Panel { Dock = DockStyle.Top, Height = TiaWorkbenchStyle.Pixels(this, 48), Padding = new Padding(8, 4, 8, 4), BackColor = Palette.HeaderBg };
             var title = Caption(page.Text);
             title.Dock = DockStyle.Left;
-            title.Width = Dpi.D(this, 92);
+            title.Width = TiaWorkbenchStyle.Pixels(this, 92);
             title.Font = UiKit.CachedFont("Microsoft YaHei UI", 11.5f, FontStyle.Bold);
             title.TextAlign = ContentAlignment.MiddleLeft;
             var status = Caption("");
             status.Dock = DockStyle.Fill;
-            status.Height = Dpi.D(this, 21);
+            status.Height = TiaWorkbenchStyle.Pixels(this, 21);
             status.TextAlign = ContentAlignment.MiddleLeft;
             status.Padding = new Padding(8, 0, 0, 0);
             status.Name = "tia-state-" + pageStates.Count;
             var hint = Caption(guidance);
             hint.Dock = DockStyle.Bottom;
-            hint.Height = Dpi.D(this, 19);
+            hint.Height = TiaWorkbenchStyle.Pixels(this, 19);
             hint.Padding = new Padding(8, 0, 0, 0);
             hint.Font = UiKit.CachedFont("Microsoft YaHei UI", 9.5f, FontStyle.Regular);
             workbenchTips.SetToolTip(hint, guidance);
@@ -106,6 +106,7 @@ namespace DeskBox.UI.Views
             }
             assistantTabs.Colors = Palette;
             assistantTabs.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
+            assistantTabs.FitLabels();
             assistantTabs.Invalidate();
             topologyCanvas.ApplyPalette(Palette);
             RefreshDiffView();
@@ -139,7 +140,7 @@ namespace DeskBox.UI.Views
             variableGrid = new ListView { Name = "tia-variable-table", AccessibleName = "PLC 变量列表", View = View.Details, Dock = DockStyle.Fill,
                 FullRowSelect = true, MultiSelect = false, HideSelection = false, ShowItemToolTips = true };
             foreach (var name in new[] { "名称", "数据类型", "地址", "范围", "来源" })
-                variableGrid.Columns.Add(name, Dpi.D(this, name == "范围" || name == "来源" ? 155 : name == "名称" ? 175 : 112));
+                variableGrid.Columns.Add(name, TiaWorkbenchStyle.Pixels(this, name == "范围" || name == "来源" ? 155 : name == "名称" ? 175 : 112));
             variableGrid.ColumnClick += delegate(object sender, ColumnClickEventArgs e)
             {
                 variableDescending = e.Column == variableSort && !variableDescending;
@@ -158,7 +159,7 @@ namespace DeskBox.UI.Views
             {
                 if (variableGrid.SelectedItems.Count == 1) ShowObject((PlcObject)variableGrid.SelectedItems[0].Tag, true);
             };
-            variableSearch = new DarkInput { Width = Dpi.D(this, 265), Height = Dpi.D(this, 31), Placeholder = "筛选名称、数据类型、地址或来源", Name = "tia-variable-filter" };
+            variableSearch = new DarkInput { Width = TiaWorkbenchStyle.Pixels(this, 265), Height = TiaWorkbenchStyle.Pixels(this, 31), Placeholder = "筛选名称、数据类型、地址或来源", Name = "tia-variable-filter" };
             variableSearch.Inner.AccessibleName = "筛选 PLC 变量";
             variableSearch.Inner.TextChanged += delegate { FillVariableGrid(); };
             variableCount = Caption("等待导入 PLC 变量");
@@ -167,7 +168,7 @@ namespace DeskBox.UI.Views
             var filterRow = Bar();
             filterRow.Controls.AddRange(new Control[] { variableSearch, variableCount });
             tags.Text = "载入 IO CSV 或工程副本后，按列排序，或在上方按名称、地址和类型筛选。";
-            tags.Height = Dpi.D(this, 116);
+            tags.Height = TiaWorkbenchStyle.Pixels(this, 116);
             tags.Dock = DockStyle.Bottom;
             var page = new Panel { Dock = DockStyle.Fill };
             page.Controls.AddRange(new Control[] { variableGrid, tags, filterRow });
@@ -208,11 +209,11 @@ namespace DeskBox.UI.Views
             lineChanges = new ListView { Name = "tia-scl-diff-lines", AccessibleName = "SCL 双栏行差异", Dock = DockStyle.Fill, View = View.Details,
                 FullRowSelect = true, MultiSelect = false, ShowItemToolTips = true, HideSelection = false, Visible = false };
             lineChanges.Font = UiKit.CachedFont("Consolas", 10.5f, FontStyle.Regular);
-            lineChanges.Columns.Add("当前 SCL 草稿", Dpi.D(this, 280));
-            lineChanges.Columns.Add("建议 SCL 草稿", Dpi.D(this, 280));
+            lineChanges.Columns.Add("当前 SCL 草稿", TiaWorkbenchStyle.Pixels(this, 280));
+            lineChanges.Columns.Add("建议 SCL 草稿", TiaWorkbenchStyle.Pixels(this, 280));
             lineChanges.Resize += delegate
             {
-                int half = Math.Max(Dpi.D(this, 205), (lineChanges.ClientSize.Width - SystemInformation.VerticalScrollBarWidth) / 2);
+                int half = Math.Max(TiaWorkbenchStyle.Pixels(this, 205), (lineChanges.ClientSize.Width - SystemInformation.VerticalScrollBarWidth) / 2);
                 foreach (ColumnHeader column in lineChanges.Columns) if (column.Width != half) column.Width = half;
             };
             var navigation = Bar();

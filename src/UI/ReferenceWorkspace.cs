@@ -79,8 +79,9 @@ namespace DeskBox.UI
             var header=new Panel{Dock=DockStyle.Top,Height=64,BackColor=_p.HeaderBg};header.Paint+=delegate(object s,PaintEventArgs e){using(var pen=new Pen(_p.Line))e.Graphics.DrawLine(pen,0,63,header.Width,63);};
             using(var icon=Icon.ExtractAssociatedIcon(typeof(ReferenceWorkspace).Assembly.Location))if(icon!=null)_brand=icon.ToBitmap();
             var mark=new PictureBox{Image=_brand,SizeMode=PictureBoxSizeMode.Zoom,Bounds=new Rectangle(15,20,26,26),BackColor=Color.Transparent};header.Controls.Add(mark);
-            var brand=TextLabel("DeskBox",15,true,_p.Accent);brand.SetBounds(48,17,125,32);header.Controls.Add(brand);
-            _heading=TextLabel("工程智能工作台",9,false,_p.TextDim);_heading.SetBounds(184,23,220,24);header.Controls.Add(_heading);
+            var brand=TextLabel("DeskBox",15,true,_p.Accent);int brandHeight=Math.Max(32,brand.Font.Height+4);
+            brand.SetBounds(48,(header.Height-brandHeight)/2,Math.Max(125,TextRenderer.MeasureText(brand.Text,brand.Font).Width+4),brandHeight);header.Controls.Add(brand);
+            _heading=TextLabel("工程智能工作台",9,false,_p.TextDim);_heading.SetBounds(Math.Max(184,brand.Right+10),23,220,24);header.Controls.Add(_heading);
             _globalSearch=Input("搜索工程文件与资料…  Ctrl+K",450);_globalSearch.SetBounds(430,15,450,34);
             _globalSearch.KeyPressed+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;Navigate("search");var search=_serviceViews["search"] as Views.SearchView;if(search!=null)search.SearchText(_globalSearch.Text);}};
             header.Controls.Add(_globalSearch);
@@ -122,12 +123,13 @@ namespace DeskBox.UI
         {
             if (_compactRail == compact) return;
             _compactRail = compact;
-            _rail.Width = Dpi.D(this, compact ? 62 : 200);
+            _rail.Width = compact ? Views.TiaWorkbenchStyle.Pixels(this, 62) : Dpi.D(this, 200);
             _railHeading.Visible = !compact;
             foreach (var button in _rail.Controls.OfType<DarkButton>())
             {
                 button.CompactNavigation = compact;
-                button.Width = Dpi.D(this, compact ? 48 : 176);
+                button.Left = compact ? Views.TiaWorkbenchStyle.Pixels(this, 4) : 4;
+                button.Width = compact ? Views.TiaWorkbenchStyle.Pixels(this, 48) : Dpi.D(this, 176);
                 _railTips.SetToolTip(button, compact ? button.Text : null);
                 button.Invalidate();
             }

@@ -66,6 +66,8 @@ namespace DeskBox.UI.Views
         {
             this.providers = providers; this.projects = projects;
             Name = "tia-engineer";
+            foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, inputStart, outputStart, diagnosticFilter })
+                control.Width = TiaWorkbenchStyle.Pixels(this, control.Width);
             mode.Items.AddRange(new object[] { "只读分析", "辅助设计", "自动离线工程" }); mode.SelectedIndex = 0;
             mode.SelectedIndexChanged += delegate { RefreshHeading(); UpdateButtons(); };
             cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0;
@@ -76,7 +78,7 @@ namespace DeskBox.UI.Views
             start.Name = "tia-focus-requirement";
             top.Controls.AddRange(new Control[] { start, mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
             if (openVoice != null) top.Controls.Add(Button("工程语音", openVoice));
-            cancel = new DarkButton("取消当前任务") { Width = Dpi.D(this, 116), Height = Dpi.D(this, TiaWorkbenchStyle.ControlHeight), Enabled = false, Palette = Palette };
+            cancel = new DarkButton("取消当前任务") { Width = TiaWorkbenchStyle.Pixels(this, 116), Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ControlHeight), Enabled = false, Palette = Palette };
             cancel.Click += delegate { if (operation != null) operation.Cancel(); }; top.Controls.Add(cancel);
 
             requirement = TextArea("工程需求", false);
@@ -155,7 +157,7 @@ namespace DeskBox.UI.Views
         }
 
         private FlowLayoutPanel Bar() { return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2, 2, 2, 3) }; }
-        private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = Dpi.D(this, 24), Margin = Padding.Empty, AutoEllipsis = true, UseMnemonic = false, ForeColor = Palette.TextDim, Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular) }; }
+        private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = TiaWorkbenchStyle.Pixels(this, 24), Margin = Padding.Empty, AutoEllipsis = true, UseMnemonic = false, ForeColor = Palette.TextDim, Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular) }; }
         private RichTextBox TextArea(string name, bool readOnly = true)
         {
             return new RichTextBox { Dock = DockStyle.Fill, ReadOnly = readOnly, AccessibleName = name, BorderStyle = BorderStyle.None, DetectUrls = false, Font = UiKit.CachedFont(readOnly ? "Microsoft YaHei UI" : "Consolas", 10.5f, FontStyle.Regular), MaxLength = 24000 };
@@ -163,7 +165,7 @@ namespace DeskBox.UI.Views
         private Control BuildCodeEditor()
         {
             var code = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
-            var lines = new Panel { Dock = DockStyle.Left, Width = Dpi.D(this, 40) };
+            var lines = new Panel { Dock = DockStyle.Left, Width = TiaWorkbenchStyle.Pixels(this, 40) };
             lines.Paint += delegate(object sender, PaintEventArgs e)
             {
                 e.Graphics.Clear(Palette.HeaderBg);
@@ -241,7 +243,7 @@ namespace DeskBox.UI.Views
         private Control BuildValidationPanel()
         {
             var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 34)));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, TiaWorkbenchStyle.Pixels(this, 34)));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             diagnosticFilter.Items.AddRange(new object[] { "全部诊断", "错误", "警告", "其他" });
             diagnosticFilter.SelectedIndex = 0;
@@ -273,7 +275,7 @@ namespace DeskBox.UI.Views
             var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
-            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 147)));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, TiaWorkbenchStyle.Pixels(this, 147)));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             panel.Controls.Add(rack, 0, 0);
             panel.SetColumnSpan(rack, 2);
@@ -313,7 +315,7 @@ namespace DeskBox.UI.Views
             networkLinks.Columns.Add("来源", 125);
             var diagram = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
             diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, Dpi.D(this, 65)));
+            diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, TiaWorkbenchStyle.Pixels(this, 65)));
             diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             var connection = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
             diagram.Controls.Add(networkFrom, 0, 0);
@@ -362,7 +364,7 @@ namespace DeskBox.UI.Views
             panel.Controls.Add(WithHeading("连接清单", networkLinks), 1, 0);
             var details = WithHeading("连接与端点详情", topology);
             diagram.Dock = DockStyle.Bottom;
-            diagram.Height = Dpi.D(this, 34);
+            diagram.Height = TiaWorkbenchStyle.Pixels(this, 34);
             details.Controls.Add(diagram);
             panel.Controls.Add(details, 0, 1);
             panel.SetColumnSpan(details, 2);
@@ -587,9 +589,9 @@ namespace DeskBox.UI.Views
         }
         private DarkButton Button(string label, Action action, bool blocksDuringOperation = true)
         {
-            var button = new DarkButton(label) { Height = Dpi.D(this, TiaWorkbenchStyle.ControlHeight), Palette = Palette, AccessibleName = label };
+            var button = new DarkButton(label) { Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ControlHeight), Palette = Palette, AccessibleName = label };
             button.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
-            button.Width = Math.Max(Dpi.D(this, 84), TextRenderer.MeasureText(label, button.Font).Width + Dpi.D(this, 20));
+            button.Width = Math.Max(TiaWorkbenchStyle.Pixels(this, 84), TextRenderer.MeasureText(label, button.Font).Width + TiaWorkbenchStyle.Pixels(this, 20));
             button.Click += delegate { RunAction(action); };
             if (blocksDuringOperation) actions.Add(button);
             return button;
@@ -1197,7 +1199,7 @@ namespace DeskBox.UI.Views
                 var text = TextArea("批准前的 SCL 差异");
                 text.Text = summary + "\r\n\r\n" + sourceDiff;
                 text.BackColor = Palette.CardBg; text.ForeColor = Palette.Text;
-                var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = Dpi.D(this, 48), FlowDirection = FlowDirection.RightToLeft };
+                var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = TiaWorkbenchStyle.Pixels(this, 48), FlowDirection = FlowDirection.RightToLeft };
                 var cancelReview = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
                 buttons.Controls.Add(cancelReview);
                 buttons.Controls.Add(new Button { Text = "批准并编译", DialogResult = DialogResult.Yes, AutoSize = true });

@@ -78,9 +78,9 @@ namespace DeskBox.UI.Views
         private void PositionNodes()
         {
             const int columns = 3;
-            int stepX = Dpi.D(this, 162) * percent / 100;
-            int stepY = Dpi.D(this, 90) * percent / 100;
-            int pad = Dpi.D(this, 14);
+            int stepX = TiaWorkbenchStyle.Pixels(this, 162) * percent / 100;
+            int stepY = TiaWorkbenchStyle.Pixels(this, 90) * percent / 100;
+            int pad = TiaWorkbenchStyle.Pixels(this, 14);
             int index = 0;
             drawing.SuspendLayout();
             foreach (var node in nodes.Values)
@@ -97,8 +97,8 @@ namespace DeskBox.UI.Views
         private void DrawConnections(object sender, PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var line = new Pen(palette.Line, Dpi.D(this, 2)))
-            using (var active = new Pen(palette.Accent, Dpi.D(this, 2)))
+            using (var line = new Pen(palette.Line, TiaWorkbenchStyle.Pixels(this, 2)))
+            using (var active = new Pen(palette.Accent, TiaWorkbenchStyle.Pixels(this, 2)))
                 foreach (var link in links.OrderBy(link => link == selected))
                 {
                     var a = nodes[link.First].Bounds;
