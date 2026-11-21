@@ -7,9 +7,10 @@ namespace DeskBox.UI.Views
     internal static class TiaWorkbenchStyle
     {
         internal const int RailGap = 6;
-        internal const int ContextHeight = 43;
-        internal const int ToolbarHeight = 32;
-        internal const int CompactWidth = 1110;
+        internal const int ContextHeight = 54;
+        internal const int ToolbarHeight = 40;
+        internal const int ControlHeight = 36;
+        internal const int CompactWidth = 1080;
         internal const int MinimumCodeWidth = 420;
         internal const int MinimumOutputHeight = 84;
 

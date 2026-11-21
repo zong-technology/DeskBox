@@ -122,7 +122,7 @@ namespace DeskBox.UI
         {
             if (_compactRail == compact) return;
             _compactRail = compact;
-            _rail.Width = Dpi.D(this, compact ? 68 : 200);
+            _rail.Width = Dpi.D(this, compact ? 62 : 200);
             _railHeading.Visible = !compact;
             foreach (var button in _rail.Controls.OfType<DarkButton>())
             {

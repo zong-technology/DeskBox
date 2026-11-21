@@ -43,7 +43,8 @@ namespace DeskBox
         public bool TiaEnterSends = true;
         public int TiaTreeWidth = 260;
         public int TiaAssistantWidth = 350;
-        public int TiaLogHeight = 152;
+        public int TiaLogHeight = 196;
+        public int TiaLayoutVersion;
         public int TiaAssistantHeight = 224;
         public bool TiaTreeCollapsed;
         public bool TiaAssistantCollapsed;

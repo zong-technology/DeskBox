@@ -319,10 +319,12 @@ public static class TiaEngineerAcceptance
         Check(nav != null && nav.Visible, "TIA has an independent reference navigation button");
         form.SwitchView("tia");
         var view = form.Controls.Find("page-tia", true).OfType<TiaEngineerView>().Single();
-        var tree = Children(view).OfType<TreeView>().Single(); var tabs = Children(view).OfType<TabControl>().Single();
+        var tree = Children(view).OfType<TreeView>().Single(); var tabs = view.Controls.Find("tia-work-tabs", true).OfType<TabControl>().Single();
         var mode = Children(view).OfType<ComboBox>().First(x => x.AccessibleName == "操作模式");
         var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增 FB 并编译");
         Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode and write approval gate");
+        Check(view.Controls.Find("tia-state-0", true).Single().Text.Contains("尚无 SCL 草稿") && !tree.Visible,
+            "An empty installed workbench names both the missing draft and the missing engineering tree");
         await Capture(form, evidence, "tia-empty.png");
         var detect = Children(view).OfType<DarkButton>().Single(b => b.Text == "检测环境");
         await Click(detect);
@@ -370,6 +372,13 @@ public static class TiaEngineerAcceptance
         Check(tabs.SelectedIndex == 2 && ((PlcObject)containers.SelectedItem).Name == "Station A" &&
             hardwareList.SelectedItems[0].Text == "Digital input", "Opening a hardware tree node locates its actual rack and module row");
         tabs.SelectedIndex = 3;
+        var canvas = view.Controls.Find("tia-topology-canvas", true).Single();
+        var portNode = Children(canvas).OfType<DarkButton>().Single(node => node.Text == "Port A");
+        var originalWidth = portNode.Width;
+        await Click(Children(view).OfType<DarkButton>().Single(button => button.Text == "放大"));
+        Check(portNode.Width > originalWidth && !Children(canvas).OfType<DarkButton>().Any(node => node.Text == "MissingPort"),
+            "Network zoom resizes only nodes backed by resolved source connections");
+        await Click(Children(view).OfType<DarkButton>().Single(button => button.Text == "恢复 100%"));
         topologyList.Items[0].Selected = true;
         Check(Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "网络与设备").Text.Contains("hardware.aml:"),
             "Selecting a completed wire shows the original hardware export evidence");
@@ -411,6 +420,12 @@ public static class TiaEngineerAcceptance
         var tagLookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
         var variableLines = Children(view).OfType<RichTextBox>().Single(area => area.AccessibleName == "变量与 IO");
         Check(tagLookup.Ok && tabs.SelectedIndex == 4 && variableLines.SelectedText.StartsWith("Pressure  "), "Voice lookup highlights a variable row in the actual variable view");
+        var variableRows = view.Controls.Find("tia-variable-table", true).OfType<ListView>().Single();
+        var variableFilter = view.Controls.Find("tia-variable-filter", true).OfType<DarkInput>().Single();
+        variableFilter.Text = "%I1.0";
+        Check(variableRows.Items.Count == 1 && variableRows.Items[0].Text == "Duplicate,Bit" && variableRows.Items[0].SubItems[4].Text.StartsWith("io.csv"),
+            "Filtering the variable table keeps its matched address and original source");
+        variableFilter.Text = "";
         call["name"] = "CPU A";
         var hardwareLookup = ToolRegistry.Instance.Invoke("tia.read", call, voice);
         Check(hardwareLookup.Ok && tabs.SelectedIndex == 2 && hardwareList.SelectedItems.Count == 1 && hardwareList.SelectedItems[0].Text == "CPU A", "Voice lookup locates the exact owning hardware row");
@@ -431,7 +446,7 @@ public static class TiaEngineerAcceptance
         var previousHeight = logPane.Height;
         await DragDivider(view.Controls.Find("tia-log-divider", true).Single(), 0, -30);
         var persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
-        Check(logPane.Height > previousHeight && persisted.Settings.TiaLogHeight == store.Settings.TiaLogHeight && store.Settings.TiaLogHeight > 152,
+        Check(logPane.Height > previousHeight && persisted.Settings.TiaLogHeight == store.Settings.TiaLogHeight && store.Settings.TiaLogHeight > new AppSettings().TiaLogHeight,
             "Dragging the native log divider persists its adjusted height");
         var navigation = view.Controls.Find("tia-tree-pane", true).Single();
         var assistant = view.Controls.Find("tia-assistant-pane", true).Single();
@@ -449,7 +464,7 @@ public static class TiaEngineerAcceptance
             && persisted.Settings.TiaAssistantCollapsed && persisted.Settings.TiaLogCollapsed, "All three workspace areas collapse and persist independently");
         await Click(view.Controls.Find("tia-reset-layout", true).Single());
         persisted = Json.Load<PersistedState>(AppPaths.File("state.json"), null);
-        Check(persisted.Settings.TiaLogHeight == 152 && persisted.Settings.TiaTreeWidth == 260 && persisted.Settings.TiaAssistantWidth == 350 && logPane.Height == previousHeight,
+        Check(persisted.Settings.TiaLogHeight == new AppSettings().TiaLogHeight && persisted.Settings.TiaTreeWidth == 260 && persisted.Settings.TiaAssistantWidth == 350 && logPane.Height == previousHeight,
             "Reset restores and persists the default workbench dimensions");
         await Click(Children(view).OfType<DarkButton>().Single(button => button.Text == "操作日志"));
         var workLog = Children(view).OfType<RichTextBox>().Single(box => box.AccessibleName == "工程操作日志");
@@ -534,6 +549,9 @@ public static class TiaEngineerAcceptance
             while (!button("生成工程计划").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
             Check(payload.Contains("Confirm") && payload.Contains("中文工程需求") && !payload.Contains("Pending") &&
                 draft.Text.Contains("FB_ReviewedScale") && prompt.Text.Contains("Pending"), "Only submitted text reaches the model, its structured reply opens the SCL editor, and later input is retained");
+            var conversation = Children(view).OfType<RichTextBox>().Single(box => box.AccessibleName == "工程对话记录");
+            Check(conversation.Text.Contains("Confirm") && conversation.Text.Contains("AI 工程师") && !conversation.Text.Contains("Pending"),
+                "Assistant transcript reflects the submitted exchange and excludes the unsent draft");
         }
         using (var received = new ManualResetEventSlim())
         using (var reply = new ManualResetEventSlim(true))
@@ -544,6 +562,10 @@ public static class TiaEngineerAcceptance
             while ((!response.IsCompleted || tabs.SelectedIndex != 5) && DateTime.UtcNow < until) await Task.Delay(30);
             Check(response.IsCompleted && tabs.SelectedIndex == 5 && draft.Text.Contains("FB_ReviewedScale"), "A new model draft opens the change preview without replacing existing source");
             await response;
+            var lineRows = view.Controls.Find("tia-scl-diff-lines", true).OfType<ListView>().Single();
+            await Click(button("下一处"));
+            Check(lineRows.Visible && lineRows.Columns.Count == 2 && lineRows.SelectedItems.Count == 1 &&
+                lineRows.Items.Cast<ListViewItem>().Any(row => row.SubItems[1].Text.Contains("FB_SecondDraft")), "SCL review keeps one synchronized row per change and supports navigation");
             await Capture(form, evidence, "tia-diff.png");
             await Click(button("应用已预览草稿"));
             Check(tabs.SelectedIndex == 0 && draft.Text.Contains("FB_SecondDraft"), "Applying the preview explicitly replaces the editor draft");
@@ -615,6 +637,9 @@ public static class TiaEngineerAcceptance
         await Click(prompt);
         Console.WriteLine("TIA window " + form.Size + ", observed DPI " + form.DeviceDpi);
         Check(prompt.Focused && form.Width == 1920, "The large workbench exposes the same working input control");
+        var workArea = view.Controls.Find("tia-work-area", true).Single();
+        Check(workArea.Width > 800 && view.Controls.Find("tia-tree-pane", true).Single().Width >= 240 && view.Controls.Find("tia-assistant-pane", true).Single().Width >= 320
+            && view.Controls.Find("tia-log-pane", true).Single().Height >= 180, "The 1920-wide workbench reserves room for the editor and uses the target pane dimensions at 96 DPI");
         await Capture(form, evidence, "tia-workbench-1920.png");
         form.Size = new Size(1366, 768);
         await Task.Delay(120);
