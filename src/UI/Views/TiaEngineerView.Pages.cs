@@ -132,7 +132,6 @@ namespace DeskBox.UI.Views
             if (conversation.TextLength > 14000) conversation.Text = conversation.Text.Substring(conversation.TextLength - 10000);
             conversation.AppendText(speaker + "  ·  " + DateTime.Now.ToString("HH:mm") + "\r\n" + Limit(message, 6000) + "\r\n\r\n");
             conversation.ScrollToCaret();
-            assistantTabs.SelectedIndex = 1;
         }
 
         private Control BuildVariablesPage()
