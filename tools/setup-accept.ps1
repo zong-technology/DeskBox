@@ -174,7 +174,23 @@ public static class DeskBoxInstallCapture {
         else Click(tab);
         Thread.Sleep(160);
     }
-    private static void ImportFixtures(IntPtr window, string directory) {
+    private static void EnterFileNames(IntPtr dialog, string input) {
+        var fileName = AutomationElement.FromHandle(dialog).FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+            new OrCondition(new PropertyCondition(AutomationElement.AutomationIdProperty, "1148"),
+                new PropertyCondition(AutomationElement.NameProperty, "File name:"))));
+        if (fileName == null) throw new InvalidOperationException("The installed Windows file picker did not expose its file name field.");
+        object value;
+        if (fileName.TryGetCurrentPattern(ValuePattern.Pattern, out value)) ((ValuePattern)value).SetValue(input);
+        else {
+            Click(fileName);
+            SendKeys.SendWait("^a");
+            Clipboard.SetText(input);
+            SendKeys.SendWait("^v");
+        }
+        Click(Find(dialog, "1", "Open"));
+    }
+    private static void ImportFixtures(IntPtr window, string directory, string destination) {
         string[] files = Directory.GetFiles(directory, "fixture-*");
         if (files.Length != 5) throw new InvalidOperationException("Expected the five labeled TIA export fixtures.");
         Click(Find(window, "tia-open-exports", "\u6253\u5f00\u5bfc\u51fa\u8d44\u6599"));
@@ -194,26 +210,33 @@ public static class DeskBoxInstallCapture {
             if (dialog == IntPtr.Zero) Thread.Sleep(100);
         } while (dialog == IntPtr.Zero && DateTime.UtcNow < end);
         if (dialog == IntPtr.Zero) throw new InvalidOperationException("The installed file picker did not open.");
-        var fileName = AutomationElement.FromHandle(dialog).FindFirst(TreeScope.Descendants, new AndCondition(
-            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
-            new OrCondition(new PropertyCondition(AutomationElement.AutomationIdProperty, "1148"),
-                new PropertyCondition(AutomationElement.NameProperty, "File name:"))));
-        if (fileName == null) throw new InvalidOperationException("The installed Windows file picker did not expose its file name field.");
-        var selected = string.Join(" ", Array.ConvertAll(files, path => "\"" + path + "\""));
+        SetWindowPos(dialog, new IntPtr(-1), 0, 0, 0, 0, 0x0043);
         SetForegroundWindow(dialog);
-        Click(fileName);
-        SendKeys.SendWait("^a");
-        Clipboard.SetText(selected);
-        SendKeys.SendWait("^v");
-        SendKeys.SendWait("{ENTER}");
-        const string heading = "\u5de5\u7a0b\u5bfc\u51fa\u8d44\u6599\uff085 \u4e2a\u6587\u4ef6\uff09";
-        end = DateTime.UtcNow.AddSeconds(10);
-        do {
-            Thread.Sleep(150);
-            try { if (Find(window, "tia-project-heading", heading).Current.Name == heading) return; }
-            catch (InvalidOperationException) { }
-        } while (DateTime.UtcNow < end);
-        throw new InvalidOperationException("The installed workbench never reported the five imported fixture files.");
+        try {
+            EnterFileNames(dialog, directory);
+            Thread.Sleep(400);
+            var selected = string.Join(" ", Array.ConvertAll(files, path => "\"" + Path.GetFileName(path) + "\""));
+            EnterFileNames(dialog, selected);
+            end = DateTime.UtcNow.AddSeconds(10);
+            const string heading = "\u5de5\u7a0b\u5bfc\u51fa\u8d44\u6599\uff085 \u4e2a\u6587\u4ef6\uff09";
+            const string scope = "TIA \u5de5\u7a0b\u5bf9\u8c61";
+            do {
+                Thread.Sleep(200);
+                if (IsWindowVisible(dialog)) continue;
+                try {
+                    Find(window, "tia-engineering-tree", scope);
+                    Find(window, "expected-five-fixtures", heading);
+                    SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0043);
+                    SetForegroundWindow(window);
+                    return;
+                } catch (InvalidOperationException) { }
+            } while (DateTime.UtcNow < end);
+            throw new InvalidOperationException("The installed workbench never reported the five imported fixture files. File dialog still visible: " + IsWindowVisible(dialog));
+        } catch {
+            if (IsWindowVisible(dialog)) Save(dialog, Path.Combine(destination, "installed-tia-import-dialog-failure.png"));
+            Save(window, Path.Combine(destination, "installed-tia-import-failure.png"));
+            throw;
+        }
     }
     private static void BuildDiffPreview(IntPtr window) {
         SelectTab(window, "tia-tab-programming", "\u7a0b\u5e8f\u7f16\u8f91");
@@ -235,7 +258,7 @@ public static class DeskBoxInstallCapture {
         SendKeys.SendWait("^a");
         capture(window, "installed-tia-input-selection");
         bool hasFixtures = !string.IsNullOrEmpty(fixtureDirectory);
-        if (hasFixtures) ImportFixtures(window, fixtureDirectory);
+        if (hasFixtures) ImportFixtures(window, fixtureDirectory, destination);
         string[] labels = { "\u7a0b\u5e8f\u5206\u6790", "\u786c\u4ef6\u7ec4\u6001", "\u7f51\u7edc\u62d3\u6251", "\u53d8\u91cf\u7ba1\u7406", "\u5de5\u7a0b\u5bf9\u6bd4", "\u6d4b\u8bd5\u9a8c\u8bc1" };
         string[] names = { "analysis", "hardware", "topology", "variables", "diff", "validation" };
         for (int i = 0; i < labels.Length; i++) {
