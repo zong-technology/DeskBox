@@ -111,10 +111,18 @@ jobs:
       - name: Package Windows setup
         shell: powershell
         run: .\tools\package-windows.ps1
+      - name: Build the TIA acceptance tool and export its labeled fixtures
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /define:TIA_WINFORMS /main:TiaEngineerAcceptance /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:dist\DeskBox.exe /out:dist\tia-engineer-accept.exe tools\tia-engineer-accept.cs tools\render-v4-ui.cs
+          if ($LASTEXITCODE -ne 0) { throw 'TIA acceptance host compile failed' }
+          & .\dist\tia-engineer-accept.exe .\dist\installer-fixtures --capture-inputs
+          if ($LASTEXITCODE -ne 0) { throw 'TIA screenshot inputs could not be prepared' }
       - name: Verify installation, upgrade, rollback and installed UI
         timeout-minutes: 8
         shell: powershell
-        run: .\tools\setup-accept.ps1 -SetupPath ('.\dist\installer\DeskBox-${{ steps.version.outputs.version }}-Setup.exe')
+        run: .\tools\setup-accept.ps1 -SetupPath ('.\dist\installer\DeskBox-${{ steps.version.outputs.version }}-Setup.exe') -TiaFixtureDir .\dist\installer-fixtures
       - name: Validate the TIA workbench with offline export fixtures and capture native UI
         shell: powershell
         timeout-minutes: 3
@@ -122,9 +130,6 @@ jobs:
           $tokens = $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools\tia-v20-smoke.ps1).Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
           if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /define:TIA_WINFORMS /main:TiaEngineerAcceptance /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:dist\DeskBox.exe /out:dist\tia-engineer-accept.exe tools\tia-engineer-accept.cs tools\render-v4-ui.cs
-          if ($LASTEXITCODE -ne 0) { throw 'TIA acceptance host compile failed' }
           & .\dist\tia-engineer-accept.exe .\dist\hologram-qa\tia | Tee-Object dist\hologram-qa\tia-engineer.log
           if ($LASTEXITCODE -ne 0) { throw 'TIA workbench acceptance failed' }
       - uses: actions/upload-artifact@v4
@@ -144,6 +149,7 @@ jobs:
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-input.png -Destination .\dist\installer
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-screenshots.zip -Destination .\dist\installer
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-environment.json -Destination .\dist\installer
+          Get-ChildItem .\dist\installer-qa\installed-tia-dpi-*.png | Copy-Item -Destination .\dist\installer
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -197,6 +203,7 @@ jobs:
             '.\installer\installed-tia-environment.json'
             '.\native-preview\hologram-qa\hologram-motion.gif'
           )
-          $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-network-endpoints.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png', 'tia-environment.png') | ForEach-Object { Join-Path $tia $_ }
+          $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-network-endpoints.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png', 'tia-environment.png', 'tia-operation-history.png') | ForEach-Object { Join-Path $tia $_ }
+          $attachments += @(Get-ChildItem .\installer\installed-tia-dpi-*.png | ForEach-Object FullName)
           gh release create ('v'+$env:RELEASE_VERSION) @attachments --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

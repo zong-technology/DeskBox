@@ -2206,7 +2206,14 @@ namespace DeskBox.UI
             else if (e.Control && e.KeyCode == Keys.D1) { SwitchView("home"); e.Handled = true; }
             else if (_currentView == "desktop" && HandleDesktopShortcut(e)) { e.Handled = true; e.SuppressKeyPress = true; }
             else if (e.KeyCode == Keys.F5) { if (_currentView == "desktop") LoadItems(true);else if(_referenceActive)_reference.RefreshCurrentPage(); else { var v = _views.ContainsKey(_currentView) ? _views[_currentView] as DeskBox.UI.Views.ViewBase : null; if (v != null) v.Activate(); } e.Handled = true; }
-            else if (e.Control && e.KeyCode == Keys.F) { if (_currentView == "desktop") { _search.Focus(); _search.SelectAll(); } else SwitchView("search"); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.F)
+            {
+                if (_currentView == "desktop") { _search.Focus(); _search.SelectAll(); }
+                else if (_currentView == "tia" && _tiaView != null) _tiaView.FocusWorkbenchSearch();
+                else SwitchView("search");
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
             else if (e.Control && e.Shift && e.KeyCode == Keys.P) { SwitchView("projects"); e.Handled = true; }
             else if (e.Control && e.Shift && e.KeyCode == Keys.T) { SwitchView("tasks"); e.Handled = true; }
             else if (e.KeyCode == Keys.Escape) { _board.ClearSelection(); _search.Text = ""; }

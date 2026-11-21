@@ -34,6 +34,9 @@ namespace DeskBox.UI
         private Palette _p;
         private Panel _content,_rail;
         private Label _heading,_cloudLabel,_status;
+        private Label _railHeading;
+        private readonly ToolTip _railTips = new ToolTip { ShowAlways = true };
+        private bool _compactRail;
         private DarkInput _globalSearch;
         private Image _factory;
         private Image _brand;
@@ -76,8 +79,9 @@ namespace DeskBox.UI
             var header=new Panel{Dock=DockStyle.Top,Height=64,BackColor=_p.HeaderBg};header.Paint+=delegate(object s,PaintEventArgs e){using(var pen=new Pen(_p.Line))e.Graphics.DrawLine(pen,0,63,header.Width,63);};
             using(var icon=Icon.ExtractAssociatedIcon(typeof(ReferenceWorkspace).Assembly.Location))if(icon!=null)_brand=icon.ToBitmap();
             var mark=new PictureBox{Image=_brand,SizeMode=PictureBoxSizeMode.Zoom,Bounds=new Rectangle(15,20,26,26),BackColor=Color.Transparent};header.Controls.Add(mark);
-            var brand=TextLabel("DeskBox",15,true,_p.Accent);brand.SetBounds(48,17,125,32);header.Controls.Add(brand);
-            _heading=TextLabel("工程智能工作台",9,false,_p.TextDim);_heading.SetBounds(184,23,220,24);header.Controls.Add(_heading);
+            var brand=TextLabel("DeskBox",15,true,_p.Accent);int brandHeight=Math.Max(32,brand.Font.Height+4);
+            brand.SetBounds(48,(header.Height-brandHeight)/2,Math.Max(125,TextRenderer.MeasureText(brand.Text,brand.Font).Width+4),brandHeight);header.Controls.Add(brand);
+            _heading=TextLabel("工程智能工作台",9,false,_p.TextDim);_heading.SetBounds(Math.Max(184,brand.Right+10),23,220,24);header.Controls.Add(_heading);
             _globalSearch=Input("搜索工程文件与资料…  Ctrl+K",450);_globalSearch.SetBounds(430,15,450,34);
             _globalSearch.KeyPressed+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;Navigate("search");var search=_serviceViews["search"] as Views.SearchView;if(search!=null)search.SearchText(_globalSearch.Text);}};
             header.Controls.Add(_globalSearch);
@@ -91,7 +95,7 @@ namespace DeskBox.UI
             {
                 string id=items[i,0];var button=Button(items[i,2],()=>Navigate(id),false,176);button.SetBounds(4,35+i*44,176,40);button.Font=FontOf(10.5f);button.Name="nav-"+id;button.Navigation=true;button.Symbol=items[i,1];_rail.Controls.Add(button);_nav[id]=button;
             }
-            var section=TextLabel("WORKSPACE  /  工作空间",8,false,_p.TextFaint);section.SetBounds(18,10,170,20);_rail.Controls.Add(section);
+            _railHeading=TextLabel("WORKSPACE  /  工作空间",8,false,_p.TextFaint);_railHeading.SetBounds(18,10,170,20);_rail.Controls.Add(_railHeading);
             var more=Button("功能与设置",()=>ShowMore(),false,176);more.SetBounds(4,635,176,38);more.Navigation=true;more.Symbol="\uE713";_rail.Controls.Add(more);
             var classic=Button("切换经典模式",()=>{if(ClassicRequested!=null)ClassicRequested();},false,176);classic.SetBounds(4,679,176,34);classic.Navigation=true;classic.Symbol="\uE8A9";_rail.Controls.Add(classic);
             _content=new Panel{Dock=DockStyle.Fill,BackColor=_p.Bg};_status=TextLabel("",8,false,_p.TextDim);_status.Dock=DockStyle.Bottom;_status.Height=25;_status.Padding=new Padding(18,3,0,0);
@@ -101,6 +105,7 @@ namespace DeskBox.UI
         {
             if(!ReferencePages.Contains(page)&&page!="project-detail"&&page!="calculator"&&page!="tool-workspace"&&page!="tia"){ShowLegacy(page);return;}
             _current=page;
+            UpdateNavigationRail(page == "tia");
             _globalSearch.UseDrawnPlaceholder = page == "desktop" || page == "home" || page == "engineering" || page == "ai";
             if(PageChanged!=null)PageChanged(page);
             if(!_pages.ContainsKey(page))
@@ -113,6 +118,21 @@ namespace DeskBox.UI
             foreach(var item in _nav){item.Value.Primary=item.Key==page||(page=="project-detail"&&item.Key=="projects")||((page=="calculator"||page=="tool-workspace")&&item.Key=="engineering");item.Value.Invalidate();}
             var currentProject=CurrentProject();_heading.Text=currentProject==null?"工程智能工作台":currentProject.Name;
             Action reload;if(_reload.TryGetValue(page,out reload))reload();var view=_pages[page] as Views.ViewBase;if(view!=null)view.Activate();RefreshStatus();
+        }
+        private void UpdateNavigationRail(bool compact)
+        {
+            if (_compactRail == compact) return;
+            _compactRail = compact;
+            _rail.Width = compact ? Views.TiaWorkbenchStyle.Pixels(this, 62) : Dpi.D(this, 200);
+            _railHeading.Visible = !compact;
+            foreach (var button in _rail.Controls.OfType<DarkButton>())
+            {
+                button.CompactNavigation = compact;
+                button.Left = compact ? Views.TiaWorkbenchStyle.Pixels(this, 4) : 4;
+                button.Width = compact ? Views.TiaWorkbenchStyle.Pixels(this, 48) : Dpi.D(this, 176);
+                _railTips.SetToolTip(button, compact ? button.Text : null);
+                button.Invalidate();
+            }
         }
         public void RefreshStatus(){if(_status==null)return;RefreshDashboardCounts();_cloudLabel.Text=_cloud.Connected?"● 云同步在线":_cloud.LoggedIn?"● 云同步连接中":"○ 未登录云账号";_status.Text="DeskBox  /  Win+F 呼出    ·    "+_store.Tasks.Count(x=>!x.Done)+" 项待办    ·    "+_sync.Incidents.Count+" 项现场事件    ·    "+_cloud.Status;}
         public void RefreshData(){DataChanged();}
@@ -136,7 +156,7 @@ namespace DeskBox.UI
         private void OpenPath(string path){if(!File.Exists(path)&&!Directory.Exists(path)){_status.Text="路径已不存在："+path;return;}Win32.OpenPath(path);if(File.Exists(path))_library.Touch(path);}
         private EngineerWorkspace CurrentProject(){return _projects.Current??_projects.Items.FirstOrDefault(p=>p.Id==_selectedProject)??_projects.Items.FirstOrDefault();}
         private void ShowProject(EngineerWorkspace project){_selectedProject=project.Id;_projects.SetCurrent(project.Id);Navigate("project-detail");}
-        protected override void Dispose(bool disposing){if(disposing){_projects.Changed-=DataChanged;_sync.Changed-=DataChanged;_cloud.Changed-=CloudChanged;}base.Dispose(disposing);if(disposing){if(_factory!=null)_factory.Dispose();if(_brand!=null)_brand.Dispose();foreach(var font in _fonts)font.Dispose();}}
+        protected override void Dispose(bool disposing){if(disposing){_projects.Changed-=DataChanged;_sync.Changed-=DataChanged;_cloud.Changed-=CloudChanged;_railTips.Dispose();}base.Dispose(disposing);if(disposing){if(_factory!=null)_factory.Dispose();if(_brand!=null)_brand.Dispose();foreach(var font in _fonts)font.Dispose();}}
     }
 
     internal class ReferenceCard : Panel

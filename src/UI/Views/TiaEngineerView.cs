@@ -15,20 +15,21 @@ using DeskBox.Engineering.Tia;
 
 namespace DeskBox.UI.Views
 {
-    public sealed class TiaEngineerView : ViewBase
+    public sealed partial class TiaEngineerView : ViewBase
     {
         private enum Phase { Idle, Planning, WaitingForInput, WaitingForApproval, Executing, Validating, Completed, Failed, Cancelled }
         private readonly ProviderStore providers;
         private readonly WorkspaceStore projects;
         private readonly TreeView tree = new TreeView { Dock = DockStyle.Fill, HideSelection = false, AccessibleName = "TIA 工程对象" };
         private readonly DarkInput treeQuery = new DarkInput { Dock = DockStyle.Top, Placeholder = "搜索名称、类型或路径" };
-        private readonly TabControl tabs = new TabControl { Dock = DockStyle.Fill };
+        private readonly TiaWorkbenchTabs tabs = new TiaWorkbenchTabs { Dock = DockStyle.Fill, Name = "tia-work-tabs" };
         private readonly ComboBox mode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 175, AccessibleName = "操作模式" };
         private readonly ComboBox cpu = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 275, AccessibleName = "目标 PLC" };
         private readonly RichTextBox requirement, editor, analysis, hardware, topology, tags, diff, output, assistant;
         private readonly ListView diagnosticList = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "工程诊断列表" };
         private readonly ListView hardwareInventory = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, AccessibleName = "硬件清单" };
         private readonly TiaRackView rack = new TiaRackView();
+        private readonly TiaTopologyCanvas topologyCanvas = new TiaTopologyCanvas();
         private readonly Dictionary<PlcObject, ListViewItem> hardwareRows = new Dictionary<PlcObject, ListViewItem>();
         private readonly ListView networkLinks = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "拓扑连接" };
         private readonly ListView referenceGraph = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, AccessibleName = "程序关系" };
@@ -44,8 +45,6 @@ namespace DeskBox.UI.Views
         private readonly List<DarkButton> actions = new List<DarkButton>();
         private readonly DarkButton cancel, generate, regenerate;
         private readonly Label modelStatus;
-        private readonly Panel side;
-        private Panel programmingScroll;
         private readonly Dictionary<string, string> unsent = new Dictionary<string, string>();
         private Dictionary<string, PlcObject> assets = new Dictionary<string, PlcObject>();
         private string draftEnvironment, submittedRequirement;
@@ -67,6 +66,8 @@ namespace DeskBox.UI.Views
         {
             this.providers = providers; this.projects = projects;
             Name = "tia-engineer";
+            foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, inputStart, outputStart, diagnosticFilter })
+                control.Width = TiaWorkbenchStyle.Pixels(this, control.Width);
             mode.Items.AddRange(new object[] { "只读分析", "辅助设计", "自动离线工程" }); mode.SelectedIndex = 0;
             mode.SelectedIndexChanged += delegate { RefreshHeading(); UpdateButtons(); };
             cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0;
@@ -77,7 +78,7 @@ namespace DeskBox.UI.Views
             start.Name = "tia-focus-requirement";
             top.Controls.AddRange(new Control[] { start, mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
             if (openVoice != null) top.Controls.Add(Button("工程语音", openVoice));
-            cancel = new DarkButton("取消当前任务") { Width = 116, Height = 32, Enabled = false, Palette = Palette };
+            cancel = new DarkButton("取消当前任务") { Width = TiaWorkbenchStyle.Pixels(this, 116), Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ControlHeight), Enabled = false, Palette = Palette };
             cancel.Click += delegate { if (operation != null) operation.Cancel(); }; top.Controls.Add(cancel);
 
             requirement = TextArea("工程需求", false);
@@ -119,96 +120,20 @@ namespace DeskBox.UI.Views
             regenerate = Button("重生成上次需求", delegate { SubmitRequirement(submittedRequirement); });
             modelStatus = Caption("");
             modelStatus.Name = "tia-model-status";
-            BuildProgrammingPage(configureModel);
-            Page("程序分析", "选择程序块或变量查看调用及引用。只读工程可另行授权读取块正文。", BuildReferencePanel(), Button("读取块正文", ReadBlockContent), Button("解释所选对象", Explain), Button("检查工程", Check));
+            BuildProgrammingPage();
+            Page("程序分析", "选择程序块或变量查看调用及引用。只读工程可另行授权读取块正文。", BuildReferencePanel(), Button("读取块正文", ReadBlockContent), Button("创建 SCL 草稿", OpenSelectedScl), Button("解释所选对象", Explain), Button("检查工程", Check));
             Page("硬件组态", "从机架选择模块查看槽位、订货号和来源。可加载 CAx AML 或查询本机 V20 硬件目录。", BuildHardwarePanel(), catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware), Button("导出硬件清单", ExportHardware));
             Page("网络拓扑", "选择一条已记录的连接，查看来源或点击端点定位所属硬件。", BuildNetworkPanel());
-            Page("变量管理", "打开 IO CSV 或工程变量，检查地址重叠，并从指定的 I/Q 起始字节生成地址建议。", tags, Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
+            Page("变量管理", "从工程变量或 IO CSV 检索地址。地址建议保留在详情区，可复核后再使用。", BuildVariablesPage(), Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
             applyDraft = Button("应用已预览草稿", ApplyDraft);
-            Page("工程对比", "查看草稿的逐行变更，或用当前工程和另一份同类资料对比。", diff, applyDraft, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
+            Page("工程对比", "查看草稿的逐行变更，或用当前工程和另一份同类资料对比。", BuildDiffPage(), applyDraft, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
             repairDraft = Button("生成修复草稿", RepairDraft);
             var restoreBackup = Button("从快照恢复副本", RestoreBackup);
             compileCopy = Button("编译副本", () => Compile(false));
             approveInsertion = Button("批准新增 FB 并编译", () => Compile(true));
-            Page("测试验证", "离线编译需 V20 Openness。双击诊断可定位有证据的位置。", BuildValidationPanel(), cpu, compileCopy, approveInsertion, restoreBackup, Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
-            var left = new Panel { Name = "tia-tree-pane", Dock = DockStyle.Left, Width = 260, Padding = new Padding(0, 0, 4, 0) };
-            left.Controls.Add(tree); left.Controls.Add(treeQuery); left.Controls.Add(Caption("工程浏览器"));
-            tree.ShowNodeToolTips = true;
-            tree.BeforeExpand += delegate(object sender, TreeViewCancelEventArgs e)
-            {
-                var items = e.Node.Tag as List<PlcObject>;
-                if (items == null) return;
-                e.Node.Tag = null;
-                e.Node.Nodes.Clear();
-                PopulateTree(e.Node, items);
-            };
-            treeQuery.Inner.AccessibleName = "搜索工程对象";
-            treeQuery.Inner.TextChanged += delegate { RefreshTree(); };
-            treeQuery.KeyPressed += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.KeyCode != Keys.Enter || tree.Nodes.Count == 0) return;
-                e.SuppressKeyPress = true;
-                tree.Focus();
-            };
-            tree.Font = UiKit.CachedFont("Microsoft YaHei UI", 10, FontStyle.Regular);
-            var leftDivider = new Splitter { Name = "tia-tree-divider", Dock = DockStyle.Left, Width = 6, MinSize = 220, MinExtra = 400 };
-            side = new Panel { Name = "tia-assistant-pane", Dock = DockStyle.Right, Width = 320, Padding = new Padding(8, 0, 0, 0) };
-            side.Controls.Add(assistant); side.Controls.Add(Caption("工程助手 · 执行与复核")); side.Controls.Add(voiceAccess);
-            voiceAccess.Dock = DockStyle.Bottom;
-            voiceAccess.CheckedChanged += delegate { if (voiceAccess.Checked) voiceScope = AiEnvironment.Token; };
-            var rightDivider = new Splitter { Name = "tia-assistant-divider", Dock = DockStyle.Right, Width = 6, MinSize = 300, MinExtra = 630 };
-            var logs = new Panel { Name = "tia-log-pane", Dock = DockStyle.Bottom, Height = 152 };
-            var logsDivider = new Splitter { Name = "tia-log-divider", Dock = DockStyle.Bottom, Height = 6, MinSize = 84, MinExtra = 280 };
-            logs.Controls.Add(output); logs.Controls.Add(Caption("工程日志与验证结果"));
-            var center = new Panel { Dock = DockStyle.Fill };
-            center.Controls.AddRange(new Control[] { tabs, rightDivider, side, leftDivider, left });
-            var toggleAssistant = new DarkButton("收起助手") { Name = "tia-toggle-assistant", Width = 100, Height = 32, Palette = Palette };
-            Action applyLayout = delegate
-            {
-                int width = Body.DisplayRectangle.Width;
-                bool wide = width >= Dpi.D(this, 1120);
-                bool assistantOpen = !Store.Settings.TiaAssistantCollapsed;
-                left.Width = Dpi.D(this, wide ? Clamp(Store.Settings.TiaTreeWidth, 220, assistantOpen ? Math.Min(420, LayoutUnits(width) - 740) : 420) : 180);
-                side.Dock = wide ? DockStyle.Right : DockStyle.Bottom;
-                if (wide) side.Width = Dpi.D(this, Clamp(Store.Settings.TiaAssistantWidth, 300, Math.Min(520, LayoutUnits(width - left.Width) - 440)));
-                else side.Height = Dpi.D(this, 106);
-                logs.Height = Dpi.D(this, Clamp(Store.Settings.TiaLogHeight, 84, Math.Min(240, Math.Max(92, LayoutUnits(Body.Height) / 3))));
-                leftDivider.Visible = wide;
-                rightDivider.Visible = wide && assistantOpen;
-                side.Visible = assistantOpen;
-                toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
-            };
-            toggleAssistant.Click += delegate
-            {
-                Store.Settings.TiaAssistantCollapsed = !Store.Settings.TiaAssistantCollapsed;
-                applyLayout(); Store.SaveSettingsOnly();
-            };
-            var resetLayout = new DarkButton("恢复默认布局") { Name = "tia-reset-layout", Width = 108, Height = 32, Palette = Palette };
-            resetLayout.Click += delegate
-            {
-                var defaults = new AppSettings();
-                Store.Settings.TiaTreeWidth = defaults.TiaTreeWidth;
-                Store.Settings.TiaAssistantWidth = defaults.TiaAssistantWidth;
-                Store.Settings.TiaLogHeight = defaults.TiaLogHeight;
-                Store.Settings.TiaAssistantCollapsed = defaults.TiaAssistantCollapsed;
-                applyLayout(); Store.SaveSettingsOnly();
-            };
-            top.Controls.AddRange(new Control[] { toggleAssistant, resetLayout });
-            Body.SizeChanged += delegate { applyLayout(); };
-            leftDivider.SplitterMoved += delegate { Store.Settings.TiaTreeWidth = Clamp(LayoutUnits(left.Width), 220, 420); applyLayout(); Store.SaveSettingsOnly(); };
-            rightDivider.SplitterMoved += delegate { Store.Settings.TiaAssistantWidth = Clamp(LayoutUnits(side.Width), 300, 520); applyLayout(); Store.SaveSettingsOnly(); };
-            logsDivider.SplitterMoved += delegate { Store.Settings.TiaLogHeight = Clamp(LayoutUnits(logs.Height), 84, 240); applyLayout(); Store.SaveSettingsOnly(); };
-            tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
-            tabs.DrawItem += delegate(object sender, DrawItemEventArgs e)
-            {
-                bool activeTab = e.Index == tabs.SelectedIndex;
-                using (var fill = new SolidBrush(activeTab ? Palette.PanelAlt : Palette.HeaderBg)) e.Graphics.FillRectangle(fill, e.Bounds);
-                TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font, e.Bounds, activeTab ? Palette.Accent : Palette.Text,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
-            };
-            FormatCombo(mode); FormatCombo(cpu);
-            Body.Controls.AddRange(new Control[] { center, logsDivider, logs, top });
-            applyLayout();
+            Page("测试验证", "静态检查、TIA 离线编译和现场验证各自记录。", BuildValidationSummary(), cpu, compileCopy, approveInsertion, restoreBackup, Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
+            BuildWorkbenchLayout(top, configureModel);
+            tabs.SelectedIndexChanged += delegate { RefreshPageStates(); };
             tree.AfterSelect += delegate(object sender, TreeViewEventArgs e) { ShowObject(e.Node == null ? null : e.Node.Tag as PlcObject); };
             tree.NodeMouseDoubleClick += delegate(object sender, TreeNodeMouseClickEventArgs e) { ShowObject(e.Node.Tag as PlcObject); };
             tree.NodeMouseClick += delegate(object sender, TreeNodeMouseClickEventArgs e)
@@ -224,83 +149,29 @@ namespace DeskBox.UI.Views
                 menu.Closed += delegate { menu.Dispose(); };
                 menu.Show(tree, e.Location);
             };
-            assistant.Text = "编写程序：在「AI 编程」填写工程需求，生成计划后在这里查看接口建议、待确认参数和测试用例。\r\n\r\n分析工程：打开 SimaticML、SCL 或 IO CSV，或读取本机 V20 工程副本，再从左侧选择对象。";
-            output.Text = "当前没有验证结果。可从「AI 编程」静态检查草稿，或在本页编译已加载的 V20 副本。";
+            assistant.Text = "输入工程需求后可查看计划、代码建议及审批步骤。导入工程资料后可引用项目上下文。";
+            output.Text = "没有编译回执。可先检查 SCL 草稿，或在「测试验证」编译已加载的 V20 副本。";
             ApplyPalette(Palette);
             RestoreRequirement();
             RefreshHeading();
         }
 
-        private int LayoutUnits(int pixels) { return (int)Math.Round(pixels * 96.0 / DeviceDpi); }
-        private static int Clamp(int value, int minimum, int maximum) { return Math.Max(minimum, Math.Min(maximum, value)); }
-
-        private FlowLayoutPanel Bar() { return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(0, 4, 0, 5) }; }
-        private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = Dpi.D(this, 24), Margin = Padding.Empty, AutoEllipsis = true, UseMnemonic = false, ForeColor = Palette.TextDim, Font = Font }; }
+        private FlowLayoutPanel Bar() { return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2, 2, 2, 3) }; }
+        private Label Caption(string text) { return new Label { Text = text, Dock = DockStyle.Top, Height = TiaWorkbenchStyle.Pixels(this, 24), Margin = Padding.Empty, AutoEllipsis = true, UseMnemonic = false, ForeColor = Palette.TextDim, Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular) }; }
         private RichTextBox TextArea(string name, bool readOnly = true)
         {
-            return new RichTextBox { Dock = DockStyle.Fill, ReadOnly = readOnly, AccessibleName = name, BorderStyle = BorderStyle.None, DetectUrls = false, Font = new Font(readOnly ? "Microsoft YaHei UI" : "Consolas", 10), MaxLength = 24000 };
-        }
-        private void BuildProgrammingPage(Action configureModel)
-        {
-            var page = new TabPage("AI 编程") { Padding = new Padding(8, 4, 8, 4) };
-            programmingScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-            var fields = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 8, Margin = Padding.Empty };
-            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            foreach (int height in new[] { 24, 90, 24, 24 })
-                fields.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, height)));
-            fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            fields.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 24)));
-            fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            fields.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-            var promptActions = Bar();
-            promptActions.Controls.AddRange(new Control[] { generate, Button("填入示例", FillExample), regenerate, Button("保存需求草稿", SaveRequirement) });
-            if (configureModel != null) promptActions.Controls.Add(Button("配置 AI 服务商", configureModel));
-            promptActions.Controls.Add(Button("添加工程资料", delegate { var files = SelectExports(); if (files != null) LoadExports(files, true); }));
-            promptActions.Controls.Add(useProjectContext);
-            var draftActions = Bar();
-            draftActions.Controls.AddRange(new Control[] { scaleName, Button("载入缩放模板", Scale), Button("高亮", Highlight), Button("查找 SCL", FindCode),
-                Button("替换 SCL", ReplaceCode), Button("匹配括号", MatchBracket), Button("静态检查草稿", CheckDraft), Button("保存 SCL", ExportScl) });
-            if (configureModel != null) modelStatus.AccessibleDescription = "可打开 AI 服务商设置，配置默认模型。";
-            fields.Controls.Add(Caption("工程需求"), 0, 0);
-            fields.Controls.Add(requirement, 0, 1);
-            fields.Controls.Add(Caption("填写 PLC 系列、输入输出、限制与期望结果。已有资料可先导入。"), 0, 2);
-            fields.Controls.Add(modelStatus, 0, 3);
-            fields.Controls.Add(promptActions, 0, 4);
-            fields.Controls.Add(Caption("SCL 草稿 · 可编辑、检查并另存"), 0, 5);
-            fields.Controls.Add(draftActions, 0, 6);
-            fields.Controls.Add(BuildCodeEditor(), 0, 7);
-            programmingScroll.Controls.Add(fields);
-            page.Controls.Add(programmingScroll);
-            tabs.TabPages.Add(page);
-            Action sizeContent = delegate
-            {
-                if (fields.ClientSize.Width <= 0) return;
-                ResizeRequirement(fields);
-                int toolbars = promptActions.GetPreferredSize(new Size(fields.ClientSize.Width, 0)).Height +
-                    draftActions.GetPreferredSize(new Size(fields.ClientSize.Width, 0)).Height;
-                int minimum = (int)fields.RowStyles[1].Height + Dpi.D(this, 96 + 112) + toolbars;
-                int height = Math.Max(programmingScroll.ClientSize.Height, minimum);
-                if (fields.Height != height) fields.Height = height;
-            };
-            requirement.TextChanged += delegate { sizeContent(); };
-            programmingScroll.SizeChanged += delegate { sizeContent(); };
-            promptActions.Layout += delegate { sizeContent(); };
-            draftActions.Layout += delegate { sizeContent(); };
-            requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.15); };
-            requirement.Leave += delegate { requirement.BackColor = Palette.PanelAlt; };
-            editor.Enter += delegate { programmingScroll.ScrollControlIntoView(editor); };
-            sizeContent();
+            return new RichTextBox { Dock = DockStyle.Fill, ReadOnly = readOnly, AccessibleName = name, BorderStyle = BorderStyle.None, DetectUrls = false, Font = UiKit.CachedFont(readOnly ? "Microsoft YaHei UI" : "Consolas", 10.5f, FontStyle.Regular), MaxLength = 24000 };
         }
         private Control BuildCodeEditor()
         {
             var code = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
-            var lines = new Panel { Dock = DockStyle.Left, Width = Dpi.D(this, 40) };
+            var lines = new Panel { Dock = DockStyle.Left, Width = TiaWorkbenchStyle.Pixels(this, 40) };
             lines.Paint += delegate(object sender, PaintEventArgs e)
             {
                 e.Graphics.Clear(Palette.HeaderBg);
                 if (!editor.IsHandleCreated || editor.ClientSize.Height <= 0) return;
                 int line = editor.GetLineFromCharIndex(editor.GetCharIndexFromPosition(Point.Empty));
+                int caretLine = editor.GetLineFromCharIndex(editor.SelectionStart);
                 int y = editor.Top;
                 for (; y < lines.Height; line++)
                 {
@@ -308,14 +179,17 @@ namespace DeskBox.UI.Views
                     if (start < 0) break;
                     y = editor.Top + editor.GetPositionFromCharIndex(start).Y;
                     if (y >= lines.Height) break;
+                    if (line == caretLine)
+                        using (var activeLine = new SolidBrush(Palette.Hover)) e.Graphics.FillRectangle(activeLine, 0, y, lines.Width, editor.Font.Height);
                     TextRenderer.DrawText(e.Graphics, (line + 1).ToString(), editor.Font,
-                        new Rectangle(0, y, lines.Width - 5, editor.Font.Height), Palette.TextDim,
+                        new Rectangle(0, y, lines.Width - 5, editor.Font.Height), line == caretLine ? Palette.Accent : Palette.TextDim,
                         TextFormatFlags.Right | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
                 }
             };
             editor.VScroll += delegate { lines.Invalidate(); };
             editor.TextChanged += delegate { lines.Invalidate(); };
             editor.SizeChanged += delegate { lines.Invalidate(); };
+            editor.SelectionChanged += delegate { lines.Invalidate(); };
             code.Controls.Add(editor);
             code.Controls.Add(lines);
             return code;
@@ -369,7 +243,7 @@ namespace DeskBox.UI.Views
         private Control BuildValidationPanel()
         {
             var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 32)));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, TiaWorkbenchStyle.Pixels(this, 34)));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             diagnosticFilter.Items.AddRange(new object[] { "全部诊断", "错误", "警告", "其他" });
             diagnosticFilter.SelectedIndex = 0;
@@ -398,19 +272,30 @@ namespace DeskBox.UI.Views
                 if (hardwareInventory.SelectedItems.Count == 1)
                     FocusHardware((PlcObject)hardwareInventory.SelectedItems[0].Tag, false);
             };
-            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 133)));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, TiaWorkbenchStyle.Pixels(this, 147)));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             panel.Controls.Add(rack, 0, 0);
-            panel.Controls.Add(hardwareInventory, 0, 1);
-            panel.Controls.Add(hardware, 0, 2);
+            panel.SetColumnSpan(rack, 2);
+            panel.Controls.Add(WithHeading("硬件清单", hardwareInventory), 0, 1);
+            panel.Controls.Add(WithHeading("设备属性", hardware), 1, 1);
+            hardware.Text = "加载含硬件数据的工程或 CAx AML 后，可选择槽位与模块查看属性。";
             return panel;
+        }
+
+        private Control WithHeading(string title, Control content)
+        {
+            var pane = new Panel { Dock = DockStyle.Fill };
+            pane.Controls.AddRange(new[] { content, Heading(title) });
+            return pane;
         }
 
         private void FocusHardware(PlcObject item, bool selectRow)
         {
             selected = item;
+            UpdateWorkbenchContext();
             rack.FocusAsset(item);
             hardware.Text = DescribeHardware(item);
             ListViewItem row;
@@ -430,7 +315,7 @@ namespace DeskBox.UI.Views
             networkLinks.Columns.Add("来源", 125);
             var diagram = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
             diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, Dpi.D(this, 65)));
+            diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, TiaWorkbenchStyle.Pixels(this, 65)));
             diagram.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             var connection = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
             diagram.Controls.Add(networkFrom, 0, 0);
@@ -449,17 +334,41 @@ namespace DeskBox.UI.Views
                 connection.Text = pair == null ? "" : "⟷";
                 ShowNetworkEndpoint(networkFrom, pair == null ? null : pair.Item2);
                 ShowNetworkEndpoint(networkTo, pair == null ? null : pair.Item3);
+                topologyCanvas.SelectLink(pair == null ? null : pair.Item1);
                 if (pair != null)
                     topology.Text = pair.Item1.Kind + " · 来源 " + pair.Item1.Source + "\r\n\r\n" +
                         DescribeHardware(pair.Item2) + "\r\n\r\n" + DescribeHardware(pair.Item3);
             };
-            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
-            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.D(this, 70)));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-            panel.Controls.Add(networkLinks, 0, 0);
-            panel.Controls.Add(diagram, 0, 1);
-            panel.Controls.Add(topology, 0, 2);
+            topologyCanvas.EndpointSelected += endpoint =>
+            {
+                var row = networkLinks.Items.Cast<ListViewItem>().FirstOrDefault(candidate =>
+                {
+                    var pair = (Tuple<PlcTopologyLink, PlcObject, PlcObject>)candidate.Tag;
+                    return pair.Item2 == endpoint || pair.Item3 == endpoint;
+                });
+                if (row == null) return;
+                row.Selected = true;
+                row.EnsureVisible();
+            };
+            var zoom = Bar();
+            zoom.Controls.AddRange(new Control[] { Button("缩小", () => topologyCanvas.ZoomBy(-1), false), Button("放大", () => topologyCanvas.ZoomBy(1), false),
+                Button("恢复 100%", () => topologyCanvas.ResetZoom(), false) });
+            var canvas = new Panel { Dock = DockStyle.Fill };
+            canvas.Controls.AddRange(new Control[] { topologyCanvas, zoom });
+            var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
+            panel.Controls.Add(canvas, 0, 0);
+            panel.Controls.Add(WithHeading("连接清单", networkLinks), 1, 0);
+            var details = WithHeading("连接与端点详情", topology);
+            diagram.Dock = DockStyle.Bottom;
+            diagram.Height = TiaWorkbenchStyle.Pixels(this, 34);
+            details.Controls.Add(diagram);
+            panel.Controls.Add(details, 0, 1);
+            panel.SetColumnSpan(details, 2);
+            topology.Text = "载入包含端点和连线的 CAx AML，可在画布或清单中定位设备。";
             return panel;
         }
 
@@ -489,10 +398,11 @@ namespace DeskBox.UI.Views
             };
             var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 43));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 57));
-            panel.Controls.Add(referenceGraph, 0, 0);
-            panel.Controls.Add(analysis, 0, 1);
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 56));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 44));
+            analysis.Text = "先打开工程资料，再选择程序块或变量。这里显示静态发现、来源位置和分析建议。";
+            panel.Controls.Add(WithHeading("分析结论与来源", analysis), 0, 0);
+            panel.Controls.Add(WithHeading("调用与变量引用", referenceGraph), 0, 1);
             return panel;
         }
         private static string DescribeHardware(PlcObject item)
@@ -531,6 +441,7 @@ namespace DeskBox.UI.Views
                     { Tag = Tuple.Create(link, a, b) });
             }
             networkLinks.EndUpdate();
+            topologyCanvas.LoadNetwork(assets, value.TopologyLinks);
             topology.Text = (value.TopologyLinks.Count == 0 ? "当前资料未提供可解析的端点连接。可加载含拓扑的 Siemens CAx AML。" :
                 "已解析 " + value.TopologyLinks.Count + " 条连接。选择一条查看端点与来源，列表最多显示前 2000 条。") +
                 "\r\n\r\n子网\r\n" + string.Join(Environment.NewLine, value.Objects.Where(o => o.Kind == "Subnet").Take(2000)
@@ -548,7 +459,15 @@ namespace DeskBox.UI.Views
             diagnosticDraft = source;
             nativeDiagnosticBlock = nativeBlock;
             RefreshDiagnostics();
+            if (diagnosisCount != null)
+            {
+                int errors = currentDiagnostics.Count(d => d.Severity == "Error");
+                int warnings = currentDiagnostics.Count(d => d.Severity == "Warning");
+                diagnosisCount.Text = currentDiagnostics.Count == 0 ? "无诊断记录" : errors + " 错误  ·  " + warnings + " 警告  ·  " + (currentDiagnostics.Count - errors - warnings) + " 其他";
+                diagnosisCount.ForeColor = errors > 0 ? TiaWorkbenchStyle.Error(Palette) : warnings > 0 ? TiaWorkbenchStyle.Warning(Palette) : Palette.TextDim;
+            }
             UpdateButtons();
+            RefreshPageStates();
         }
         private void RefreshDiagnostics()
         {
@@ -613,13 +532,6 @@ namespace DeskBox.UI.Views
                 part.Trim().Equals(block + ".scl", StringComparison.OrdinalIgnoreCase) ||
                 part.Trim().StartsWith(block + " [", StringComparison.OrdinalIgnoreCase));
         }
-        private void ResizeRequirement(TableLayoutPanel fields)
-        {
-            int min = Dpi.D(this, 90), max = Dpi.D(this, 220);
-            int lines = requirement.GetLineFromCharIndex(requirement.TextLength) + 1;
-            var target = Math.Min(max, Math.Max(min, lines * requirement.Font.Height + Dpi.D(this, 12)));
-            if (fields.RowStyles[1].Height != target) fields.RowStyles[1].Height = target;
-        }
         [DllImport("imm32.dll")] private static extern IntPtr ImmGetContext(IntPtr hwnd);
         [DllImport("imm32.dll")] private static extern bool ImmReleaseContext(IntPtr hwnd, IntPtr context);
         [DllImport("imm32.dll", CharSet = CharSet.Unicode)] private static extern int ImmGetCompositionString(IntPtr context, int index, IntPtr buffer, int length);
@@ -633,7 +545,7 @@ namespace DeskBox.UI.Views
         private void FocusRequirement()
         {
             SelectTab(0);
-            programmingScroll.ScrollControlIntoView(requirement);
+            RevealAssistant();
             requirement.Focus();
         }
         internal bool AppendVoiceRequirement(string transcript)
@@ -658,6 +570,11 @@ namespace DeskBox.UI.Views
             if (draftEnvironment != null) unsent[draftEnvironment] = requirement.Text;
             draftEnvironment = current;
             submittedRequirement = null;
+            if (conversation != null)
+            {
+                conversation.Text = "提交工程需求后会在此显示本次对话。";
+                assistantTabs.SelectedIndex = 0;
+            }
             string draft;
             requirement.Text = unsent.TryGetValue(current, out draft)
                 ? draft : Json.Load(AppPaths.File("tia-requirement" + current + ".json"), "");
@@ -670,12 +587,14 @@ namespace DeskBox.UI.Views
             if (Json.Load(path, (string)null) != requirement.Text) throw new IOException("未能保存需求草稿。");
             assistant.Text = "工程需求草稿已保存在当前 AI 环境的本机资料目录。";
         }
-        private DarkButton Button(string label, Action action)
+        private DarkButton Button(string label, Action action, bool blocksDuringOperation = true)
         {
-            var button = new DarkButton(label) { Height = 32, Palette = Palette, AccessibleName = label };
-            button.Width = Math.Max(90, TextRenderer.MeasureText(label, button.Font).Width + 24);
+            var button = new DarkButton(label) { Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ControlHeight), Palette = Palette, AccessibleName = label };
+            button.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
+            button.Width = Math.Max(TiaWorkbenchStyle.Pixels(this, 84), TextRenderer.MeasureText(label, button.Font).Width + TiaWorkbenchStyle.Pixels(this, 20));
             button.Click += delegate { RunAction(action); };
-            actions.Add(button); return button;
+            if (blocksDuringOperation) actions.Add(button);
+            return button;
         }
         private void RunAction(Action action)
         {
@@ -700,8 +619,7 @@ namespace DeskBox.UI.Views
             var page = new TabPage(title) { Padding = new Padding(4) };
             page.Controls.Add(target);
             if (buttons.Length > 0) { var bar = Bar(); bar.Controls.AddRange(buttons); page.Controls.Add(bar); }
-            page.Controls.Add(Caption(guidance));
-            tabs.TabPages.Add(page);
+            AddWorkbenchPage(page, guidance);
         }
         private void SelectTab(int index) { tabs.SelectedIndex = index; }
         private void UpdateButtons()
@@ -732,6 +650,7 @@ namespace DeskBox.UI.Views
                 modelStatus.Text = provider == null || !provider.Enabled
                     ? "生成计划需要 AI 服务商。可直接载入下方缩放模板。"
                     : provider.Name + " · " + provider.Model + " · " + (Store.Settings.TiaEnterSends ? "Enter 发送" : "Ctrl+Enter 发送") + "，Shift+Enter 换行";
+            UpdateWorkbenchContext();
         }
         private static string PhaseLabel(Phase value)
         {
@@ -766,10 +685,11 @@ namespace DeskBox.UI.Views
             { box.BackColor = palette.CardBg; box.ForeColor = palette.Text; }
             requirement.BackColor = requirement.Focused ? UiKit.Mix(palette.PanelAlt, palette.Accent, 0.15) : palette.PanelAlt;
             tree.BackColor = palette.CardBg; tree.ForeColor = palette.Text; tree.LineColor = palette.Line;
-            foreach (var list in new[] { diagnosticList, hardwareInventory, networkLinks, referenceGraph })
+            foreach (var list in new[] { diagnosticList, hardwareInventory, networkLinks, referenceGraph, variableGrid, lineChanges })
             { list.BackColor = palette.CardBg; list.ForeColor = palette.Text; }
             rack.ApplyPalette(palette);
             foreach (Control control in new Control[] { mode, cpu, scaleName, catalogQuery, voiceAccess, useProjectContext }) { control.BackColor = palette.CardBg; control.ForeColor = palette.Text; }
+            ApplyWorkbenchPalette(palette);
         }
         private async void Work<T>(string action, Func<CancellationToken, T> work, Action<T> display,
             bool keepPage = false, Phase running = Phase.Executing, Func<T, Phase> outcome = null)
@@ -777,8 +697,11 @@ namespace DeskBox.UI.Views
             if (operation != null) return;
             operation = CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token);
             var active = operation;
+            lastWorkbenchError = null;
+            activeWorkbenchAction = action;
             SetPhase(running);
             UpdateButtons(); assistant.Text = "正在执行 · " + action;
+            AppendOperation("开始 · " + action);
             Store.Log("info", "engineering", "TIA · 开始 " + action + ProjectLabel());
             try
             {
@@ -788,6 +711,7 @@ namespace DeskBox.UI.Views
                 {
                     display(value);
                     SetPhase(outcome == null ? Phase.Completed : outcome(value));
+                    AppendOperation(PhaseLabel(phase) + " · " + action);
                 }
                 Store.Log("info", "engineering", "TIA · 完成 " + action + ProjectLabel());
             }
@@ -800,20 +724,25 @@ namespace DeskBox.UI.Views
                 }
             }
             catch (Exception e) { if (!IsDisposed) Failed(e.Message, keepPage); }
-            finally { operation = null; active.Dispose(); if (!IsDisposed) UpdateButtons(); }
+            finally { operation = null; activeWorkbenchAction = null; active.Dispose(); if (!IsDisposed) UpdateButtons(); }
         }
         private void Failed(string message, bool keepPage = false)
         {
             assistant.Text = message; output.AppendText(Environment.NewLine + message);
+            AppendOperation(message.Split('\n')[0]);
+            lastWorkbenchError = message;
             SetPhase(Phase.Failed);
-            if (!keepPage) SelectTab(6);
+            if (!keepPage) { SelectTab(6); OpenOutput(0); }
             Store.Log("warn", "engineering", "TIA · " + message.Split('\n')[0]);
         }
         private void Inspect()
         {
             Work("检测本机 TIA", t => TiaEnvironmentInspector.Inspect(), result =>
             {
+                environmentReport = result;
                 bool readyToAttempt = result.OpennessGroup && result.Installations.Any(item => item.Version == 20 && item.AssemblyPath != null);
+                v20Checked = true;
+                v20Discovered = readyToAttempt;
                 string connection = readyToAttempt ? "已发现 V20 接口与权限线索，仍需打开实际工程确认许可和能力。" : "缺少 V20 接口或当前用户权限，原生操作不可用。";
                 output.Text = result.Describe() + "\r\n\r\n连接状态\r\n" + connection +
                     "\r\n\r\n工程、设备与程序块：支持读取导出文件；V20 可尝试读取离线副本。" +
@@ -823,6 +752,7 @@ namespace DeskBox.UI.Views
                     "\r\n实际项目、真实编译与 PLCSIM 验收分别记录。";
                 assistant.Text = connection;
                 SelectTab(6);
+                OpenOutput(0);
             });
         }
         private string[] SelectExports()
@@ -923,6 +853,7 @@ namespace DeskBox.UI.Views
                 }
             }
             finally { tree.EndUpdate(); }
+            RefreshPageStates();
         }
         private static void PopulateTree(TreeNode branch, List<PlcObject> items)
         {
@@ -941,6 +872,7 @@ namespace DeskBox.UI.Views
         private void ShowObject(PlcObject item, bool stayInAnalysis = false)
         {
             selected = item;
+            UpdateWorkbenchContext();
             referenceGraph.Items.Clear();
             if (item == null) return;
             if (!stayInAnalysis && PlcEngineering.IsHardware(item))
@@ -954,21 +886,41 @@ namespace DeskBox.UI.Views
                     referenceGraph.Items.Add(new ListViewItem(new[] { link.Relationship, link.Symbol,
                         link.Target == null ? "" : link.Target.Identity, link.Evidence }) { Tag = link.Target });
             analysis.Text = Describe(item, 16000);
-            if (!stayInAnalysis && item.Kind == "PlcTag") DisplayTags(item);
-            SelectTab(!stayInAnalysis && item.Kind == "PlcTag" ? 4 : 1);
+            var findings = snapshot == null ? new List<PlcDiagnostic>() : snapshot.Diagnostics.Where(issue => issue.Source.Length != 0 &&
+                (issue.Source == item.Source || issue.Source == item.Identity)).ToList();
+            if (findings.Count != 0)
+                analysis.Text = "静态发现  ·  " + findings.Count(i => i.Severity == "Error") + " 错误  ·  " + findings.Count(i => i.Severity == "Warning") + " 警告\r\n" +
+                    string.Join("\r\n", findings.Select(issue => issue.ToString())) + "\r\n\r\n" + analysis.Text;
+            else analysis.Text = "当前对象暂无可直接匹配的诊断。请结合源码与引用复核。\r\n\r\n" + analysis.Text;
+            bool showTagTable = !stayInAnalysis && item.Kind == "PlcTag";
+            SelectTab(showTagTable ? 4 : 1);
+            if (showTagTable) DisplayTags(item);
+        }
+        private void OpenSelectedScl()
+        {
+            if (selected == null || selected.Language != "SCL") throw new InvalidOperationException("请先选择带有 SCL 源文本的程序块。");
+            var source = selected.Content;
+            var review = PlcEngineering.ReviewScl(source, selected.Source);
+            if (review.Objects.Count != 1 || review.Objects[0].Name != selected.Name)
+                throw new InvalidOperationException("当前对象没有可用于草稿的完整单块 SCL 源文本。");
+            if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
+            if (editor.TextLength == 0 || SameSource(editor.Text, source)) LoadScl(source);
+            else
+            {
+                ShowDraftPreview(source);
+                UpdateButtons();
+                SetPhase(Phase.WaitingForApproval);
+            }
         }
         private void DisplayTags(PlcObject focus = null)
         {
+            FillVariableGrid(focus);
+            if (focus != null) return;
             var visible = snapshot.Objects.Where(x => x.Kind == "PlcTag").Take(1500).ToList();
-            if (focus != null && !visible.Contains(focus)) visible.Insert(0, focus);
             var rows = visible.Select(x => x.Name + "  " + x.DataType + "  " + x.Address + "  · " + x.Content + "  · " + x.Source).ToList();
             tags.Text = string.Join(Environment.NewLine, rows);
             tags.WordWrap = false;
             tags.HideSelection = false;
-            if (focus == null) return;
-            int row = visible.IndexOf(focus);
-            tags.Select(tags.GetFirstCharIndexFromLine(row), rows[row].Length);
-            tags.ScrollToCaret();
         }
         private string Describe(PlcObject item, int limit)
         {
@@ -998,6 +950,7 @@ namespace DeskBox.UI.Views
             output.Text = snapshot.Report();
             SetDiagnostics(snapshot.Diagnostics);
             SelectTab(6);
+            OpenOutput(currentDiagnostics.Count == 0 ? 0 : 1);
         }
         private AiProvider ApproveModel(string context)
         {
@@ -1045,6 +998,7 @@ namespace DeskBox.UI.Views
             }
             var model = ApproveModel(context); if (model == null) return;
             submittedRequirement = prompt;
+            AddConversation("工程需求", prompt);
             if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
             RequestPlan("生成结构化工程任务与草稿", t => TiaPlanning.Plan(model, prompt, context, t));
         }
@@ -1064,6 +1018,7 @@ namespace DeskBox.UI.Views
             Work(action, factory, draft =>
             {
                 assistant.Text = draft.Plan();
+                AddConversation("AI 工程师", draft.Plan());
                 lastAiAnalysis = draft.Plan();
                 pendingScl = null;
                 reviewedEditor = null;
@@ -1087,6 +1042,7 @@ namespace DeskBox.UI.Views
             templateName = approvedTemplateName;
             editor.Text = scl;
             Highlight();
+            RefreshDiffView();
             SelectTab(0);
         }
         private void ShowDraftPreview(string proposed, string proposedTemplateName = null)
@@ -1119,9 +1075,12 @@ namespace DeskBox.UI.Views
         {
             SetPhase(Phase.Validating);
             var review = PlcEngineering.ReviewScl(editor.Text, "SCL 草稿");
+            verifiedDraft = editor.Text;
+            verificationStatic = review.Diagnostics.Count == 0 ? "已检查，当前规则未发现问题" : review.Diagnostics.Count + " 项诊断待复核";
             output.Text = DraftReview(review);
             SetDiagnostics(review.Diagnostics, editor.Text);
             SelectTab(6);
+            OpenOutput(currentDiagnostics.Count == 0 ? 0 : 1);
             SetPhase(Phase.Completed);
         }
         private void Explain() { if (selected == null) throw new InvalidOperationException("请选择工程对象。"); RunExplanation("解释当前对象、可见条件和引用线索。", Context(), analysis, 1); }
@@ -1155,8 +1114,14 @@ namespace DeskBox.UI.Views
             try
             {
                 editor.SelectAll(); editor.SelectionColor = Palette.Text;
-                foreach (Match match in Regex.Matches(editor.Text, @"(?i)\b(?:FUNCTION_BLOCK|FUNCTION|DATA_BLOCK|ORGANIZATION_BLOCK|TYPE|END_[A-Z_]+|VAR(?:_[A-Z_]+)?|BEGIN|IF|THEN|ELSE|TRUE|FALSE|BOOL|REAL|INT|WORD|OR|AND)\b"))
-                { editor.Select(match.Index, match.Length); editor.SelectionColor = Palette.Accent; }
+                const string tokens = @"(?<comment>//[^\r\n]*|\(\*[\s\S]*?\*\))|(?<literal>""(?:""""|[^""\r\n])*""|'(?:''|[^'\r\n])*')|(?<number>\b\d+(?:\.\d+)?\b)|(?<type>\b(?:BOOL|BYTE|WORD|DWORD|SINT|INT|DINT|UINT|UDINT|REAL|LREAL|TIME|STRING|ARRAY|STRUCT)\b)|\b(?:FUNCTION_BLOCK|FUNCTION|DATA_BLOCK|ORGANIZATION_BLOCK|TYPE|END_[A-Z_]+|VAR(?:_[A-Z_]+)?|BEGIN|IF|THEN|ELSIF|ELSE|CASE|OF|FOR|WHILE|REPEAT|UNTIL|DO|TO|RETURN|TRUE|FALSE|OR|AND|NOT)\b";
+                foreach (Match match in Regex.Matches(editor.Text, tokens, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                {
+                    editor.Select(match.Index, match.Length);
+                    editor.SelectionColor = match.Groups["comment"].Success ? TiaWorkbenchStyle.Success(Palette) :
+                        match.Groups["literal"].Success || match.Groups["number"].Success ? TiaWorkbenchStyle.Warning(Palette) :
+                        match.Groups["type"].Success ? Palette.Accent : Palette.IsLight ? Color.FromArgb(100, 65, 160) : Color.FromArgb(205, 169, 249);
+                }
                 editor.Select(start, length);
             }
             finally { editor.ResumeLayout(); }
@@ -1234,7 +1199,7 @@ namespace DeskBox.UI.Views
                 var text = TextArea("批准前的 SCL 差异");
                 text.Text = summary + "\r\n\r\n" + sourceDiff;
                 text.BackColor = Palette.CardBg; text.ForeColor = Palette.Text;
-                var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = Dpi.D(this, 48), FlowDirection = FlowDirection.RightToLeft };
+                var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = TiaWorkbenchStyle.Pixels(this, 48), FlowDirection = FlowDirection.RightToLeft };
                 var cancelReview = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
                 buttons.Controls.Add(cancelReview);
                 buttons.Controls.Add(new Button { Text = "批准并编译", DialogResult = DialogResult.Yes, AutoSize = true });
@@ -1281,12 +1246,15 @@ namespace DeskBox.UI.Views
         }
         private void ShowReceipt(TiaResult result, TiaJob job = null)
         {
+            if (result.Error.Length != 0) lastWorkbenchError = result.Error;
+            if (job != null) verificationCompile = result.Error.Length == 0 ? "TIA 已返回编译回执" : "失败 · " + result.Error;
             if (result.Saved || result.WriteStarted) savedJob = result;
             output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report + "\r\n\r\n工作副本 · " + result.Copy;
             if (result.OpennessVersion.Length != 0) output.AppendText("\r\nOpenness · " + result.OpennessVersion);
             if (result.Copy.Length != 0) output.AppendText("\r\n作业回执 · " + RecoveryReceiptPath(result));
             bool canRepair = job != null && job.Operation == "scl" && result.Diagnostics.Any(issue => MatchesBlock(issue, job.Block));
             SetDiagnostics(result.Diagnostics, canRepair ? job.Source : null, canRepair ? job.Block : null);
+            OpenOutput(currentDiagnostics.Count == 0 ? 0 : 1);
             assistant.Text = result.Error.Length == 0 ? "回执已保存在本地工程作业目录。\r\n" + (result.Saved ? "副本已保存。" : "请查看诊断和工作副本状态。") : result.Error;
             if (result.Error.Length != 0) Store.Log("warn", "engineering", "TIA · " + result.Error.Split('\n')[0]);
             SelectTab(6);
@@ -1322,6 +1290,14 @@ namespace DeskBox.UI.Views
                     Store.Log("info", "engineering", "TIA · 已导出 " + Path.GetFileName(path) + ProjectLabel());
                 }
         }
-        protected override void Dispose(bool disposing) { if (disposing && operation != null) operation.Cancel(); base.Dispose(disposing); }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (operation != null) operation.Cancel();
+                workbenchTips.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 }
