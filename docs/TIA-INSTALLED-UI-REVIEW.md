@@ -39,7 +39,7 @@
 | 安装与核心交互 | PASS | 70 项安装、升级、回滚与卸载检查。132 项 TIA 工作台及文件夹具检查覆盖聚焦、键盘输入、代码编辑、工程树、标签、过滤、拓扑缩放、差异导航、三处分栏拖动及恢复默认。原有 12 页导航回归通过。 |
 | 100% 主工作台和安装截图 | PASS | 真实已安装程序取得 11 张 1920×1080 和 1 张独立语音窗口原图。截图索引逐张记录功能、测试状态及数据来源。 [截图包](https://github.com/zong-technology/DeskBox/releases/download/v4.2.2-ui.11/installed-tia-screenshots.zip) |
 | 125% 与 150% 主工作台 | PASS | 观测到实际 120 和 144 DPI。对照检查标题、标签、代码区、底部输出及右侧输入位置，并完成实测点击与输入。两档证据覆盖主工作台。 [125% PNG](https://github.com/zong-technology/DeskBox/releases/download/v4.2.2-ui.11/installed-tia-dpi-120.png) · [150% PNG](https://github.com/zong-technology/DeskBox/releases/download/v4.2.2-ui.11/installed-tia-dpi-144.png) |
-| 各页面安装画面与对照 | PASS | 前后各 12 张原图，按功能配对。改后分析、硬件、拓扑和变量画面由安装版实际读取 `fixture-` 导出文件生成。两版截图的数据状态有差异，供核对布局与交互。 [前后对照](https://github.com/zong-technology/DeskBox/releases/download/v4.2.2-ui.11/DeskBox-TIA-before-after.zip) |
+| 各页面安装画面与对照 | PASS | 前后各 12 张原图，按功能配对。改后分析、硬件、拓扑和变量画面由安装版实际读取 `fixture-` 导出文件生成。两版截图的数据状态有差异，供核对布局与交互。 [前后对照](https://github.com/zong-technology/DeskBox/releases/download/v4.2.2-ui.11-evidence/DeskBox-TIA-before-after.zip) |
 | 工程对象级双栏差异 | FAIL | SCL 草稿双栏和变更导航已回归。工程对象级差异继续以单栏报告呈现。 |
 | 授权工程读写、编译及现场验证 | BLOCKED | 测试环境缺少已授权的 Siemens V20、Openness 访问及用户工程。可查看实际环境检测和本机静态检查。 |
 | 已连接语音会话及微软拼音组字 | BLOCKED | 安装截图为真实空闲语音窗口。授权对象定位和 138 项现有语音回归已用测试传输验证。输入环境仅登记英文方案，已验中文剪贴板。 |

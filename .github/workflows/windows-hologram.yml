@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       comparison_release:
-        description: '为已发布的 TIA 安装版补传截图前后对照，填写版本标签'
+        description: '为已发布的 TIA 安装版发布截图对照附件，填写版本标签'
         type: string
         default: ''
 concurrency:
@@ -229,4 +229,6 @@ jobs:
           gh release download v4.2.2-ui.3 --pattern installed-tia-screenshots.zip --dir evidence/before
           gh release download "$TIA_REVIEW_TAG" --pattern installed-tia-screenshots.zip --dir evidence/after
           python3 tools/installed-tia-comparison.py evidence/before/installed-tia-screenshots.zip evidence/after/installed-tia-screenshots.zip evidence/DeskBox-TIA-before-after.zip "$TIA_REVIEW_TAG"
-          gh release upload "$TIA_REVIEW_TAG" evidence/DeskBox-TIA-before-after.zip
+          gh release create "$TIA_REVIEW_TAG-evidence" evidence/DeskBox-TIA-before-after.zip \
+            --target "$GITHUB_SHA" --prerelease --title "DeskBox $TIA_REVIEW_TAG TIA install screenshot comparison" \
+            --notes "Twelve paired screenshots, with an offline HTML comparison and a per-image evidence index. Installed build: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TIA_REVIEW_TAG"
