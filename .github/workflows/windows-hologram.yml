@@ -11,6 +11,10 @@ on:
         description: '全部检查通过后发布测试安装包（需要仓库写权限）'
         type: boolean
         default: false
+      comparison_release:
+        description: '为已发布的 TIA 安装版发布截图对照附件，填写版本标签'
+        type: string
+        default: ''
 concurrency:
   group: local-release-Windows-${{ github.ref }}
   cancel-in-progress: false
@@ -18,6 +22,7 @@ permissions:
   contents: read
 jobs:
   native:
+    if: inputs.comparison_release == ''
     outputs:
       version: ${{ steps.version.outputs.version }}
     runs-on: ${{ inputs.runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted","Windows","deskbox-qa"]') }}
@@ -111,10 +116,18 @@ jobs:
       - name: Package Windows setup
         shell: powershell
         run: .\tools\package-windows.ps1
+      - name: Build the TIA acceptance tool and export its labeled fixtures
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /define:TIA_WINFORMS /main:TiaEngineerAcceptance /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:dist\DeskBox.exe /out:dist\tia-engineer-accept.exe tools\tia-engineer-accept.cs tools\render-v4-ui.cs
+          if ($LASTEXITCODE -ne 0) { throw 'TIA acceptance host compile failed' }
+          & .\dist\tia-engineer-accept.exe .\dist\installer-fixtures --capture-inputs
+          if ($LASTEXITCODE -ne 0) { throw 'TIA screenshot inputs could not be prepared' }
       - name: Verify installation, upgrade, rollback and installed UI
         timeout-minutes: 8
         shell: powershell
-        run: .\tools\setup-accept.ps1 -SetupPath ('.\dist\installer\DeskBox-${{ steps.version.outputs.version }}-Setup.exe')
+        run: .\tools\setup-accept.ps1 -SetupPath ('.\dist\installer\DeskBox-${{ steps.version.outputs.version }}-Setup.exe') -TiaFixtureDir .\dist\installer-fixtures
       - name: Validate the TIA workbench with offline export fixtures and capture native UI
         shell: powershell
         timeout-minutes: 3
@@ -122,9 +135,6 @@ jobs:
           $tokens = $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools\tia-v20-smoke.ps1).Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
           if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /define:TIA_WINFORMS /main:TiaEngineerAcceptance /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:dist\DeskBox.exe /out:dist\tia-engineer-accept.exe tools\tia-engineer-accept.cs tools\render-v4-ui.cs
-          if ($LASTEXITCODE -ne 0) { throw 'TIA acceptance host compile failed' }
           & .\dist\tia-engineer-accept.exe .\dist\hologram-qa\tia | Tee-Object dist\hologram-qa\tia-engineer.log
           if ($LASTEXITCODE -ne 0) { throw 'TIA workbench acceptance failed' }
       - uses: actions/upload-artifact@v4
@@ -144,6 +154,7 @@ jobs:
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-input.png -Destination .\dist\installer
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-screenshots.zip -Destination .\dist\installer
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-environment.json -Destination .\dist\installer
+          Get-ChildItem .\dist\installer-qa\installed-tia-dpi-*.png | Copy-Item -Destination .\dist\installer
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -164,7 +175,7 @@ jobs:
             dist/ui-qa-*/*.log
             dist/ui-qa-*/**/*.png
   publish:
-    if: inputs.publish
+    if: inputs.publish && inputs.comparison_release == ''
     needs: native
     runs-on: ${{ inputs.runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted","Windows","deskbox-qa"]') }}
     permissions:
@@ -197,6 +208,27 @@ jobs:
             '.\installer\installed-tia-environment.json'
             '.\native-preview\hologram-qa\hologram-motion.gif'
           )
-          $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-network-endpoints.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png', 'tia-environment.png') | ForEach-Object { Join-Path $tia $_ }
+          $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-network-endpoints.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png', 'tia-environment.png', 'tia-operation-history.png') | ForEach-Object { Join-Path $tia $_ }
+          $attachments += @(Get-ChildItem .\installer\installed-tia-dpi-*.png | ForEach-Object FullName)
           gh release create ('v'+$env:RELEASE_VERSION) @attachments --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+  comparison:
+    if: inputs.comparison_release != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the indexed comparison of the two installed UI captures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIA_REVIEW_TAG: ${{ inputs.comparison_release }}
+        run: |
+          [[ "$TIA_REVIEW_TAG" =~ ^v4\.2\.2-ui\.[0-9]+$ ]]
+          gh release download v4.2.2-ui.3 --pattern installed-tia-screenshots.zip --dir evidence/before
+          gh release download "$TIA_REVIEW_TAG" --pattern installed-tia-screenshots.zip --dir evidence/after
+          python3 tools/installed-tia-comparison.py evidence/before/installed-tia-screenshots.zip evidence/after/installed-tia-screenshots.zip evidence/DeskBox-TIA-before-after.zip "$TIA_REVIEW_TAG"
+          gh release create "$TIA_REVIEW_TAG-evidence" evidence/DeskBox-TIA-before-after.zip \
+            --target "$GITHUB_SHA" --prerelease --title "DeskBox $TIA_REVIEW_TAG TIA install screenshot comparison" \
+            --notes "Twelve paired screenshots, with an offline HTML comparison and a per-image evidence index. Installed build: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TIA_REVIEW_TAG"

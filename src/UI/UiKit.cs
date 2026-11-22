@@ -13,6 +13,7 @@ namespace DeskBox.UI
         private bool _hover, _down;
         public bool Primary;
         public bool Navigation;
+        internal bool CompactNavigation;
         public string Symbol="";
 
         public DarkButton(string text)
@@ -60,8 +61,11 @@ namespace DeskBox.UI
                 Palette.FillRounded(g,background,bounds,7);
                 if(Primary){using(var stripe=new SolidBrush(p.Accent))g.FillRectangle(stripe,0,8,3,Height-16);}
                 var color=Primary?p.Accent:_hover?p.Text:p.TextDim;
-                TextRenderer.DrawText(g,Symbol,UiKit.CachedFont("Segoe MDL2 Assets",DesignTokens.Body,FontStyle.Regular),new Rectangle(Dpi.D(this,16),0,Dpi.D(this,24),Height),color,TextFormatFlags.VerticalCenter|TextFormatFlags.NoPadding);
-                TextRenderer.DrawText(g,Text.Trim(),Font,new Rectangle(51,0,Width-60,Height),color,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPadding);
+                var iconBounds = CompactNavigation ? ClientRectangle : new Rectangle(Dpi.D(this,16),0,Dpi.D(this,24),Height);
+                var iconFlags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | (CompactNavigation ? TextFormatFlags.HorizontalCenter : TextFormatFlags.Left);
+                TextRenderer.DrawText(g,Symbol,UiKit.CachedFont("Segoe MDL2 Assets",DesignTokens.Body,FontStyle.Regular),iconBounds,color,iconFlags);
+                if (!CompactNavigation)
+                    TextRenderer.DrawText(g,Text.Trim(),Font,new Rectangle(51,0,Width-60,Height),color,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPadding);
                 if(Focused)ControlPaint.DrawFocusRectangle(g,new Rectangle(5,5,Width-10,Height-10),color,background);
                 return;
             }

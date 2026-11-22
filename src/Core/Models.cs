@@ -43,8 +43,12 @@ namespace DeskBox
         public bool TiaEnterSends = true;
         public int TiaTreeWidth = 260;
         public int TiaAssistantWidth = 350;
-        public int TiaLogHeight = 152;
+        public int TiaLogHeight = 196;
+        public int TiaLayoutVersion;
+        public int TiaAssistantHeight = 224;
+        public bool TiaTreeCollapsed;
         public bool TiaAssistantCollapsed;
+        public bool TiaLogCollapsed;
         public bool FileOpConfirm = true;           // 文件操作需确认
         public bool NotifyInApp = true;             // 应用内提醒
         public bool NotifyTask = true;              // 任务提醒

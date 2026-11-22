@@ -24,13 +24,13 @@ namespace DeskBox.UI.Views
         {
             Dock = DockStyle.Fill;
             AccessibleName = "机架槽位视图";
-            var header = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, RowCount = 1, Height = Dpi.D(this, 30), Margin = Padding.Empty };
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, Dpi.D(this, 105)));
+            var header = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, RowCount = 1, Height = TiaWorkbenchStyle.Pixels(this, 30), Margin = Padding.Empty };
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, TiaWorkbenchStyle.Pixels(this, 105)));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             header.Controls.Add(new Label { Text = "设备 / 机架", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
             header.Controls.Add(Containers, 1, 0);
             status.Padding = new Padding(6, 0, 0, 0);
-            status.Height = Dpi.D(this, 19);
+            status.Height = TiaWorkbenchStyle.Pixels(this, 19);
             modules.Padding = new Padding(6, 0, 0, 0);
             Controls.Add(modules);
             Controls.Add(status);
@@ -83,7 +83,7 @@ namespace DeskBox.UI.Views
                 foreach (var item in slots)
                 {
                     var title = item.Slot.Length == 0 ? "未记录槽位" : "槽位 " + item.Slot;
-                    var card = new Button { Text = title + "\r\n" + item.Name, Width = Dpi.D(this, 112), Height = Dpi.D(this, 62),
+                    var card = new Button { Text = title + "\r\n" + item.Name, Width = TiaWorkbenchStyle.Pixels(this, 112), Height = TiaWorkbenchStyle.Pixels(this, 62),
                         Margin = new Padding(0, 2, 5, 0), FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, UseMnemonic = false,
                         AutoEllipsis = true, AccessibleName = title + " · " + item.Name, AccessibleDescription = item.Source, Tag = item };
                     card.Click += delegate { NotifySelection(item); };
