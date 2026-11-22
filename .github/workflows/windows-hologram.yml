@@ -11,6 +11,10 @@ on:
         description: '全部检查通过后发布测试安装包（需要仓库写权限）'
         type: boolean
         default: false
+      comparison_release:
+        description: '为已发布的 TIA 安装版补传截图前后对照，填写版本标签'
+        type: string
+        default: ''
 concurrency:
   group: local-release-Windows-${{ github.ref }}
   cancel-in-progress: false
@@ -18,6 +22,7 @@ permissions:
   contents: read
 jobs:
   native:
+    if: inputs.comparison_release == ''
     outputs:
       version: ${{ steps.version.outputs.version }}
     runs-on: ${{ inputs.runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted","Windows","deskbox-qa"]') }}
@@ -170,7 +175,7 @@ jobs:
             dist/ui-qa-*/*.log
             dist/ui-qa-*/**/*.png
   publish:
-    if: inputs.publish
+    if: inputs.publish && inputs.comparison_release == ''
     needs: native
     runs-on: ${{ inputs.runner == 'github-hosted' && 'windows-latest' || fromJSON('["self-hosted","Windows","deskbox-qa"]') }}
     permissions:
@@ -207,3 +212,21 @@ jobs:
           $attachments += @(Get-ChildItem .\installer\installed-tia-dpi-*.png | ForEach-Object FullName)
           gh release create ('v'+$env:RELEASE_VERSION) @attachments --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+  comparison:
+    if: inputs.comparison_release != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the indexed comparison of the two installed UI captures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIA_REVIEW_TAG: ${{ inputs.comparison_release }}
+        run: |
+          [[ "$TIA_REVIEW_TAG" =~ ^v4\.2\.2-ui\.[0-9]+$ ]]
+          gh release download v4.2.2-ui.3 --pattern installed-tia-screenshots.zip --dir evidence/before
+          gh release download "$TIA_REVIEW_TAG" --pattern installed-tia-screenshots.zip --dir evidence/after
+          python3 tools/installed-tia-comparison.py evidence/before/installed-tia-screenshots.zip evidence/after/installed-tia-screenshots.zip evidence/DeskBox-TIA-before-after.zip "$TIA_REVIEW_TAG"
+          gh release upload "$TIA_REVIEW_TAG" evidence/DeskBox-TIA-before-after.zip
