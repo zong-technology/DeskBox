@@ -363,16 +363,19 @@ namespace DeskBox.UI.Views
         private void UpdateWorkbenchContext()
         {
             if (projectHeading == null) return;
-            var cpuName = cpu.SelectedIndex > 0 ? cpu.SelectedItem.ToString() : "未选 PLC";
-            projectHeading.Text = snapshot == null ? "未加载工程" : snapshot.Name;
-            modeStatus.Text = Convert.ToString(mode.SelectedItem) + "  ·  " + cpuName + "  ·  " + PhaseLabel(phase);
+            var target = programmingTarget;
+            projectHeading.Text = target != null ? target.Source.Name : programmingSource != null ? programmingSource.Name : snapshot == null ? "未加载工程" : "当前资料待重新读取";
+            modeStatus.Text = (target == null ? "未绑定" : Known(target.Cpu) + "  ·  " + ScopeLabel(target) + (target.ObjectName.Length == 0 ? "" : "  ·  " + target.ObjectName) +
+                (target.Source.Native ? "  ·  离线副本" : "  ·  本机草稿")) + "  ·  " + PhaseLabel(phase);
             workbenchTips.SetToolTip(projectHeading, projectHeading.Text);
             workbenchTips.SetToolTip(modeStatus, modeStatus.Text);
             connectionStatus.Text = inspected != null ? "V20 · 副本已读取" : !v20Checked ? "V20 · 待检测" : v20Discovered ? "V20 · 接口已发现" : "V20 · 原生接口未就绪";
             connectionStatus.ForeColor = inspected != null ? TiaWorkbenchStyle.Success(Palette) : v20Checked && !v20Discovered ? TiaWorkbenchStyle.Warning(Palette) : Palette.TextDim;
             var objectName = selected == null ? "未选中对象" : selected.Name;
             var origin = snapshot == null ? "未绑定工程资料" : snapshot.Origin;
-            contextDetails.Text = "当前工程上下文\r\n" + origin + (snapshot == null ? "" : " · " + snapshot.Objects.Count + " 个对象") + "\r\n" + objectName;
+            contextDetails.Text = target == null ? "当前编程目标 · 未绑定\r\n" + origin + " · " + objectName + "\r\n请选择绑定，或生成通用 SCL 草稿。" :
+                "当前编程目标 · " + target.Source.Origin + "\r\n" + Known(target.Cpu) + "  ·  " + ScopeLabel(target) + "\r\n" + (target.ObjectName.Length == 0 ? "未选择单个对象" : target.ObjectName);
+            workbenchTips.SetToolTip(contextDetails, TargetSummary(target));
             var detail = selected == null ? "在工程树中选择程序块或变量。" : selected.Name + "\r\n\r\n" + selected.Kind + "   " + selected.Language +
                 "\r\n" + selected.Source + "\r\n" + selected.DataType + " " + selected.Address + "\r\n\r\n" + selected.Interface;
             if (blockDetails.Text != detail) blockDetails.Text = detail;

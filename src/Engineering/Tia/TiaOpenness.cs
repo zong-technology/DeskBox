@@ -24,6 +24,7 @@ namespace DeskBox.Engineering.Tia
     {
         public string Error = "", Copy = "", Report = "", CompileState = "未运行", SourceHash = "";
         public string OpennessVersion = "", SavedCopyHash = "";
+        public string CompileStartedUtc = "", CompileFinishedUtc = "";
         public bool Saved, Compiled, WriteStarted, OpenedReadOnly;
         public PlcSnapshot Snapshot;
         public List<string> Cpus = new List<string>();
@@ -430,7 +431,10 @@ namespace DeskBox.Engineering.Tia
                     Call(external, "GenerateBlocksFromSource");
                     Call(external, "Delete");
                 }
-                var compiled = Call(compile, "Compile");
+                object compiled;
+                result.CompileStartedUtc = DateTime.UtcNow.ToString("O");
+                try { compiled = Call(compile, "Compile"); }
+                finally { result.CompileFinishedUtc = DateTime.UtcNow.ToString("O"); }
                 result.CompileState = Text(compiled, "State");
                 int errors = Convert.ToInt32(Prop(compiled, "ErrorCount"));
                 result.Compiled = errors == 0 && (result.CompileState == "Success" || result.CompileState == "Warning");

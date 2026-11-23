@@ -255,6 +255,26 @@ public static class DeskBoxInstallCapture {
         Click(Find(window, "tia-scl-template", template));
         Find(window, "tia-scl-diff-lines", "SCL \u53cc\u680f\u884c\u5dee\u5f02");
     }
+    private static IntPtr OwnedWindow(IntPtr window, string caption) {
+        uint process;
+        GetWindowThreadProcessId(window, out process);
+        IntPtr result = IntPtr.Zero;
+        var deadline = DateTime.UtcNow.AddSeconds(6);
+        do {
+            EnumWindows(delegate(IntPtr handle, IntPtr state) {
+                uint owner;
+                GetWindowThreadProcessId(handle, out owner);
+                if (owner != process || !IsWindowVisible(handle)) return true;
+                var title = new StringBuilder(160);
+                GetWindowText(handle, title, title.Capacity);
+                if (title.ToString() == caption) result = handle;
+                return result == IntPtr.Zero;
+            }, IntPtr.Zero);
+            if (result == IntPtr.Zero) Thread.Sleep(100);
+        } while (result == IntPtr.Zero && DateTime.UtcNow < deadline);
+        if (result == IntPtr.Zero) throw new InvalidOperationException("The installed app did not open " + caption);
+        return result;
+    }
     public static int CaptureTiaPages(IntPtr window, string destination, string fixtureDirectory) {
         var shots = new List<string>();
         Action<IntPtr, string> capture = delegate(IntPtr handle, string name) {
@@ -264,7 +284,18 @@ public static class DeskBoxInstallCapture {
         SendKeys.SendWait("^a");
         capture(window, "installed-tia-input-selection");
         bool hasFixtures = !string.IsNullOrEmpty(fixtureDirectory);
-        if (hasFixtures) ImportFixtures(window, fixtureDirectory, destination);
+        if (hasFixtures) {
+            ImportFixtures(window, fixtureDirectory, destination);
+            Click(Find(window, "tia-bind-project", "\u7ed1\u5b9a\u5de5\u7a0b"));
+            var binding = OwnedWindow(window, "\u7ed1\u5b9a\u5de5\u7a0b \u00b7 PLC\u3001\u5bf9\u8c61\u4e0e\u80fd\u529b");
+            Click(Find(binding, "mark-binding-test-source", "\u6807\u8bb0\u4e3a\u6d4b\u8bd5\u8d44\u6599"));
+            if (!Save(binding, Path.Combine(destination, "installed-v43-binding.png"))) throw new InvalidOperationException("Could not capture the installed binding wizard");
+            Click(Find(binding, "confirm-installed-tia-binding", "\u786e\u8ba4\u7ed1\u5b9a"));
+            if (IsWindowVisible(binding)) throw new InvalidOperationException("The target binding was not confirmed");
+            SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0043);
+            SetForegroundWindow(window);
+            if (!Save(window, Path.Combine(destination, "installed-v43-target.png"))) throw new InvalidOperationException("Could not capture the installed bound workbench");
+        }
         string[] labels = { "\u7a0b\u5e8f\u5206\u6790", "\u786c\u4ef6\u7ec4\u6001", "\u7f51\u7edc\u62d3\u6251", "\u53d8\u91cf\u7ba1\u7406", "\u5de5\u7a0b\u5bf9\u6bd4", "\u6d4b\u8bd5\u9a8c\u8bc1" };
         string[] names = { "analysis", "hardware", "topology", "variables", "diff", "validation" };
         for (int i = 0; i < labels.Length; i++) {
@@ -285,23 +316,7 @@ public static class DeskBoxInstallCapture {
         if (hasFixtures) SelectTab(window, "tia-tab-programming", "\u7a0b\u5e8f\u7f16\u8f91");
         capture(window, "installed-tia-layout-default");
         Click(Find(window, "tia-voice", "\u5de5\u7a0b\u8bed\u97f3"));
-        uint process;
-        GetWindowThreadProcessId(window, out process);
-        IntPtr voice = IntPtr.Zero;
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        do {
-            EnumWindows(delegate(IntPtr handle, IntPtr state) {
-                uint owner;
-                GetWindowThreadProcessId(handle, out owner);
-                if (owner != process || !IsWindowVisible(handle)) return true;
-                var title = new StringBuilder(128);
-                GetWindowText(handle, title, title.Capacity);
-                if (title.ToString() == "\u535a\u56fe\u5b9e\u65f6\u8bed\u97f3") voice = handle;
-                return voice == IntPtr.Zero;
-            }, IntPtr.Zero);
-            if (voice == IntPtr.Zero) Thread.Sleep(100);
-        } while (voice == IntPtr.Zero && DateTime.UtcNow < deadline);
-        if (voice == IntPtr.Zero) throw new InvalidOperationException("The installed engineering voice window did not open.");
+        IntPtr voice = OwnedWindow(window, "\u535a\u56fe\u5b9e\u65f6\u8bed\u97f3");
         try { capture(voice, "installed-tia-voice"); }
         finally { PostMessage(voice, 0x0010, IntPtr.Zero, IntPtr.Zero); }
         File.WriteAllLines(Path.Combine(destination, "installed-tia-screenshots.txt"), shots.ToArray());
