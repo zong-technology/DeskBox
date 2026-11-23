@@ -99,7 +99,7 @@ namespace DeskBox.UI.Views
                 foreach (Control label in state.Parent.Controls) label.BackColor = Palette.HeaderBg;
                 foreach (Control label in state.Parent.Parent.Controls) label.BackColor = Palette.HeaderBg;
             }
-            foreach (var box in new[] { conversation, validationSummary })
+            foreach (var box in new[] { conversation, validationSummary, programmingProgress })
             {
                 box.BackColor = Palette.CardBg;
                 box.ForeColor = Palette.Text;
@@ -122,7 +122,15 @@ namespace DeskBox.UI.Views
             statusPage.Controls.Add(assistant);
             var conversationPage = new TabPage("工程对话");
             conversationPage.Controls.Add(conversation);
-            assistantTabs.TabPages.AddRange(new[] { statusPage, conversationPage });
+            programmingProgress = TextArea("编程任务步骤");
+            programmingProgress.Text = "提交 SCL 编程任务后显示真实步骤、文件与下一步。";
+            var taskPage = new TabPage("编程任务");
+            var tools = Bar();
+            tools.Controls.AddRange(new Control[] { Button("当前编程目标", ViewProgrammingTarget, false), Button("任务记录", OpenProgrammingHistory), isolatedDraft });
+            taskPage.Controls.AddRange(new Control[] { programmingProgress, tools });
+            assistantTabs.TabPages.AddRange(new[] { statusPage, taskPage, conversationPage });
+            contextDetails.Cursor = Cursors.Hand;
+            contextDetails.Click += delegate { ViewProgrammingTarget(); };
             return assistantTabs;
         }
 

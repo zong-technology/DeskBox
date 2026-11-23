@@ -275,6 +275,7 @@ public static class TiaEngineerAcceptance
             after.Objects[0] = originalBlock;
             Reject(() => TiaOpenness.VerifyNewScaleBlock(before, after, "OtherCPU", "Approved"), "FB in another controller cannot satisfy the approval");
             Reject(() => TiaOpenness.Run(new TiaJob { Operation = "download", ProjectFile = project }, CancellationToken.None), "Online write request rejected before native environment detection");
+            TestProgrammingRecords(temp);
             var env = TiaEnvironmentInspector.Inspect(); Console.WriteLine(env.Describe());
             if (!env.Installations.Any(x => x.Version == 20 && x.AssemblyPath != null))
                 Reject(() => TiaOpenness.Run(new TiaJob { ProjectFile = project }, CancellationToken.None), "Missing V20 prevents all native transactions");
@@ -287,6 +288,41 @@ public static class TiaEngineerAcceptance
             Console.WriteLine("PASS " + passed + " DeskBox TIA checks. Synthetic inputs; no TIA Portal or PLC connection used.");
         }
         finally { try { Directory.Delete(temp, true); } catch (IOException) { } }
+    }
+    private static void TestProgrammingRecords(string root)
+    {
+        var file = Path.Combine(root, "binding-source.csv");
+        File.WriteAllText(file, "name,address,type,device\nTempA,%IW0,WORD,PLC_A\nTempB,%IW2,WORD,PLC_B\n");
+        var source = new TiaProgrammingSource { Name = "Test export", Origin = "导出资料", Files = new[] { file }, Cpus = new[] { "PLC_A", "PLC_B" },
+            Fingerprint = TiaProgrammingSource.ExportFingerprint(new[] { file }, CancellationToken.None) };
+        var snapshot = PlcEngineering.ReadExports(new[] { file }, CancellationToken.None);
+        Reject(() => TiaProgrammingTarget.Bind(source, snapshot, "", TiaProgrammingScope.Draft, null, false), "Two PLCs require an explicit binding");
+        Reject(() => TiaProgrammingTarget.Bind(source, snapshot, "PLC_A", TiaProgrammingScope.Variables, snapshot.Objects.Single(o => o.Name == "TempB"), false), "A variable from a different PLC is rejected");
+        var a = TiaProgrammingTarget.Bind(source, snapshot, "PLC_A", TiaProgrammingScope.NewFB, null, true);
+        var b = TiaProgrammingTarget.Bind(source, snapshot, "PLC_B", TiaProgrammingScope.NewFB, null, true);
+        Check(!a.SameSelection(b) && a.Source.Origin == "测试资料" && !a.CanTryInsert() && !a.CanTryCompile(), "Exact PLC binding and fixture source never grant native writes");
+        a.Source.Verify(CancellationToken.None);
+        var store = new TiaProgrammingStore(Path.Combine(root, "programming-records"));
+        var first = store.Start("Scale the sensor", a, false);
+        var second = store.Start("Create offline sample", null, true);
+        Check(first.Id != second.Id, "Two programming requests get unique task IDs");
+#if NETFRAMEWORK || TIA_WINFORMS
+        store.Step(first, TiaProgrammingState.READING_PROJECT, "Fixture version checked", "Generate the draft");
+        var scl = PlcEngineering.AnalogScale("FB_Example");
+        first.DraftFile = "FB_Example.scl";
+        first.DraftHash = PlcEngineering.Hash(scl);
+        var artifact = store.Write(first, first.DraftFile, scl);
+        store.Step(first, TiaProgrammingState.AWAITING_REVIEW, "Fixture draft saved", "Review", approval: true, outputs: new[] { artifact });
+        var restored = new TiaProgrammingStore(Path.Combine(root, "programming-records")).Recent().Single();
+        Check(restored.Target.SameSelection(a) && restored.Steps[0].FinishedUtc.Length != 0 && restored.Steps[1].NeedsApproval && store.ReadDraft(restored) == scl,
+            "Task can be reopened with matching target, ordered timestamps, approval and editable SCL");
+        File.AppendAllText(artifact, "\r\n// changed after recording");
+        Reject(() => store.ReadDraft(restored), "A task refuses a tampered draft");
+#endif
+        File.AppendAllText(file, "More,%IW4,WORD,PLC_A\n");
+        Reject(() => a.Source.Verify(CancellationToken.None), "Changing a source file invalidates the binding version");
+        File.Delete(file);
+        Reject(() => a.Source.Verify(CancellationToken.None), "An absent source blocks task recovery");
     }
 #if NETFRAMEWORK || TIA_WINFORMS
     private static void Native(string root, string evidence, string[] files)
@@ -477,6 +513,69 @@ public static class TiaEngineerAcceptance
         var workLog = Children(view).OfType<RichTextBox>().Single(box => box.AccessibleName == "工程操作日志");
         Check(workLog.Visible && workLog.Text.Contains("开始 · 检测本机 TIA"), "The output dock shows recorded engineering operations instead of filler content");
         await Capture(form, evidence, "tia-operation-history.png");
+        await ExerciseBoundProgramming(form, view, listener, evidence, files);
+    }
+
+    private static async Task ExerciseBoundProgramming(MainForm form, TiaEngineerView view, TcpListener listener, string evidence, string[] oldFiles)
+    {
+        string pair = Path.Combine(AppPaths.DataDir, "fixture-two-plcs.csv");
+        File.WriteAllText(pair, "name,address,type,device\nScaleSourceA,%IW0,WORD,PLC_A\nScaleSourceB,%IW2,WORD,PLC_B\n");
+        var button = new Func<string, DarkButton>(label => Children(view).OfType<DarkButton>().Single(b => b.Text == label));
+        view.LoadExports(new[] { pair });
+        await WaitEnabled(button("绑定工程"));
+        await Click(button("绑定工程"));
+        var wizard = Application.OpenForms.Cast<Form>().Single(f => f.Text.StartsWith("绑定工程 · PLC"));
+        var cpuSelection = wizard.Controls.Find("tia-bind-cpu", true).OfType<ComboBox>().Single();
+        var confirm = Children(wizard).OfType<Button>().Single(b => b.Text == "确认绑定");
+        Check(cpuSelection.Items.Count == 3 && cpuSelection.SelectedIndex == 0 && !confirm.Enabled,
+            "Binding wizard requires the operator to choose one of two distinct PLCs");
+        cpuSelection.SelectedItem = "PLC_B";
+        Check(confirm.Enabled && Children(wizard).OfType<RichTextBox>().Single().Text.Contains(pair), "The wizard shows the verified full source path before confirmation");
+        await Capture(wizard, evidence, "tia-v43-binding.png");
+        confirm.PerformClick();
+        await Task.Delay(140);
+        Check(view.Controls.Find("tia-context-details", true).Single().Text.Contains("PLC_B"), "The confirmed target is visible in the workbench");
+
+        var prompt = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "工程需求");
+        var editor = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "SCL 草稿");
+        var store = new TiaProgrammingStore(AppPaths.File("tia-programming-local"));
+        await Click(button("输入工程需求"));
+        editor.Clear();
+        prompt.Text = "编写一个离线模拟量线性缩放 FB，并在静态检查后保存草稿。";
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim(true))
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, "FB_BoundScale"));
+            await Click(button("生成 SCL 草稿"));
+            await WaitEnabled(button("生成 SCL 草稿"));
+            Check(request.IsCompleted, "The bound programming operation completes its actual model exchange");
+            string payload = await request;
+            Check(payload.Contains("PLC_B") && payload.Contains("ScaleSourceB") && !payload.Contains("ScaleSourceA"), "Only the bound PLC context reaches the explicit model request");
+        }
+        var task = store.Recent().First();
+        Check(task.Target.Cpu == "PLC_B" && task.State == "AWAITING_REVIEW" && editor.Text.Contains("FB_BoundScale") && !editor.ReadOnly,
+            "One real bound flow produces editable code and waits for human review");
+        Check(task.Steps.Select(s => s.State).SequenceEqual(new[] { "WAITING_FOR_PROJECT", "READING_PROJECT", "ANALYZING_CONTEXT", "GENERATING_CODE", "STATIC_CHECK", "AWAITING_REVIEW" }),
+            "Task log records the stages that actually ran without claiming native compilation");
+        var assistantTab = Children(view).OfType<TabControl>().Single(tc => tc.TabPages.Cast<TabPage>().Any(p => p.Text == "编程任务"));
+        assistantTab.SelectedIndex = 1;
+        await Capture(form, evidence, "tia-v43-programming.png");
+        string output = Path.Combine(evidence, "v43-programming-output");
+        Directory.CreateDirectory(output);
+        foreach (string item in new[] { "task.json", task.DraftFile, "review.diff", "static-review.txt" })
+            File.Copy(Path.Combine(store.Folder(task), item), Path.Combine(output, item), true);
+
+        view.LoadExports(oldFiles);
+        await WaitEnabled(button("绑定工程"));
+        var invalidated = store.Recent().Single(item => item.Id == task.Id);
+        Check(invalidated.State == "BLOCKED" && store.ReadDraft(invalidated).Contains("FB_BoundScale"), "Switching projects invalidates the old approval and retains its SCL file");
+    }
+
+    private static async Task WaitEnabled(Control control)
+    {
+        var end = DateTime.UtcNow.AddSeconds(12);
+        while (!control.Enabled && DateTime.UtcNow < end) await Task.Delay(40);
+        if (!control.Enabled) throw new TimeoutException(control.AccessibleName + " stayed disabled");
     }
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
@@ -546,16 +645,18 @@ public static class TiaEngineerAcceptance
             SendKeys.SendWait("^{ENTER}");
             var until = DateTime.UtcNow.AddSeconds(6);
             while (!requestReceived.IsSet && DateTime.UtcNow < until) await Task.Delay(30);
-            Check(requestReceived.IsSet && !button("生成工程计划").Enabled, "Configured Ctrl+Enter sends a real request to the local model fixture");
+            Check(requestReceived.IsSet && !button("生成 SCL 草稿").Enabled, "Configured Ctrl+Enter sends a real request to the local model fixture");
             SendKeys.SendWait("Pending");
             Check(prompt.Focused && prompt.Text.Contains("Pending"), "Input remains editable while a request is in progress");
             await Capture(form, evidence, "tia-task-running.png");
             canReply.Set();
             string payload = await request;
             until = DateTime.UtcNow.AddSeconds(8);
-            while (!button("生成工程计划").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
+            while (!button("生成 SCL 草稿").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
             Check(payload.Contains("Confirm") && payload.Contains("中文工程需求") && !payload.Contains("Pending") &&
                 draft.Text.Contains("FB_ReviewedScale") && prompt.Text.Contains("Pending"), "Only submitted text reaches the model, its structured reply opens the SCL editor, and later input is retained");
+            var localTask = new TiaProgrammingStore(AppPaths.File("tia-programming-local")).Recent().First();
+            Check(localTask.Target == null && localTask.Isolated && localTask.DraftFile == "FB_ReviewedScale.scl", "An unbound task keeps a local deliverable and carries no project write authority");
             var conversation = Children(view).OfType<RichTextBox>().Single(box => box.AccessibleName == "工程对话记录");
             Check(conversation.Text.Contains("Confirm") && conversation.Text.Contains("AI 工程师") && !conversation.Text.Contains("Pending"),
                 "Assistant transcript reflects the submitted exchange and excludes the unsent draft");

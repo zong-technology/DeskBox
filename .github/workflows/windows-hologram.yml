@@ -137,6 +137,7 @@ jobs:
           if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
           & .\dist\tia-engineer-accept.exe .\dist\hologram-qa\tia | Tee-Object dist\hologram-qa\tia-engineer.log
           if ($LASTEXITCODE -ne 0) { throw 'TIA workbench acceptance failed' }
+          Compress-Archive -Path .\dist\hologram-qa\tia\v43-programming-output\* -DestinationPath .\dist\hologram-qa\tia\v43-programming-output.zip
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -155,6 +156,7 @@ jobs:
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-screenshots.zip -Destination .\dist\installer
           Copy-Item -LiteralPath .\dist\installer-qa\installed-tia-environment.json -Destination .\dist\installer
           Get-ChildItem .\dist\installer-qa\installed-tia-dpi-*.png | Copy-Item -Destination .\dist\installer
+          Get-ChildItem .\dist\installer-qa\installed-v43-*.png | Copy-Item -Destination .\dist\installer
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -210,6 +212,8 @@ jobs:
           )
           $attachments += @('tia-workbench-1920.png', 'tia-workbench-1600.png', 'tia-workbench-1024.png', 'tia-diagnostics.png', 'tia-hardware.png', 'tia-rack-layout.png', 'tia-networks.png', 'tia-network-endpoints.png', 'tia-diff.png', 'tia-references.png', 'tia-voice.png', 'tia-analysis.png', 'tia-variables.png', 'tia-editor-narrow.png', 'tia-empty.png', 'tia-task-running.png', 'tia-environment.png', 'tia-operation-history.png') | ForEach-Object { Join-Path $tia $_ }
           $attachments += @(Get-ChildItem .\installer\installed-tia-dpi-*.png | ForEach-Object FullName)
+          $attachments += @(Get-ChildItem .\installer\installed-v43-*.png | ForEach-Object FullName)
+          $attachments += @('tia-v43-binding.png', 'tia-v43-programming.png', 'v43-programming-output.zip') | ForEach-Object { Join-Path $tia $_ }
           gh release create ('v'+$env:RELEASE_VERSION) @attachments --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title ('DeskBox '+$env:RELEASE_VERSION+' Windows preview') --notes-file .\source\packaging\RELEASE-NOTES.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
   comparison:

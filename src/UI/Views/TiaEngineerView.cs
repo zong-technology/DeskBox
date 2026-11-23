@@ -71,12 +71,19 @@ namespace DeskBox.UI.Views
             mode.Items.AddRange(new object[] { "只读分析", "辅助设计", "自动离线工程" }); mode.SelectedIndex = 0;
             mode.SelectedIndexChanged += delegate { RefreshHeading(); UpdateButtons(); };
             cpu.Items.Add("选择工程 PLC"); cpu.SelectedIndex = 0;
-            cpu.SelectedIndexChanged += delegate { RefreshHeading(); UpdateButtons(); };
+            cpu.SelectedIndexChanged += delegate
+            {
+                if (programmingTarget != null && programmingTarget.Source.Native && programmingTarget.Cpu != Convert.ToString(cpu.SelectedItem))
+                    InvalidateProgrammingTarget("验证页中的 PLC 选择已变更。");
+                RefreshHeading(); UpdateButtons();
+            };
             var top = Bar();
             var start = Button("输入工程需求", FocusRequirement);
             start.Primary = true;
             start.Name = "tia-focus-requirement";
-            top.Controls.AddRange(new Control[] { start, mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
+            var bindTarget = Button("绑定工程", BindEngineeringTarget);
+            bindTarget.Name = "tia-bind-project";
+            top.Controls.AddRange(new Control[] { start, bindTarget, mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
             if (openVoice != null) top.Controls.Add(Button("工程语音", openVoice));
             cancel = new DarkButton("取消当前任务") { Width = TiaWorkbenchStyle.Pixels(this, 116), Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ControlHeight), Enabled = false, Palette = Palette };
             cancel.Click += delegate { if (operation != null) operation.Cancel(); }; top.Controls.Add(cancel);
@@ -115,9 +122,10 @@ namespace DeskBox.UI.Views
             analysis = TextArea("程序分析"); hardware = TextArea("硬件目录及建议"); topology = TextArea("网络与设备");
             tags = TextArea("变量与 IO"); diff = TextArea("工程差异"); output = TextArea("编译和操作日志"); assistant = TextArea("AI 工程助手");
             diff.Font = UiKit.CachedFont("Consolas", 10, FontStyle.Regular);
-            generate = Button("生成工程计划", Generate);
+            generate = Button("生成 SCL 草稿", Generate);
             generate.Primary = true;
             regenerate = Button("重生成上次需求", delegate { SubmitRequirement(submittedRequirement); });
+            isolatedDraft = Button("生成隔离草稿", () => SubmitRequirement(requirement.Text, true));
             modelStatus = Caption("");
             modelStatus.Name = "tia-model-status";
             BuildProgrammingPage();
@@ -570,6 +578,8 @@ namespace DeskBox.UI.Views
             if (draftEnvironment != null) unsent[draftEnvironment] = requirement.Text;
             draftEnvironment = current;
             submittedRequirement = null;
+            programmingTask = null;
+            if (programmingProgress != null) programmingProgress.Text = "在当前环境提交 SCL 需求或打开任务记录。";
             if (conversation != null)
             {
                 conversation.Text = "提交工程需求后会在此显示本次对话。";
@@ -627,10 +637,11 @@ namespace DeskBox.UI.Views
             if (cancel == null || editor == null || generate == null) return;
             foreach (DarkButton b in actions)
                 b.Enabled = operation == null && (mode.SelectedIndex > 0 || !new[] { "替换 SCL", "保存 SCL", "AI 硬件建议", "生成地址建议" }.Contains(b.Text));
-            bool nativeReady = operation == null && inspected != null && NativeFingerprint().Length != 0 && cpu.SelectedIndex > 0;
+            bool nativeReady = operation == null && AllowsNativeCompilation(false);
             if (compileCopy != null) compileCopy.Enabled = nativeReady && mode.SelectedIndex > 0;
-            if (approveInsertion != null) approveInsertion.Enabled = nativeReady && mode.SelectedIndex == 2 && editor.TextLength != 0 && pendingScl == null;
+            if (approveInsertion != null) approveInsertion.Enabled = nativeReady && AllowsNativeCompilation(true) && mode.SelectedIndex == 2 && editor.TextLength != 0 && pendingScl == null;
             generate.Enabled = operation == null && !string.IsNullOrWhiteSpace(requirement.Text);
+            if (isolatedDraft != null) isolatedDraft.Enabled = generate.Enabled;
             regenerate.Enabled = operation == null && !string.IsNullOrWhiteSpace(submittedRequirement);
             useProjectContext.Enabled = operation == null && snapshot != null;
             useProjectContext.Visible = snapshot != null;
@@ -648,7 +659,7 @@ namespace DeskBox.UI.Views
                 "任务：" + PhaseLabel(phase);
             if (modelStatus != null)
                 modelStatus.Text = provider == null || !provider.Enabled
-                    ? "生成计划需要 AI 服务商。可直接载入下方缩放模板。"
+                    ? "SCL 生成需要 AI 服务商。也可在本机载入缩放模板。"
                     : provider.Name + " · " + provider.Model + " · " + (Store.Settings.TiaEnterSends ? "Enter 发送" : "Ctrl+Enter 发送") + "，Shift+Enter 换行";
             UpdateWorkbenchContext();
         }
@@ -692,7 +703,7 @@ namespace DeskBox.UI.Views
             ApplyWorkbenchPalette(palette);
         }
         private async void Work<T>(string action, Func<CancellationToken, T> work, Action<T> display,
-            bool keepPage = false, Phase running = Phase.Executing, Func<T, Phase> outcome = null)
+            bool keepPage = false, Phase running = Phase.Executing, Func<T, Phase> outcome = null, Action<Exception> ended = null)
         {
             if (operation != null) return;
             operation = CancellationTokenSource.CreateLinkedTokenSource(AiEnvironment.Token);
@@ -715,15 +726,16 @@ namespace DeskBox.UI.Views
                 }
                 Store.Log("info", "engineering", "TIA · 完成 " + action + ProjectLabel());
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
+                if (ended != null) ended(ex);
                 if (!IsDisposed)
                 {
                     Failed(keepPage ? "任务已取消，可修改需求后重试。" : "任务已取消。已生成的隔离副本和回执可核对。", keepPage);
                     SetPhase(Phase.Cancelled);
                 }
             }
-            catch (Exception e) { if (!IsDisposed) Failed(e.Message, keepPage); }
+            catch (Exception e) { if (ended != null) ended(e); if (!IsDisposed) Failed(e.Message, keepPage); }
             finally { operation = null; activeWorkbenchAction = null; active.Dispose(); if (!IsDisposed) UpdateButtons(); }
         }
         private void Failed(string message, bool keepPage = false)
@@ -771,32 +783,44 @@ namespace DeskBox.UI.Views
         }
         public void LoadExports(string[] files) { LoadExports(files, false); }
 
-        private void LoadExports(string[] files, bool attach)
+        private void LoadExports(string[] files, bool attach, bool bind = false)
         {
-            Work("读取工程导出文件", t => PlcEngineering.ReadExports(files, t), value =>
+            InvalidateProgrammingTarget("工程资料已切换。");
+            programmingSource = null;
+            Work("读取工程导出文件", t => ReadProgrammingExports(files, t), value =>
             {
-                inspected = null; apFile = null; lastAiAnalysis = ""; ResetCpus(); Display(value);
+                programmingSource = value.Item2;
+                inspected = null; apFile = null; lastAiAnalysis = ""; lastNativeValidation = ""; ResetCpus(); Display(value.Item1);
                 if (attach)
                 {
                     useProjectContext.Checked = true;
                     FocusRequirement();
                 }
+                if (bind) ConfirmTargetSelection();
             }, keepPage: attach);
         }
-        private void ChooseProject()
+        private void ChooseProject() { OpenProgrammingProject(false); }
+
+        private void OpenProgrammingProject(bool bind)
         {
-            using (var dialog = new OpenFileDialog { Title = "选择关闭的独立 V20 离线工程文件", Filter = "TIA Portal V20 (*.ap20)|*.ap20", CheckFileExists = true })
+            using (var dialog = new OpenFileDialog { Title = "选择关闭的独立 V20 离线工程或归档", Filter = "TIA Portal V20 (*.ap20;*.zap20)|*.ap20;*.zap20", CheckFileExists = true })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                string path = dialog.FileName;
+                string path = PlcEngineering.FullLocalPath(dialog.FileName);
+                InvalidateProgrammingTarget("原生工程目标已切换。");
+                programmingSource = null;
+                lastNativeValidation = "";
+                if (string.Equals(Path.GetExtension(path), ".zap20", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("已识别 V20 归档 " + path + "。请先在 Siemens TIA Portal 中恢复为独立 .ap20，再读取并绑定该工程。");
                 var job = new TiaJob { ProjectFile = path, ProjectId = ProjectId() };
                 Work("生成隔离副本并读取", t => TiaOpenness.Run(job, t), result =>
                 {
                     ShowReceipt(result);
                     if (result.Error.Length != 0 || result.Snapshot == null) return;
-                    inspected = result; apFile = path; lastAiAnalysis = ""; ResetCpus(); cpu.Items.AddRange(result.Cpus.Cast<object>().ToArray());
+                    inspected = result; apFile = path; lastAiAnalysis = ""; SetNativeProgrammingSource(path, result); ResetCpus(); cpu.Items.AddRange(result.Cpus.Cast<object>().ToArray());
                     if (cpu.Items.Count == 2) cpu.SelectedIndex = 1;
                     Display(result.Snapshot);
+                    if (bind) ConfirmTargetSelection();
                 }, outcome: ReceiptPhase);
             }
         }
@@ -811,7 +835,9 @@ namespace DeskBox.UI.Views
             {
                 ShowReceipt(result);
                 if (result.Error.Length != 0 || result.Snapshot == null) return;
+                InvalidateProgrammingTarget("已重新读取原生工程及源码，请重新确认当前目标。");
                 inspected = result; lastAiAnalysis = "";
+                SetNativeProgrammingSource(apFile, result);
                 Display(result.Snapshot);
             }, outcome: ReceiptPhase);
         }
@@ -952,7 +978,7 @@ namespace DeskBox.UI.Views
             SelectTab(6);
             OpenOutput(currentDiagnostics.Count == 0 ? 0 : 1);
         }
-        private AiProvider ApproveModel(string context)
+        private AiProvider ApproveModel(string context, bool scopedContext = false)
         {
             if (context.Length != 0 && !Store.Settings.AiFileAccess) throw new InvalidOperationException("请先在文件与隐私中启用 AI 文件访问。");
             var model = providers == null ? null : providers.DefaultProvider;
@@ -960,7 +986,8 @@ namespace DeskBox.UI.Views
             if (!AiEnvironment.Local)
             {
                 SetPhase(Phase.WaitingForApproval);
-                if (MessageBox.Show(this, "将本次需求和当前范围的资料发送给 " + model.Name + "。\r\n工程上下文约 " + context.Length + " 字。是否继续？", "发送工程资料", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                string amount = scopedContext ? "发送已绑定 PLC 与所选对象的授权资料，最多 15000 字。" : "工程上下文约 " + context.Length + " 字。";
+                if (MessageBox.Show(this, "将本次需求和当前范围的资料发送给 " + model.Name + "。\r\n" + amount + "是否继续？", "发送工程资料", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
                 {
                     SetPhase(Phase.Cancelled);
                     return null;
@@ -978,30 +1005,6 @@ namespace DeskBox.UI.Views
         }
         private void Generate() { SubmitRequirement(requirement.Text); }
 
-        private void SubmitRequirement(string prompt)
-        {
-            if (operation != null || string.IsNullOrWhiteSpace(prompt)) return;
-            var provider = providers == null ? null : providers.DefaultProvider;
-            if (provider == null || !provider.Enabled)
-            {
-                SetPhase(Phase.WaitingForInput);
-                assistant.Text = "请打开「配置 AI 服务商」，设置当前 AI 环境的默认模型。也可以先载入缩放模板，在本地编辑和静态检查。";
-                FocusRequirement();
-                return;
-            }
-            string context = useProjectContext.Checked ? Context() : "";
-            if (context.Length != 0 && !Store.Settings.AiFileAccess)
-            {
-                SetPhase(Phase.WaitingForInput);
-                assistant.Text = "已加载工程资料。若计划要引用这些资料，请先在「设置 → 文件与隐私」启用 AI 文件访问。";
-                return;
-            }
-            var model = ApproveModel(context); if (model == null) return;
-            submittedRequirement = prompt;
-            AddConversation("工程需求", prompt);
-            if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
-            RequestPlan("生成结构化工程任务与草稿", t => TiaPlanning.Plan(model, prompt, context, t));
-        }
         private void RepairDraft()
         {
             if (diagnosticDraft == null || !SameSource(diagnosticDraft, editor.Text) || currentDiagnostics.Count == 0)
@@ -1015,6 +1018,7 @@ namespace DeskBox.UI.Views
         }
         private void RequestPlan(string action, Func<CancellationToken, PlcDraft> factory)
         {
+            var originalOwner = editorTask;
             Work(action, factory, draft =>
             {
                 assistant.Text = draft.Plan();
@@ -1024,8 +1028,8 @@ namespace DeskBox.UI.Views
                 reviewedEditor = null;
                 pendingTemplateName = null;
                 if (draft.Scl.Length == 0) SelectTab(0);
-                else if (editor.TextLength == 0 || SameSource(editor.Text, draft.Scl)) LoadScl(draft.Scl);
-                else ShowDraftPreview(draft.Scl);
+                else if (editor.TextLength == 0 || SameSource(editor.Text, draft.Scl)) LoadScl(draft.Scl, owner: originalOwner);
+                else ShowDraftPreview(draft.Scl, owner: originalOwner);
                 var review = draft.Scl.Length == 0 ? null : PlcEngineering.ReviewScl(draft.Scl, "SCL 草稿");
                 output.Text = "AI 草稿 · " + draft.Kind + " " + draft.Name + "\r\n" + draft.Plan() + "\r\n" +
                     (review == null ? "无 SCL 草稿。" : DraftReview(review));
@@ -1034,22 +1038,25 @@ namespace DeskBox.UI.Views
                 outcome: draft => draft.Kind == "PLAN" || (draft.MissingParameters != null && draft.MissingParameters.Any(text => !string.IsNullOrWhiteSpace(text)))
                     ? Phase.WaitingForInput : pendingScl != null ? Phase.WaitingForApproval : Phase.Completed);
         }
-        private void LoadScl(string scl, string approvedTemplateName = null)
+        private void LoadScl(string scl, string approvedTemplateName = null, TiaProgrammingTask owner = null)
         {
             pendingScl = null;
             reviewedEditor = null;
             pendingTemplateName = null;
             templateName = approvedTemplateName;
+            previewTask = null;
+            editorTask = owner;
             editor.Text = scl;
             Highlight();
             RefreshDiffView();
             SelectTab(0);
         }
-        private void ShowDraftPreview(string proposed, string proposedTemplateName = null)
+        private void ShowDraftPreview(string proposed, string proposedTemplateName = null, TiaProgrammingTask owner = null)
         {
             pendingScl = proposed;
             reviewedEditor = editor.Text;
             pendingTemplateName = proposedTemplateName;
+            previewTask = owner;
             diff.Text = "待确认的 SCL 草稿替换\r\n\r\n" + SclEditing.Diff(reviewedEditor, pendingScl);
             SelectTab(5);
         }
@@ -1058,11 +1065,11 @@ namespace DeskBox.UI.Views
             if (pendingScl == null || mode.SelectedIndex == 0) return;
             if (!SameSource(reviewedEditor, editor.Text) || !diff.Text.StartsWith("待确认的 SCL 草稿替换", StringComparison.Ordinal))
             {
-                ShowDraftPreview(pendingScl, pendingTemplateName);
+                ShowDraftPreview(pendingScl, pendingTemplateName, previewTask);
                 assistant.Text = "当前草稿已改变，替换预览已更新。请重新核对后再应用。";
                 return;
             }
-            LoadScl(pendingScl, pendingTemplateName);
+            LoadScl(pendingScl, pendingTemplateName, previewTask);
             UpdateButtons();
             SetPhase(Phase.Completed);
         }
@@ -1163,7 +1170,7 @@ namespace DeskBox.UI.Views
         private void Compile(bool add)
         {
             if (mode.SelectedIndex == 0 || add && mode.SelectedIndex != 2) return;
-            if (inspected == null || cpu.SelectedIndex < 1) throw new InvalidOperationException("请先读取 V20 工程副本并选择目标 PLC。");
+            if (!AllowsNativeCompilation(add)) throw new InvalidOperationException("请重新核对工程版本、目标 PLC、批准范围和待执行草稿。");
             string target = Convert.ToString(cpu.SelectedItem);
             var job = add ? TiaOpenness.PrepareSclInsertion(apFile, target, NativeFingerprint(), editor.Text, ProjectId()) :
                 new TiaJob { Operation = "compile", ProjectFile = apFile, Cpu = target, ExpectedSource = NativeFingerprint(), ProjectId = ProjectId() };
@@ -1182,14 +1189,16 @@ namespace DeskBox.UI.Views
             {
                 if (result.Saved && result.Snapshot != null && result.SavedCopyHash.Length != 0)
                 {
+                    InvalidateProgrammingTarget("已保存新副本，复用前需要重新绑定其版本。");
                     inspected = result; apFile = result.Copy;
+                    SetNativeProgrammingSource(apFile, result);
                     Display(result.Snapshot);
                 }
                 ShowReceipt(result, job);
             }, running: Phase.Validating, outcome: result => result.Compiled && (!add || result.Saved) && result.Error.Length == 0 ? Phase.Completed : Phase.Failed);
         }
 
-        private string NativeFingerprint() { return inspected.Saved ? inspected.SavedCopyHash : inspected.SourceHash; }
+        private string NativeFingerprint() { return inspected == null ? "" : inspected.Saved ? inspected.SavedCopyHash : inspected.SourceHash; }
 
         private bool ConfirmInsertion(string summary, string sourceDiff)
         {
@@ -1247,7 +1256,11 @@ namespace DeskBox.UI.Views
         private void ShowReceipt(TiaResult result, TiaJob job = null)
         {
             if (result.Error.Length != 0) lastWorkbenchError = result.Error;
-            if (job != null) verificationCompile = result.Error.Length == 0 ? "TIA 已返回编译回执" : "失败 · " + result.Error;
+            if (job != null)
+            {
+                verificationCompile = result.Error.Length == 0 ? "TIA 已返回编译回执" : "失败 · " + result.Error;
+                if (result.CompileState != "未运行") lastNativeValidation = DateTime.UtcNow.ToString("O");
+            }
             if (result.Saved || result.WriteStarted) savedJob = result;
             output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report + "\r\n\r\n工作副本 · " + result.Copy;
             if (result.OpennessVersion.Length != 0) output.AppendText("\r\nOpenness · " + result.OpennessVersion);
