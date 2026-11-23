@@ -104,6 +104,7 @@ namespace DeskBox.UI.Views
                 box.BackColor = Palette.CardBg;
                 box.ForeColor = Palette.Text;
             }
+            foreach (TabPage tab in assistantTabs.TabPages) tab.BackColor = Palette.PanelAlt;
             assistantTabs.Colors = Palette;
             assistantTabs.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
             assistantTabs.FitLabels();
@@ -126,6 +127,7 @@ namespace DeskBox.UI.Views
             programmingProgress.Text = "提交 SCL 编程任务后显示真实步骤、文件与下一步。";
             var taskPage = new TabPage("编程任务");
             var tools = Bar();
+            tools.BackColor = Color.Transparent;
             tools.Controls.AddRange(new Control[] { Button("当前编程目标", ViewProgrammingTarget, false), Button("任务记录", OpenProgrammingHistory), isolatedDraft });
             taskPage.Controls.AddRange(new Control[] { programmingProgress, tools });
             assistantTabs.TabPages.AddRange(new[] { statusPage, taskPage, conversationPage });

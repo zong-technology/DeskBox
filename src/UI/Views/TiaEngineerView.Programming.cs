@@ -115,9 +115,13 @@ namespace DeskBox.UI.Views
                 scopeChoice.SelectedIndex = 0;
                 var itemChoice = BindingChoice("目标程序块、变量表或设备");
                 itemChoice.Name = "tia-bind-object";
-                var test = new CheckBox { Text = "标记为测试资料", AutoSize = true, Visible = !source.Native };
-                var share = new CheckBox { Text = "AI 任务可引用所选工程上下文", AutoSize = true, Enabled = Store.Settings.AiFileAccess, Checked = Store.Settings.AiFileAccess };
-                var settings = Bar(); settings.Controls.AddRange(new Control[] { test, share });
+                var test = new CheckBox { Text = "标记为测试资料", AutoSize = true, Visible = !source.Native, ForeColor = Palette.Text };
+                bool allowContext = Store.Settings.AiFileAccess;
+                var share = new CheckBox { Text = "AI 任务可引用所选工程上下文", AutoSize = true, Checked = allowContext, ForeColor = Palette.Text };
+                var settings = Bar();
+                settings.Controls.Add(test);
+                if (allowContext) settings.Controls.Add(share);
+                else settings.Controls.Add(new Label { Text = "工程上下文须先在 AI 设置授权", AutoSize = true, ForeColor = Palette.TextDim });
                 choices.Controls.Add(Caption("目标 PLC"), 0, 0); choices.Controls.Add(cpuChoice, 1, 0);
                 choices.Controls.Add(Caption("编程范围"), 0, 1); choices.Controls.Add(scopeChoice, 1, 1);
                 choices.Controls.Add(Caption("选定对象"), 0, 2); choices.Controls.Add(itemChoice, 1, 2);
