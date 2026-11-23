@@ -435,9 +435,16 @@ public static class TiaEngineerAcceptance
         Check(view.Controls.Find("tia-state-0", true).Single().Text.Contains("尚无 SCL 草稿") && !tree.Visible,
             "An empty installed workbench names both the missing draft and the missing engineering tree");
         await Capture(form, evidence, "tia-empty.png");
-        var detect = Children(view).OfType<DarkButton>().Single(b => b.Text == "检测环境");
-        await Click(detect);
+        var discover = view.Controls.Find("tia-discover-projects", true).OfType<DarkButton>().Single();
+        await Click(discover);
         var detectionDeadline = DateTime.UtcNow.AddSeconds(12);
+        while (!mode.Enabled && DateTime.UtcNow < detectionDeadline) await Task.Delay(50);
+        Check(mode.Enabled && view.Controls.Find("tia-connection-status", true).Single().Text.Contains("MCP 已响应"),
+            "The workbench discovery command receives and displays an actual MCP response");
+        tabs.SelectedIndex = 6;
+        var detect = Children(view).OfType<DarkButton>().Single(b => b.Text == "查看能力与环境");
+        await Click(detect);
+        detectionDeadline = DateTime.UtcNow.AddSeconds(12);
         while (!mode.Enabled && DateTime.UtcNow < detectionDeadline) await Task.Delay(50);
         Check(mode.Enabled && tabs.SelectedIndex == 6 && Children(view).OfType<RichTextBox>()
             .Single(area => area.AccessibleName == "编译和操作日志").Text.Contains("连接状态"), "Environment detection publishes actionable status for the actual Windows host");

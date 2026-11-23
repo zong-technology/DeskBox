@@ -86,7 +86,9 @@ namespace DeskBox.UI.Views
             start.Name = "tia-focus-requirement";
             var bindTarget = Button("绑定工程", BindEngineeringTarget);
             bindTarget.Name = "tia-bind-project";
-            top.Controls.AddRange(new Control[] { start, bindTarget, mode, Button("发现打开的工程", DiscoverOpenProjects), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
+            var discover = Button("发现打开的工程", DiscoverOpenProjects);
+            discover.Name = "tia-discover-projects";
+            top.Controls.AddRange(new Control[] { start, bindTarget, mode, discover, Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
             if (openVoice != null) top.Controls.Add(Button("工程语音", openVoice));
             cancel = new DarkButton("取消当前任务") { Width = TiaWorkbenchStyle.Pixels(this, 116), Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ControlHeight), Enabled = false, Palette = Palette };
             cancel.Click += delegate { if (operation != null) operation.Cancel(); }; top.Controls.Add(cancel);
