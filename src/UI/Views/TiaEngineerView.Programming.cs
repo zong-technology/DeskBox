@@ -273,6 +273,8 @@ namespace DeskBox.UI.Views
                 }, source =>
                 {
                     task.Historical = true;
+                    if (new[] { "WAITING_FOR_PROJECT", "READING_PROJECT", "ANALYZING_CONTEXT", "GENERATING_CODE", "STATIC_CHECK", "APPLYING_TO_COPY", "COMPILING" }.Contains(task.State))
+                        store.Step(task, TiaProgrammingState.CANCELLED, "识别到上次执行未结束的记录。", "保留已有产出，从当前已核对的目标重新提交。");
                     ShowProgrammingTask(store, task);
                     if (source == null) { requirement.Text = task.Requirement; FocusRequirement(); return; }
                     if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
@@ -359,17 +361,33 @@ namespace DeskBox.UI.Views
                     SetDiagnostics(review.Diagnostics, editor.Text);
                 }
             }, keepPage: true, running: Phase.Executing, outcome: result => task.State == TiaProgrammingState.BLOCKED.ToString() ? Phase.WaitingForInput : Phase.WaitingForApproval,
-                ended: error =>
-                {
-                    var state = error is OperationCanceledException ? TiaProgrammingState.CANCELLED : task.State == "READING_PROJECT" ? TiaProgrammingState.BLOCKED : TiaProgrammingState.FAILED;
-                    try
-                    {
-                        store.Step(task, state, "本次任务未继续执行。", "检查错误后重试，已写出的成果保留在任务目录。", error.Message);
-                        if (!IsDisposed && programmingTask == task) ShowProgrammingTask(store, task);
-                    }
-                    catch (IOException storageError) { Store.Log("warn", "engineering", "无法更新任务 " + task.Id + " · " + storageError.Message); }
-                    catch (UnauthorizedAccessException storageError) { Store.Log("warn", "engineering", "无法更新任务 " + task.Id + " · " + storageError.Message); }
-                });
+                ended: error => RecordProgrammingError(store, task, error, "检查错误后重试，已写出的成果保留在任务目录。"));
+        }
+
+        private void RecordProgrammingError(TiaProgrammingStore store, TiaProgrammingTask task, Exception error, string next)
+        {
+            var state = error is OperationCanceledException ? TiaProgrammingState.CANCELLED :
+                task.State == "READING_PROJECT" || task.State == "APPLYING_TO_COPY" && error is InvalidOperationException ? TiaProgrammingState.BLOCKED : TiaProgrammingState.FAILED;
+            try
+            {
+                store.Step(task, state, "本次任务已停止。", next, error.Message);
+                if (!IsDisposed && programmingTask == task) ShowProgrammingTask(store, task);
+            }
+            catch (IOException storageError) { Store.Log("warn", "engineering", "无法更新任务 " + task.Id + " · " + storageError.Message); }
+            catch (UnauthorizedAccessException storageError) { Store.Log("warn", "engineering", "无法更新任务 " + task.Id + " · " + storageError.Message); }
+        }
+
+        private void RecordNativeProgrammingResult(TiaProgrammingStore store, TiaProgrammingTask task, TiaResult result)
+        {
+            var receipts = result.Copy.Length == 0 ? new string[0] : new[] { result.Copy, RecoveryReceiptPath(result) };
+            if (result.CompileStartedUtc.Length != 0)
+                store.Step(task, TiaProgrammingState.COMPILING, "Siemens 编译调用 UTC " + result.CompileStartedUtc + " 至 " + result.CompileFinishedUtc,
+                    "按真实回执核对编译和保存结果。", result.Error, outputs: receipts);
+            bool saved = result.Compiled && result.Saved && result.Error.Length == 0;
+            store.Step(task, saved ? TiaProgrammingState.COMPLETED : TiaProgrammingState.FAILED,
+                saved ? "Siemens 回执确认独立副本已编译并保存。" : "Siemens 回执没有确认编译并保存。",
+                "核对本机作业回执和保留的草稿。", saved ? "" : result.Error.Length == 0 ? result.CompileState : result.Error, outputs: receipts);
+            if (programmingTask == task) ShowProgrammingTask(store, task);
         }
 
         private void StopBeforeGeneration(TiaProgrammingStore store, TiaProgrammingTask task, string reason, string next)
@@ -416,7 +434,7 @@ namespace DeskBox.UI.Views
                         string.Join("\n", objects.Where(o => o != current).Take(80).Select(o => o.Identity + " · " + o.DataType + " " + o.Address + " · " + o.Source)), 15000);
                 }
             }
-            step(TiaProgrammingState.GENERATING_CODE, "已调用模型，最多等待 90 秒。", "校验结构，保存来稿并执行本机静态检查。");
+            step(TiaProgrammingState.GENERATING_CODE, "开始请求模型，最多等待 90 秒。", "校验结构，保存来稿并执行本机静态检查。");
             PlcDraft draft;
             using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(token))
             {

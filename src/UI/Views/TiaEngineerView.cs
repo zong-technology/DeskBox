@@ -1185,8 +1185,16 @@ namespace DeskBox.UI.Views
                 return;
             }
             if (add) diff.Text = "已批准的新增 FB 差异\r\n\r\n" + sourceDiff;
+            var task = add ? editorTask : null;
+            var records = task == null ? null : ProgrammingStore();
+            if (task != null)
+            {
+                records.Step(task, TiaProgrammingState.APPLYING_TO_COPY, "用户已批准新增 FB。正在核对源哈希并启动独立副本作业。", "等待 Siemens 工作进程返回实际回执。");
+                ShowProgrammingTask(records, task);
+            }
             Work(add ? "副本新增与离线编译" : "离线编译", t => TiaOpenness.Run(job, t), result =>
             {
+                if (task != null) RecordNativeProgrammingResult(records, task, result);
                 if (result.Saved && result.Snapshot != null && result.SavedCopyHash.Length != 0)
                 {
                     InvalidateProgrammingTarget("已保存新副本，复用前需要重新绑定其版本。");
@@ -1195,7 +1203,8 @@ namespace DeskBox.UI.Views
                     Display(result.Snapshot);
                 }
                 ShowReceipt(result, job);
-            }, running: Phase.Validating, outcome: result => result.Compiled && (!add || result.Saved) && result.Error.Length == 0 ? Phase.Completed : Phase.Failed);
+            }, running: Phase.Validating, outcome: result => result.Compiled && (!add || result.Saved) && result.Error.Length == 0 ? Phase.Completed : Phase.Failed,
+                ended: error => { if (task != null) RecordProgrammingError(records, task, error, "检查 Siemens 权限和独立副本，重新确认后再操作。"); });
         }
 
         private string NativeFingerprint() { return inspected == null ? "" : inspected.Saved ? inspected.SavedCopyHash : inspected.SourceHash; }
@@ -1259,7 +1268,7 @@ namespace DeskBox.UI.Views
             if (job != null)
             {
                 verificationCompile = result.Error.Length == 0 ? "TIA 已返回编译回执" : "失败 · " + result.Error;
-                if (result.CompileState != "未运行") lastNativeValidation = DateTime.UtcNow.ToString("O");
+                if (result.CompileFinishedUtc.Length != 0) lastNativeValidation = result.CompileFinishedUtc;
             }
             if (result.Saved || result.WriteStarted) savedJob = result;
             output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report + "\r\n\r\n工作副本 · " + result.Copy;

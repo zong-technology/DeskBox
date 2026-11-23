@@ -569,6 +569,42 @@ public static class TiaEngineerAcceptance
         await WaitEnabled(button("绑定工程"));
         var invalidated = store.Recent().Single(item => item.Id == task.Id);
         Check(invalidated.State == "BLOCKED" && store.ReadDraft(invalidated).Contains("FB_BoundScale"), "Switching projects invalidates the old approval and retains its SCL file");
+
+        await Click(button("输入工程需求"));
+        prompt.Text = "生成量程未确认的模拟量缩放 FB 草稿。";
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim(true))
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, planOnly: true));
+            await Click(button("生成 SCL 草稿"));
+            await WaitEnabled(button("生成 SCL 草稿"));
+            await request;
+            var blocked = store.Recent().First();
+            Check(blocked.State == "BLOCKED" && blocked.DraftFile.Length == 0 && blocked.Next.Contains("生成隔离草稿") && blocked.Steps.Last().Error.Contains("量程"),
+                "A planning-only reply ends with a concrete blocker and an isolated-draft action");
+        }
+        assistantTab.SelectedIndex = 1;
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim(true))
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, "FB_IsolatedScale"));
+            await Click(button("生成隔离草稿"));
+            await WaitEnabled(button("生成 SCL 草稿"));
+            var payload = await request;
+            var isolated = store.Recent().First();
+            Check(payload.Contains("本机隔离草稿") && isolated.Isolated && isolated.Target == null && store.ReadDraft(isolated).Contains("FB_IsolatedScale"),
+                "The isolated action completes a new local draft after a planning-only response");
+        }
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim(true))
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, disconnect: true));
+            await Click(button("生成 SCL 草稿"));
+            await WaitEnabled(button("生成 SCL 草稿"));
+            await request;
+            Check(store.Recent().First().State == "FAILED" && store.ReadDraft(invalidated).Contains("FB_BoundScale"),
+                "A model disconnect records failure while the previous task artifact remains readable");
+        }
     }
 
     private static async Task WaitEnabled(Control control)
@@ -766,7 +802,7 @@ public static class TiaEngineerAcceptance
         Check(draft.Focused && draft.Height >= 100, "The narrow programming page scrolls to a usable SCL editor");
         await Capture(form, evidence, "tia-editor-narrow.png");
     }
-    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null)
+    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null, bool planOnly = false, bool disconnect = false)
     {
         using (var client = listener.AcceptTcpClient())
         using (var stream = client.GetStream())
@@ -796,7 +832,9 @@ public static class TiaEngineerAcceptance
             }
             requestReceived.Set();
             if (!canReply.Wait(TimeSpan.FromSeconds(4))) throw new TimeoutException("Waiting for editor input");
-            var plan = new PlcDraft { Kind = "FB", Name = name, Purpose = "审查草稿", Scl = source ?? PlcEngineering.AnalogScale(name), Tests = new[] { "复核静态诊断及预期行为" } };
+            if (disconnect) return Encoding.UTF8.GetString(body);
+            var plan = planOnly ? new PlcDraft { Kind = "PLAN", Purpose = "待确认设备数据。", MissingParameters = new[] { "请确认量程。" } } :
+                new PlcDraft { Kind = "FB", Name = name, Purpose = "审查草稿", Scl = source ?? PlcEngineering.AnalogScale(name), Tests = new[] { "复核静态诊断及预期行为" } };
             var reply = Encoding.UTF8.GetBytes(Json.ToJson(new { choices = new[] { new { message = new { content = Json.ToJson(plan) } } } }));
             var header = Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + reply.Length + "\r\nConnection: close\r\n\r\n");
             stream.Write(header, 0, header.Length);

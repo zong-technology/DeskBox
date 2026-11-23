@@ -365,7 +365,8 @@ namespace DeskBox.UI.Views
             if (projectHeading == null) return;
             var target = programmingTarget;
             projectHeading.Text = target != null ? target.Source.Name : programmingSource != null ? programmingSource.Name : snapshot == null ? "未加载工程" : "当前资料待重新读取";
-            modeStatus.Text = (target == null ? "未绑定" : Known(target.Cpu) + "  ·  " + ScopeLabel(target) + (target.ObjectName.Length == 0 ? "" : "  ·  " + target.ObjectName)) + "  ·  " + PhaseLabel(phase);
+            modeStatus.Text = (target == null ? "未绑定" : Known(target.Cpu) + "  ·  " + ScopeLabel(target) + (target.ObjectName.Length == 0 ? "" : "  ·  " + target.ObjectName) +
+                (target.Source.Native ? "  ·  离线副本" : "  ·  本机草稿")) + "  ·  " + PhaseLabel(phase);
             workbenchTips.SetToolTip(projectHeading, projectHeading.Text);
             workbenchTips.SetToolTip(modeStatus, modeStatus.Text);
             connectionStatus.Text = inspected != null ? "V20 · 副本已读取" : !v20Checked ? "V20 · 待检测" : v20Discovered ? "V20 · 接口已发现" : "V20 · 原生接口未就绪";
