@@ -364,16 +364,20 @@ namespace DeskBox.UI.Views
         {
             if (projectHeading == null) return;
             var target = programmingTarget;
-            projectHeading.Text = target != null ? target.Source.Name : programmingSource != null ? programmingSource.Name : snapshot == null ? "未加载工程" : "当前资料待重新读取";
-            modeStatus.Text = (target == null ? "未绑定" : Known(target.Cpu) + "  ·  " + ScopeLabel(target) + (target.ObjectName.Length == 0 ? "" : "  ·  " + target.ObjectName) +
+            projectHeading.Text = target != null ? target.Source.Name : programmingSource != null ? programmingSource.Name : liveProject != null ? snapshot.Name : snapshot == null ? "未加载工程" : "当前资料待重新读取";
+            modeStatus.Text = (target == null ? liveProject == null ? "未绑定" :
+                (cpu.SelectedIndex > 0 ? Convert.ToString(cpu.SelectedItem) : "请选择 PLC") + "  ·  工程只读" : Known(target.Cpu) + "  ·  " + ScopeLabel(target) + (target.ObjectName.Length == 0 ? "" : "  ·  " + target.ObjectName) +
                 (target.Source.Native ? "  ·  离线副本" : "  ·  本机草稿")) + "  ·  " + PhaseLabel(phase);
             workbenchTips.SetToolTip(projectHeading, projectHeading.Text);
             workbenchTips.SetToolTip(modeStatus, modeStatus.Text);
-            connectionStatus.Text = inspected != null ? "V20 · 副本已读取" : !v20Checked ? "V20 · 待检测" : v20Discovered ? "V20 · 接口已发现" : "V20 · 原生接口未就绪";
+            string tiaStatus = liveProject != null ? liveStatus : inspected != null ? "V20 已读副本" : !v20Checked ? liveStatus : v20Discovered ? "V20 接口已发现" : "V20 接口未就绪";
+            connectionStatus.Text = tiaStatus + " · " + mcpStatus;
+            workbenchTips.SetToolTip(connectionStatus, connectionStatus.Text);
+            if (liveProject != null) workbenchTips.SetToolTip(projectHeading, liveProject.Path + " · PID " + liveProject.ProcessId);
             connectionStatus.ForeColor = inspected != null ? TiaWorkbenchStyle.Success(Palette) : v20Checked && !v20Discovered ? TiaWorkbenchStyle.Warning(Palette) : Palette.TextDim;
             var objectName = selected == null ? "未选中对象" : selected.Name;
             var origin = snapshot == null ? "未绑定工程资料" : snapshot.Origin;
-            contextDetails.Text = target == null ? "当前编程目标 · 未绑定\r\n" + origin + " · " + objectName + "\r\n请选择绑定，或生成通用 SCL 草稿。" :
+            contextDetails.Text = liveProject != null && target == null ? liveProject.Path + "\r\n" + objectName + "\r\n工程只读 · 独立副本需重新绑定" : target == null ? "当前编程目标 · 未绑定\r\n" + origin + " · " + objectName + "\r\n请选择绑定，或生成通用 SCL 草稿。" :
                 "当前编程目标 · " + target.Source.Origin + "\r\n" + Known(target.Cpu) + "  ·  " + ScopeLabel(target) + "\r\n" + (target.ObjectName.Length == 0 ? "未选择单个对象" : target.ObjectName);
             workbenchTips.SetToolTip(contextDetails, TargetSummary(target));
             var detail = selected == null ? "在工程树中选择程序块或变量。" : selected.Name + "\r\n\r\n" + selected.Kind + "   " + selected.Language +

@@ -219,6 +219,9 @@ public static class TiaEngineerAcceptance
             try
             {
                 DeskBox.Core.AppPaths.DataDir = temp;
+#if NETFRAMEWORK || TIA_WINFORMS
+                TestMcp(temp, evidence);
+#endif
                 string jobDir = Path.Combine(temp, "tia-jobs", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(jobDir);
                 string recorded = Path.Combine(jobDir, "snapshot"), work = Path.Combine(jobDir, "work");
@@ -289,6 +292,56 @@ public static class TiaEngineerAcceptance
         }
         finally { try { Directory.Delete(temp, true); } catch (IOException) { } }
     }
+#if NETFRAMEWORK || TIA_WINFORMS
+    private static void TestMcp(string root, string evidence)
+    {
+        var result = TiaOpenness.Run(new TiaJob { Operation = "discover" }, CancellationToken.None);
+        var audit = File.ReadAllText(result.McpAudit);
+        Check(audit.Contains("tia_discover_projects") && audit.Contains("tools/call") &&
+            audit.Contains(result.Error.Length == 0 ? "tool_succeeded" : "tool_failed"), "Real DeskBox processes negotiate MCP, discover the tool and record its outcome");
+        Check(result.Error.Length == 0 ? result.OpennessVersion.Length != 0 : result.Snapshot == null && result.OpenProjects.Count == 0,
+            "Unavailable Openness returns a real MCP tool error with no engineering data");
+        var evidenceFolder = Path.GetDirectoryName(result.McpAudit);
+        File.Copy(result.McpAudit, Path.Combine(evidence, "mcp-discovery-audit.jsonl"), true);
+        File.Copy(Path.Combine(evidenceFolder, "result.json"), Path.Combine(evidence, "mcp-discovery-result.json"), true);
+
+        var id = Guid.NewGuid().ToString("N");
+        var jobRoot = Path.Combine(root, "tia-jobs");
+        var job = Path.Combine(jobRoot, id);
+        Directory.CreateDirectory(job);
+        File.WriteAllText(Path.Combine(job, "approved-operation.json"), Json.ToJson(new TiaJob { Operation = "discover" }));
+        var start = new System.Diagnostics.ProcessStartInfo(typeof(TiaOpenness).Assembly.Location, "--tia-mcp " + id + " \"" + jobRoot + "\"")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true
+        };
+        using (var process = System.Diagnostics.Process.Start(start))
+        {
+            try
+            {
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}");
+                Check(ReadMcpTestResponse(process).Contains("2025-06-18"), "The stdio server returns an MCP initialize response");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
+                string listing = ReadMcpTestResponse(process);
+                Check(listing.Contains("tia_discover_projects") && !listing.Contains("tia_compile_offline_copy"), "A discovery job advertises only its read capability");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"tia_compile_offline_copy\",\"arguments\":{\"jobId\":\"" + id + "\"}}}");
+                Check(ReadMcpTestResponse(process).Contains("-32602"), "MCP denies switching discovery to compile");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"tia_discover_projects\",\"arguments\":{\"jobId\":\"unknown\"}}}");
+                Check(ReadMcpTestResponse(process).Contains("-32602") && !File.Exists(Path.Combine(job, "started.lock")), "Invalid MCP arguments never start an engineering operation");
+                process.StandardInput.Close();
+                Check(process.WaitForExit(5000) && process.ExitCode == 0, "Closing MCP stdin stops the idle server");
+            }
+            finally { if (!process.HasExited) process.Kill(); }
+        }
+    }
+
+    private static string ReadMcpTestResponse(System.Diagnostics.Process process)
+    {
+        var pending = process.StandardOutput.ReadLineAsync();
+        if (!pending.Wait(5000) || pending.Result == null) throw new IOException("MCP test server did not reply.");
+        return pending.Result;
+    }
+#endif
     private static void TestProgrammingRecords(string root)
     {
         var file = Path.Combine(root, "binding-source.csv");

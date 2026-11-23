@@ -23,9 +23,9 @@ namespace DeskBox
         [STAThread]
         private static void Main(string[] args)
         {
-            if (args.Length == 3 && args[0] == "--tia-worker")
+            if (args.Length == 3 && args[0] == "--tia-mcp")
             {
-                Environment.ExitCode = Engineering.Tia.TiaOpenness.RunWorker(args[1], args[2]);
+                Environment.ExitCode = Engineering.Tia.TiaOpenness.RunMcpServer(args[1], args[2]);
                 return;
             }
             bool bridge = args.Length == 1 && args[0] == "--bridge";

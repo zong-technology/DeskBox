@@ -18,6 +18,13 @@ namespace DeskBox.Engineering.Tia
         public string Operation = "inspect", ProjectFile = "", Cpu = "", Block = "", ApprovedHash = "", CatalogQuery = "", ProjectId = "", ExpectedSource = "";
         public string Source = "";
         public bool ReadBlockContent;
+        public int PortalProcessId;
+    }
+
+    public sealed class TiaOpenProject
+    {
+        public int ProcessId;
+        public string Name = "", Path = "", Version = "V20";
     }
 
     public sealed class TiaResult
@@ -27,6 +34,9 @@ namespace DeskBox.Engineering.Tia
         public string CompileStartedUtc = "", CompileFinishedUtc = "";
         public bool Saved, Compiled, WriteStarted, OpenedReadOnly;
         public PlcSnapshot Snapshot;
+        public string McpAudit = "";
+        public int CompatibleProcesses;
+        public List<TiaOpenProject> OpenProjects = new List<TiaOpenProject>();
         public List<string> Cpus = new List<string>();
         public List<PlcDiagnostic> Diagnostics = new List<PlcDiagnostic>();
     }
@@ -41,7 +51,7 @@ namespace DeskBox.Engineering.Tia
         {
             ValidateJob(job);
             token.ThrowIfCancellationRequested();
-            RequireV20();
+            if (NeedsCopy(job.Operation)) RequireV20();
             var root = PlcEngineering.FullLocalPath(Path.Combine(AppPaths.DataDir, "tia-jobs"));
             string id = Guid.NewGuid().ToString("N");
             var dir = Path.Combine(root, id);
@@ -51,7 +61,7 @@ namespace DeskBox.Engineering.Tia
             var resultPath = Path.Combine(dir, ResponseFile);
             try
             {
-                if (job.Operation != "catalog")
+                if (NeedsCopy(job.Operation))
                 {
                     var file = PlcEngineering.FullLocalPath(job.ProjectFile);
                     var parent = Path.GetDirectoryName(file);
@@ -68,22 +78,11 @@ namespace DeskBox.Engineering.Tia
                         throw new IOException("工作副本与原始快照不一致。");
                 }
                 token.ThrowIfCancellationRequested();
-                var executable = typeof(TiaOpenness).Assembly.Location;
-                using (var process = Process.Start(new ProcessStartInfo(executable, "--tia-worker " + id + " \"" + root.TrimEnd('\\') + "\"") { UseShellExecute = false, CreateNoWindow = true }))
-                {
-                    var time = Stopwatch.StartNew();
-                    while (!process.WaitForExit(150))
-                    {
-                        if (!token.IsCancellationRequested && time.Elapsed < TimeSpan.FromMinutes(5)) continue;
-                        try { process.Kill(); } catch (InvalidOperationException) { }
-                        token.ThrowIfCancellationRequested();
-                        throw new TimeoutException("Openness 操作超时。工程副本已保留，请检查 TIA 授权提示或此次专用实例。");
-                    }
-                    token.ThrowIfCancellationRequested();
-                    if (!File.Exists(resultPath)) throw new IOException("Openness 工作进程未产生回执，退出码 " + process.ExitCode + "。");
-                }
+                bool succeeded = TiaMcp.Run(root, id, job, token);
+                if (!File.Exists(resultPath)) throw new IOException("TIA MCP 未保存工程回执。");
                 var result = Json.FromJson<TiaResult>(File.ReadAllText(resultPath));
-                if (result == null) throw new InvalidDataException("无法读取 Openness 回执。");
+                if (result == null || succeeded != (result.Error.Length == 0)) throw new InvalidDataException("TIA MCP 状态与本地 Openness 回执不一致。");
+                result.McpAudit = Path.Combine(dir, "mcp-audit.jsonl");
                 return result;
             }
             catch (Exception ex)
@@ -93,21 +92,30 @@ namespace DeskBox.Engineering.Tia
             }
         }
 
-        public static int RunWorker(string id, string dataRoot)
+        internal static int RunMcpServer(string id, string dataRoot)
         {
             Guid parsed;
-            if (!Guid.TryParseExact(id, "N", out parsed) || Path.GetFileName(dataRoot) != "tia-jobs") return 2;
+            if (!Guid.TryParseExact(id, "N", out parsed) || id != parsed.ToString("N") || Path.GetFileName(dataRoot) != "tia-jobs") return 2;
             var directory = PlcEngineering.FullLocalPath(Path.Combine(dataRoot, id));
+            var job = Json.Load<TiaJob>(PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile)), null);
+            ValidateJob(job);
+            using (var input = new StreamReader(Console.OpenStandardInput(), Utf8))
+            using (var output = new StreamWriter(Console.OpenStandardOutput(), Utf8))
+                return TiaMcp.Serve(dataRoot, id, job, input, output);
+        }
+
+        internal static int RunWorker(string id, string dataRoot, TiaJob job)
+        {
+            var directory = PlcEngineering.FullLocalPath(Path.Combine(dataRoot, id));
+            using (var start = new FileStream(Path.Combine(directory, "started.lock"), FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
             var result = new TiaResult();
-            TiaJob job = null;
             try
             {
-                job = Json.Load<TiaJob>(PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile)), null);
                 ValidateJob(job);
                 var installation = RequireV20();
                 result.OpennessVersion = FileVersionInfo.GetVersionInfo(installation.AssemblyPath).FileVersion ?? "";
                 var project = "";
-                if (job.Operation != "catalog")
+                if (NeedsCopy(job.Operation))
                 {
                     project = PlcEngineering.FullLocalPath(Path.Combine(directory, CopyFolder, Path.GetFileName(job.ProjectFile)));
                     var baseline = PlcEngineering.FullLocalPath(Path.Combine(directory, SnapshotFolder, Path.GetFileName(job.ProjectFile)));
@@ -118,7 +126,7 @@ namespace DeskBox.Engineering.Tia
                     if (job.ExpectedSource.Length != 0 && result.SourceHash != job.ExpectedSource)
                         throw new IOException("工程快照指纹与审批不一致。");
                 }
-                using (var api = new V20Session(installation.AssemblyPath)) api.Execute(job, project, directory, result);
+                using (var api = new V20Session(installation.AssemblyPath, job.Operation != "discover" && job.Operation != "read-open")) api.Execute(job, project, directory, result);
                 if (result.Saved) result.SavedCopyHash = PlcEngineering.Hash(string.Join("\n", CopyTree(Path.GetDirectoryName(project), null, CancellationToken.None)));
             }
             catch (Exception e)
@@ -139,12 +147,15 @@ namespace DeskBox.Engineering.Tia
         private static TiaInstallation RequireV20()
         {
             var inspection = TiaEnvironmentInspector.Inspect();
+            if (!inspection.Windows) throw new PlatformNotSupportedException(inspection.Describe());
             var installation = inspection.Installations.FirstOrDefault(i => i.Version == 20 && i.AssemblyPath != null);
             if (installation == null) throw new InvalidOperationException("需要 TIA Portal V20 和匹配的 PublicAPI/V20/Siemens.Engineering.dll。" + Environment.NewLine + inspection.Describe());
             if (!inspection.OpennessGroup) throw new InvalidOperationException("当前 Windows 用户令牌未验证为 Siemens TIA Openness 组成员。");
             PlcEngineering.FullLocalPath(installation.AssemblyPath);
             return installation;
         }
+
+        private static bool NeedsCopy(string operation) { return operation != "catalog" && operation != "discover" && operation != "read-open"; }
 
         private static bool WritesBlock(string operation) { return operation == "scale" || operation == "scl"; }
 
@@ -174,8 +185,9 @@ namespace DeskBox.Engineering.Tia
 
         private static void ValidateJob(TiaJob job)
         {
-            if (job == null || !new[] { "inspect", "compile", "scale", "scl", "catalog" }.Contains(job.Operation))
-                throw new InvalidOperationException("仅支持离线读取、新增 FB、编译和硬件目录查询。");
+            if (job == null || !new[] { "discover", "read-open", "inspect", "compile", "scale", "scl", "catalog" }.Contains(job.Operation))
+                throw new InvalidOperationException("仅支持工程发现与读取、离线副本新增和编译、硬件目录查询。");
+            if (job.Operation == "discover") return;
             if (job.Operation == "catalog")
             {
                 if (string.IsNullOrWhiteSpace(job.CatalogQuery) || job.CatalogQuery.Length > 120) throw new ArgumentException("请输入目录搜索词或订货号（1–120 字）。");
@@ -183,6 +195,12 @@ namespace DeskBox.Engineering.Tia
             }
             if (!string.Equals(Path.GetExtension(job.ProjectFile), ".ap20", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("此连接器只打开同版本的独立 .ap20 工程。归档、旧版和多用户项目请先在 TIA 中另存独立离线工程。");
+            if (job.Operation == "read-open")
+            {
+                if (job.PortalProcessId <= 0 || !Path.IsPathRooted(job.ProjectFile) || job.ReadBlockContent)
+                    throw new ArgumentException("读取已打开的 V20 工程需要确认实例 PID 和完整路径，只允许元数据读取。");
+                return;
+            }
             if ((job.Operation == "compile" || WritesBlock(job.Operation)) && (string.IsNullOrWhiteSpace(job.Cpu) || string.IsNullOrWhiteSpace(job.ExpectedSource)))
                 throw new InvalidOperationException("请先读取工程，并明确选择一个 PLC 对象。");
             if (job.Operation == "scale" && PlcEngineering.Hash(PlcEngineering.AnalogScale(job.Block)) != job.ApprovedHash)
@@ -343,11 +361,12 @@ namespace DeskBox.Engineering.Tia
             private readonly string apiDir;
             private IDisposable portal;
             private object project;
+            private readonly bool ownsProject;
             private int exportSize;
             private const string Ns = "Siemens.Engineering.";
             private const int MaxObjects = 10000;
 
-            public V20Session(string path)
+            public V20Session(string path, bool dedicated)
             {
                 apiDir = Path.GetDirectoryName(path);
                 AppDomain.CurrentDomain.AssemblyResolve += Resolve;
@@ -388,8 +407,56 @@ namespace DeskBox.Engineering.Tia
                 return provider.GetMethods().Single(m => m.Name == "GetService" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0).MakeGenericMethod(Type(Ns + name)).Invoke(target, null);
             }
 
+            private static string ProjectPath(object process)
+            {
+                var path = Prop(process, "ProjectPath") as FileInfo;
+                return path == null ? "" : path.FullName;
+            }
+
+            private void Discover(TiaResult result)
+            {
+                var processes = Type(Ns + "TiaPortal").GetMethod("GetProcesses", BindingFlags.Public | BindingFlags.Static).Invoke(null, null);
+                foreach (var process in Items(processes))
+                {
+                    result.CompatibleProcesses++;
+                    var path = ProjectPath(process);
+                    if (!string.Equals(Path.GetExtension(path), ".ap20", StringComparison.OrdinalIgnoreCase)) continue;
+                    result.OpenProjects.Add(new TiaOpenProject { ProcessId = (int)Prop(process, "Id"), Path = path, Name = Path.GetFileNameWithoutExtension(path) });
+                }
+                result.Report = "V20 Openness 枚举实例 " + result.CompatibleProcesses + " · 已打开的独立 .ap20 主工程 " + result.OpenProjects.Count;
+            }
+
+            private void ReadOpen(TiaJob job, string directory, TiaResult result)
+            {
+                var type = Type(Ns + "TiaPortal");
+                var process = type.GetMethod("GetProcess", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(int) }, null)
+                    .Invoke(null, new object[] { job.PortalProcessId });
+                var expected = PlcEngineering.FullLocalPath(job.ProjectFile);
+                if (process == null || !string.Equals(ProjectPath(process), expected, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("所选 TIA 工程已关闭或切换。请重新发现工程。");
+                portal = (IDisposable)Call(process, "Attach");
+                if (!string.Equals(ProjectPath(Call(portal, "GetCurrentProcess")), expected, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("附加后的工程与所选路径不一致。");
+                project = Items(Prop(portal, "Projects")).SingleOrDefault(x => Convert.ToBoolean(Prop(x, "IsPrimary")));
+                if (project == null) throw new InvalidOperationException("TIA 实例没有可读取的主工程。");
+                var cpus = new Dictionary<string, object>(StringComparer.Ordinal);
+                var snapshot = Read(directory, cpus, false);
+                if (!string.Equals(ProjectPath(Call(portal, "GetCurrentProcess")), expected, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("工程在读取期间关闭或切换。请重新发现工程。");
+                snapshot.Origin = "TIA V20 Openness · 已打开工程 · 只读";
+                snapshot.Notes.Clear();
+                if (snapshot.Objects.Count == 0) snapshot.Notes.Add("该工程未枚举到设备或子网。");
+                snapshot.Notes.Add("已读取设备、程序块和 PLC 变量元数据。关闭源工程后可读取有指纹的独立副本并申请离线写入。");
+                result.OpenedReadOnly = true;
+                result.Snapshot = snapshot;
+                result.Cpus = cpus.Keys.OrderBy(x => x).ToList();
+                result.Report = expected + Environment.NewLine + "PID " + job.PortalProcessId + Environment.NewLine + snapshot.Report();
+            }
+
             public void Execute(TiaJob job, string file, string directory, TiaResult result)
             {
+                if (job.Operation == "discover") { Discover(result); return; }
+                if (job.Operation == "read-open") { ReadOpen(job, directory, result); return; }
                 if (job.Operation == "catalog")
                 {
                     var entries = Items(Call(Prop(portal, "HardwareCatalog"), "Find", job.CatalogQuery)).Take(201).ToList();
@@ -450,6 +517,7 @@ namespace DeskBox.Engineering.Tia
                     File.WriteAllText(Path.Combine(directory, "diff.txt"), result.Report, Utf8);
                     Call(project, "Save"); result.Saved = true; result.Snapshot = after;
                 }
+                if (!result.Compiled) result.Error = "TIA 离线编译未通过 · " + result.CompileState + " · 错误 " + errors;
                 result.Report += Environment.NewLine + "保存副本 · " + (result.Saved ? "已保存" : "未保存修改") + "。仿真、工程师审核、现场验证未执行。";
             }
 
@@ -571,7 +639,7 @@ namespace DeskBox.Engineering.Tia
 
             public void Dispose()
             {
-                try { if (project != null) Call(project, "Close"); }
+                try { if (ownsProject && project != null) Call(project, "Close"); }
                 finally { try { if (portal != null) portal.Dispose(); } finally { AppDomain.CurrentDomain.AssemblyResolve -= Resolve; } }
             }
         }

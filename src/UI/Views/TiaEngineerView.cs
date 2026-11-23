@@ -60,6 +60,9 @@ namespace DeskBox.UI.Views
         private CancellationTokenSource operation;
         private CancellationToken voiceScope;
         private Phase phase;
+        private TiaOpenProject liveProject;
+        private string mcpStatus = "MCP 待检测";
+        private string liveStatus = "TIA 待检测";
 
         public TiaEngineerView(Store store, ProviderStore providers, WorkspaceStore projects, Action configureModel = null,
             Action openVoice = null) : base(store, "博图 AI 工程师", "只读模式 · TIA Portal、SCL 与离线工程验证")
@@ -83,7 +86,7 @@ namespace DeskBox.UI.Views
             start.Name = "tia-focus-requirement";
             var bindTarget = Button("绑定工程", BindEngineeringTarget);
             bindTarget.Name = "tia-bind-project";
-            top.Controls.AddRange(new Control[] { start, bindTarget, mode, Button("检测环境", Inspect), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
+            top.Controls.AddRange(new Control[] { start, bindTarget, mode, Button("发现打开的工程", DiscoverOpenProjects), Button("打开导出资料", ChooseExports), Button("读取 .ap20 副本", ChooseProject), Button("导出报告", ExportReport) });
             if (openVoice != null) top.Controls.Add(Button("工程语音", openVoice));
             cancel = new DarkButton("取消当前任务") { Width = TiaWorkbenchStyle.Pixels(this, 116), Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ControlHeight), Enabled = false, Palette = Palette };
             cancel.Click += delegate { if (operation != null) operation.Cancel(); }; top.Controls.Add(cancel);
@@ -162,6 +165,15 @@ namespace DeskBox.UI.Views
             ApplyPalette(Palette);
             RestoreRequirement();
             RefreshHeading();
+            HandleCreated += delegate
+            {
+                BeginInvoke(new Action(delegate
+                {
+                    if (IsDisposed || operation != null || snapshot != null) return;
+                    if (TiaEnvironmentInspector.RunningPortalIds().Any()) DiscoverOpenProjects();
+                    else { liveStatus = "TIA 未运行"; RefreshHeading(); }
+                }));
+            };
         }
 
         private FlowLayoutPanel Bar() { return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2, 2, 2, 3) }; }
@@ -723,8 +735,8 @@ namespace DeskBox.UI.Views
                     display(value);
                     SetPhase(outcome == null ? Phase.Completed : outcome(value));
                     AppendOperation(PhaseLabel(phase) + " · " + action);
+                    Store.Log(phase == Phase.Failed ? "warn" : "info", "engineering", "TIA · " + PhaseLabel(phase) + " · " + action + ProjectLabel());
                 }
-                Store.Log("info", "engineering", "TIA · 完成 " + action + ProjectLabel());
             }
             catch (OperationCanceledException ex)
             {
@@ -767,6 +779,59 @@ namespace DeskBox.UI.Views
                 OpenOutput(0);
             });
         }
+        private void DiscoverOpenProjects()
+        {
+            var job = new TiaJob { Operation = "discover", ProjectId = ProjectId() };
+            Work("发现打开的 TIA 工程", token => TiaOpenness.Run(job, token), result =>
+            {
+                ShowReceipt(result);
+                if (result.Error.Length != 0) { liveStatus = "TIA 不可用"; return; }
+                liveStatus = result.CompatibleProcesses == 0 ? "V20 无实例" : "V20 实例已发现";
+                assistant.Text = result.Report;
+                var target = result.OpenProjects.Count == 1 ? result.OpenProjects[0] : PickOpenProject(result.OpenProjects);
+                if (target != null) BeginInvoke(new Action(() => ReadOpenProject(target)));
+            }, outcome: ReceiptPhase, ended: error => { mcpStatus = "MCP 连接异常"; liveStatus = "TIA 待确认"; });
+        }
+
+        private TiaOpenProject PickOpenProject(IList<TiaOpenProject> entries)
+        {
+            if (entries.Count == 0) return null;
+            using (var dialog = ReviewWindow("选择打开的 V20 工程", 820, 420))
+            {
+                var projectsList = new ListBox { Dock = DockStyle.Fill, AccessibleName = "已打开的 V20 工程",
+                    BackColor = Palette.CardBg, ForeColor = Palette.Text, HorizontalScrollbar = true };
+                projectsList.Items.AddRange(entries.Select(p => p.Name + " · PID " + p.ProcessId + " · " + p.Path).Cast<object>().ToArray());
+                var buttons = Bar(); buttons.Dock = DockStyle.Bottom;
+                var read = new Button { Text = "读取所选工程", AutoSize = true, Enabled = false, DialogResult = DialogResult.OK };
+                var back = new Button { Text = "取消", AutoSize = true, DialogResult = DialogResult.Cancel };
+                projectsList.SelectedIndexChanged += delegate { read.Enabled = projectsList.SelectedIndex >= 0; };
+                buttons.Controls.AddRange(new Control[] { read, back });
+                dialog.Controls.AddRange(new Control[] { projectsList, buttons });
+                dialog.CancelButton = back;
+                return dialog.ShowDialog(this) == DialogResult.OK && projectsList.SelectedIndex >= 0 ? entries[projectsList.SelectedIndex] : null;
+            }
+        }
+
+        private void ReadOpenProject(TiaOpenProject target)
+        {
+            var job = new TiaJob { Operation = "read-open", ProjectFile = target.Path, PortalProcessId = target.ProcessId, ProjectId = ProjectId() };
+            Work("只读附加 V20 工程", token => TiaOpenness.Run(job, token), result =>
+            {
+                ShowReceipt(result);
+                if (result.Error.Length != 0 || result.Snapshot == null) { liveStatus = "V20 读取失败"; return; }
+                InvalidateProgrammingTarget("当前已切换为打开工程的只读视图。");
+                programmingSource = null; inspected = null; apFile = null; lastNativeValidation = ""; lastAiAnalysis = "";
+                liveProject = target;
+                liveStatus = "V20 已读工程";
+                ResetCpus();
+                cpu.Items.AddRange(result.Cpus.Cast<object>().ToArray());
+                if (cpu.Items.Count == 2) cpu.SelectedIndex = 1;
+                Display(result.Snapshot);
+                assistant.Text = target.Path + "\r\n" + (result.Cpus.Count > 1 ? "请选择目标 PLC。" : result.Cpus.Count == 0 ? "未枚举到 PLC。" : "已预选唯一 PLC。") +
+                    "\r\n当前为元数据只读。离线操作从已关闭工程的独立副本开始。";
+            }, outcome: ReceiptPhase, ended: error => { mcpStatus = "MCP 连接异常"; liveStatus = "TIA 待确认"; });
+        }
+
         private string[] SelectExports()
         {
             using (var dialog = new OpenFileDialog { Title = "选择工程导出文件", Multiselect = true, CheckFileExists = true, Filter = "工程导出 (*.aml;*.xml;*.scl;*.udt;*.db;*.csv)|*.aml;*.xml;*.scl;*.udt;*.db;*.csv" })
@@ -789,6 +854,7 @@ namespace DeskBox.UI.Views
             programmingSource = null;
             Work("读取工程导出文件", t => ReadProgrammingExports(files, t), value =>
             {
+                liveProject = null;
                 programmingSource = value.Item2;
                 inspected = null; apFile = null; lastAiAnalysis = ""; lastNativeValidation = ""; ResetCpus(); Display(value.Item1);
                 if (attach)
@@ -817,6 +883,7 @@ namespace DeskBox.UI.Views
                 {
                     ShowReceipt(result);
                     if (result.Error.Length != 0 || result.Snapshot == null) return;
+                    liveProject = null;
                     inspected = result; apFile = path; lastAiAnalysis = ""; SetNativeProgrammingSource(path, result); ResetCpus(); cpu.Items.AddRange(result.Cpus.Cast<object>().ToArray());
                     if (cpu.Items.Count == 2) cpu.SelectedIndex = 1;
                     Display(result.Snapshot);
@@ -1174,7 +1241,7 @@ namespace DeskBox.UI.Views
             string target = Convert.ToString(cpu.SelectedItem);
             var job = add ? TiaOpenness.PrepareSclInsertion(apFile, target, NativeFingerprint(), editor.Text, ProjectId()) :
                 new TiaJob { Operation = "compile", ProjectFile = apFile, Cpu = target, ExpectedSource = NativeFingerprint(), ProjectId = ProjectId() };
-            string summary = "工程 " + snapshot.Name + "\r\nPLC " + target + "\r\n" + (add ? "新增单个 FB " + job.Block + "，成功编译和复读后保存独立副本。\r\nSCL SHA-256 " + job.ApprovedHash : "在新副本离线编译并读取诊断。") + "\r\n将先保留原文件快照。";
+            string summary = "工程 " + snapshot.Name + "\r\n路径 " + apFile + "\r\nPLC " + target + "\r\n" + (add ? "新增单个 FB " + job.Block + "，成功编译和复读后保存独立副本。\r\nSCL SHA-256 " + job.ApprovedHash : "在新副本离线编译并读取诊断。") + "\r\n将先保留原文件快照。";
             string sourceDiff = add ? SclEditing.Diff("", job.Source) : "";
             if (add) diff.Text = "待批准的新增 FB 差异\r\n\r\n" + sourceDiff;
             SetPhase(Phase.WaitingForApproval);
@@ -1265,6 +1332,7 @@ namespace DeskBox.UI.Views
         private void ShowReceipt(TiaResult result, TiaJob job = null)
         {
             if (result.Error.Length != 0) lastWorkbenchError = result.Error;
+            if (result.McpAudit.Length != 0) mcpStatus = "MCP 已响应";
             if (job != null)
             {
                 verificationCompile = result.Error.Length == 0 ? "TIA 已返回编译回执" : "失败 · " + result.Error;
@@ -1273,6 +1341,7 @@ namespace DeskBox.UI.Views
             if (result.Saved || result.WriteStarted) savedJob = result;
             output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report + "\r\n\r\n工作副本 · " + result.Copy;
             if (result.OpennessVersion.Length != 0) output.AppendText("\r\nOpenness · " + result.OpennessVersion);
+            if (result.McpAudit.Length != 0) output.AppendText("\r\nMCP 审计 · " + result.McpAudit);
             if (result.Copy.Length != 0) output.AppendText("\r\n作业回执 · " + RecoveryReceiptPath(result));
             bool canRepair = job != null && job.Operation == "scl" && result.Diagnostics.Any(issue => MatchesBlock(issue, job.Block));
             SetDiagnostics(result.Diagnostics, canRepair ? job.Source : null, canRepair ? job.Block : null);
