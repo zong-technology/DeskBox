@@ -207,6 +207,13 @@ public static class TiaEngineerAcceptance
             prepared.Source += "// changed after approval";
             try { TiaOpenness.Run(prepared, CancellationToken.None); Check(false, "Edited approved source must fail"); }
             catch (InvalidOperationException ex) { Check(ex.Message.Contains("批准记录不一致"), "Changed approved source is rejected before TIA detection"); }
+            const string fc = "FUNCTION FC_Scale : Real\nVAR_INPUT\n Raw : Real;\nEND_VAR\nBEGIN\n #FC_Scale := #Raw;\nEND_FUNCTION";
+            var approvedFc = TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", fc);
+            Check(approvedFc.Block == "FC_Scale" && approvedFc.BlockKind == "FC" && approvedFc.ApprovedHash == PlcEngineering.Hash(fc),
+                "An FC approval binds source, type and target");
+            approvedFc.BlockKind = "FB";
+            try { TiaOpenness.Run(approvedFc, CancellationToken.None); Check(false, "Changed approved FC type must fail"); }
+            catch (InvalidOperationException ex) { Check(ex.Message.Contains("类型与批准记录不一致"), "Changed FC type is rejected before native operation"); }
             var backup = Path.Combine(temp, "snapshot"); var copy = Path.Combine(temp, "work");
             var manifest = TiaOpenness.CopyTree(source, backup, CancellationToken.None);
             Check(manifest.SequenceEqual(TiaOpenness.CopyTree(backup, copy, CancellationToken.None)), "Binary copy and snapshot manifest match");
@@ -256,6 +263,9 @@ public static class TiaEngineerAcceptance
                 File.WriteAllText(receiptPath, Json.ToJson(saved));
                 var recoverable = TiaOpenness.ReadRecoveryReceipt(receiptPath);
                 Check(recoverable.WriteStarted && !recoverable.Saved, "A failed write that has a confirmed snapshot can be recovered");
+                string checkpoint = Path.Combine(jobDir, "write-started.json");
+                File.Move(receiptPath, checkpoint);
+                Check(TiaOpenness.ReadRecoveryReceipt(checkpoint).WriteStarted, "Interrupted writes can recover from a durable checkpoint without a final receipt");
                 saved = reloaded;
 #endif
                 string restored = TiaOpenness.RestoreSnapshot(saved, CancellationToken.None);
@@ -277,6 +287,10 @@ public static class TiaEngineerAcceptance
             Reject(() => TiaOpenness.VerifyNewScaleBlock(before, after, "CPU", "Approved"), "Unapproved modification of an existing object blocks save");
             after.Objects[0] = originalBlock;
             Reject(() => TiaOpenness.VerifyNewScaleBlock(before, after, "OtherCPU", "Approved"), "FB in another controller cannot satisfy the approval");
+            var newFc = new PlcObject { Name = "FC_Scale", Kind = "FC", Scope = "CPU/Blocks", Interface = "Raw : Real", Fingerprint = "fc" };
+            after.Objects[1] = newFc;
+            Check(TiaOpenness.VerifyNewBlock(before, after, "CPU", "FC_Scale", "FC") == newFc, "An FC readback must match the approved name, target and type");
+            Reject(() => TiaOpenness.VerifyNewBlock(before, after, "CPU", "FC_Scale", "FB"), "FC readback cannot satisfy an FB approval");
             Reject(() => TiaOpenness.Run(new TiaJob { Operation = "download", ProjectFile = project }, CancellationToken.None), "Online write request rejected before native environment detection");
             TestProgrammingRecords(temp);
             var env = TiaEnvironmentInspector.Inspect(); Console.WriteLine(env.Describe());
@@ -416,7 +430,7 @@ public static class TiaEngineerAcceptance
         var view = form.Controls.Find("page-tia", true).OfType<TiaEngineerView>().Single();
         var tree = Children(view).OfType<TreeView>().Single(); var tabs = view.Controls.Find("tia-work-tabs", true).OfType<TabControl>().Single();
         var mode = Children(view).OfType<ComboBox>().First(x => x.AccessibleName == "操作模式");
-        var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增 FB 并编译");
+        var approve = Children(view).OfType<DarkButton>().Single(x => x.Name == "tia-approve-insertion");
         Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode and write approval gate");
         Check(view.Controls.Find("tia-state-0", true).Single().Text.Contains("尚无 SCL 草稿") && !tree.Visible,
             "An empty installed workbench names both the missing draft and the missing engineering tree");

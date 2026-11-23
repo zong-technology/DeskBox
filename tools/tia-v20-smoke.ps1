@@ -1,15 +1,17 @@
 # Run using Windows PowerShell 5.1 on a licensed, isolated Windows test machine.
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName="Closed")]
 param(
-    [Parameter(Mandatory=$true)][string]$ClosedOfflineProject,
+    [Parameter(Mandatory=$true, ParameterSetName="Closed")][string]$ClosedOfflineProject,
+    [Parameter(Mandatory=$true, ParameterSetName="Open")][string]$OpenProject,
+    [Parameter(ParameterSetName="Open")][int]$PortalProcessId,
     [Parameter(Mandatory=$true)][string]$EvidenceDirectory,
     [string]$DeskBoxExe = 'dist\DeskBox.exe',
-    [string]$TargetCpu,
-    [switch]$Compile,
-    [string]$ApprovedNewScaleBlock,
-    [string]$ApprovedSclFile,
-    [string]$ApprovedSclSha256,
-    [switch]$ReadBlockContent,
+    [Parameter(ParameterSetName="Closed")][string]$TargetCpu,
+    [Parameter(ParameterSetName="Closed")][switch]$Compile,
+    [Parameter(ParameterSetName="Closed")][string]$ApprovedNewScaleBlock,
+    [Parameter(ParameterSetName="Closed")][string]$ApprovedSclFile,
+    [Parameter(ParameterSetName="Closed")][string]$ApprovedSclSha256,
+    [Parameter(ParameterSetName="Closed")][switch]$ReadBlockContent,
     [string[]]$ExpectedDevice = @(),
     [string[]]$ExpectedBlock = @(),
     [string[]]$ExpectedTag = @()
@@ -31,16 +33,30 @@ if (-not ($envInfo.Installations | Where-Object { $_.Version -eq 20 -and $_.Asse
     throw 'BLOCKED: V20 PublicAPI and the active Siemens TIA Openness group are required.'
 }
 [DeskBox.Core.AppPaths]::DataDir = $folder
-$job = New-Object DeskBox.Engineering.Tia.TiaJob
-$job.ProjectFile = [DeskBox.Engineering.Tia.PlcEngineering]::FullLocalPath($ClosedOfflineProject)
 $token = [Threading.CancellationToken]::None
-$sourceFolder = Split-Path -LiteralPath $job.ProjectFile
-$sourceBefore = [DeskBox.Engineering.Tia.TiaOpenness]::CopyTree($sourceFolder, $null, $token)
+$job = New-Object DeskBox.Engineering.Tia.TiaJob
+if ($OpenProject) {
+    $path = [DeskBox.Engineering.Tia.PlcEngineering]::FullLocalPath($OpenProject)
+    $job.Operation = 'discover'
+    $discovered = [DeskBox.Engineering.Tia.TiaOpenness]::Run($job, $token)
+    if ($discovered.Error) { throw $discovered.Error }
+    $matches = @($discovered.OpenProjects | Where-Object {
+        $_.Path -ieq $path -and (-not $PortalProcessId -or $_.ProcessId -eq $PortalProcessId)
+    })
+    if ($matches.Count -ne 1) { throw "Exactly one open project must match the specified path and optional PID." }
+    $job.Operation = 'read-open'
+    $job.PortalProcessId = $matches[0].ProcessId
+    $job.ProjectFile = $matches[0].Path
+} else {
+    $job.ProjectFile = [DeskBox.Engineering.Tia.PlcEngineering]::FullLocalPath($ClosedOfflineProject)
+    $sourceFolder = Split-Path -LiteralPath $job.ProjectFile
+    $sourceBefore = [DeskBox.Engineering.Tia.TiaOpenness]::CopyTree($sourceFolder, $null, $token)
+}
 $inspection = [DeskBox.Engineering.Tia.TiaOpenness]::Run($job, $token)
 $inspection.Report | Write-Output
 if ($inspection.Error) { throw $inspection.Error }
 if (-not $inspection.Snapshot -or -not $inspection.Cpus.Count) { throw 'The selected project has no enumerated PLC.' }
-if (-not $inspection.OpenedReadOnly) { throw 'V20 did not use the read-only secondary project mode.' }
+if (-not $inspection.OpenedReadOnly) { throw 'The read-only path was not used for project inspection.' }
 $inspection.Cpus | ForEach-Object { Write-Output ('PLC: ' + $_) }
 function Test-ExpectedObject([string[]]$Names, [string[]]$Kinds) {
     foreach ($name in $Names) {
@@ -50,10 +66,13 @@ function Test-ExpectedObject([string[]]$Names, [string[]]$Kinds) {
     }
 }
 Test-ExpectedObject $ExpectedDevice @('Device', 'DeviceItem')
-Test-ExpectedObject $ExpectedBlock @('FB', 'FC', 'OB', 'GlobalDB', 'InstanceDB')
+Test-ExpectedObject $ExpectedBlock @('FB', 'FC', 'OB', 'DB', 'GlobalDB', 'InstanceDB')
 Test-ExpectedObject $ExpectedTag @('PlcTag')
 $summary = [ordered]@{
     Project = $inspection.Snapshot.Name
+    ProjectPath = $job.ProjectFile
+    PortalProcessId = $job.PortalProcessId
+    McpReadAudit = $inspection.McpAudit
     OpennessVersion = $inspection.OpennessVersion
     OpenedReadOnly = $inspection.OpenedReadOnly
     Cpus = $inspection.Cpus
@@ -64,7 +83,12 @@ $summary = [ordered]@{
     Compile = 'NotRun'
     SavedCopyReopened = $false
     SnapshotRestored = $false
-    SourceUnchanged = $false
+    SourceUnchanged = $null
+}
+if ($OpenProject) {
+    $summary | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $folder 'acceptance-summary.json')
+    Write-Output ('Evidence: ' + $folder)
+    return
 }
 try {
     if ($ReadBlockContent -or $ApprovedNewScaleBlock -or $ApprovedSclFile) {
@@ -103,7 +127,7 @@ try {
         }
         if ($result.Error) { throw $result.Error }
         if (-not $result.Compiled) { throw ('Native PLC compilation did not pass: ' + $result.CompileState) }
-        if ($job.Block -and -not $result.Saved) { throw 'The approved working copy was not saved.' }
+        if ($job.Block -and (-not $result.Saved -or -not $result.Verified)) { throw 'The approved working copy was not saved.' }
         if ($job.Block) {
             if (-not (Test-Path -LiteralPath (Join-Path $operationFolder 'diff.txt'))) { throw 'The approved operation did not leave a diff.' }
             $reopenJob = New-Object DeskBox.Engineering.Tia.TiaJob
@@ -111,7 +135,7 @@ try {
             $reopenJob.ReadBlockContent = $true
             $reopened = [DeskBox.Engineering.Tia.TiaOpenness]::Run($reopenJob, $token)
             if ($reopened.Error) { throw $reopened.Error }
-            [DeskBox.Engineering.Tia.TiaOpenness]::VerifyNewScaleBlock($inspection.Snapshot, $reopened.Snapshot, $TargetCpu, $job.Block)
+            [DeskBox.Engineering.Tia.TiaOpenness]::VerifyNewBlock($inspection.Snapshot, $reopened.Snapshot, $TargetCpu, $job.Block, $job.BlockKind) | Out-Null
             $summary.SavedCopyReopened = $true
         }
         Write-Output ('Copy: ' + $result.Copy)

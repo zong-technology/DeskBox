@@ -16,7 +16,7 @@ namespace DeskBox.Engineering.Tia
     public sealed class TiaJob
     {
         public string Operation = "inspect", ProjectFile = "", Cpu = "", Block = "", ApprovedHash = "", CatalogQuery = "", ProjectId = "", ExpectedSource = "";
-        public string Source = "";
+        public string Source = "", BlockKind = "FB";
         public bool ReadBlockContent;
         public int PortalProcessId;
     }
@@ -31,8 +31,8 @@ namespace DeskBox.Engineering.Tia
     {
         public string Error = "", Copy = "", Report = "", CompileState = "未运行", SourceHash = "";
         public string OpennessVersion = "", SavedCopyHash = "";
-        public string CompileStartedUtc = "", CompileFinishedUtc = "";
-        public bool Saved, Compiled, WriteStarted, OpenedReadOnly;
+        public string CompileStartedUtc = "", CompileFinishedUtc = "", VerifyStartedUtc = "";
+        public bool Saved, Compiled, WriteStarted, OpenedReadOnly, Verified;
         public PlcSnapshot Snapshot;
         public string McpAudit = "";
         public int CompatibleProcesses;
@@ -44,6 +44,7 @@ namespace DeskBox.Engineering.Tia
     public static class TiaOpenness
     {
         private const string RequestFile = "approved-operation.json", ResponseFile = "result.json";
+        private const string WriteCheckpoint = "write-started.json";
         private const string SnapshotFolder = "snapshot", CopyFolder = "work";
         private static readonly Encoding Utf8 = new UTF8Encoding(false);
 
@@ -88,6 +89,9 @@ namespace DeskBox.Engineering.Tia
             catch (Exception ex)
             {
                 File.WriteAllText(Path.Combine(dir, "failed.txt"), DateTime.UtcNow.ToString("O") + "\r\n" + ex.Message, Utf8);
+                string checkpoint = Path.Combine(dir, WriteCheckpoint);
+                if (!(ex is OperationCanceledException) && File.Exists(checkpoint))
+                    throw new IOException(ex.Message + Environment.NewLine + "恢复回执 · " + checkpoint, ex);
                 throw;
             }
         }
@@ -162,12 +166,15 @@ namespace DeskBox.Engineering.Tia
         public static TiaJob PrepareSclInsertion(string project, string cpu, string expectedSource, string source, string projectId = "")
         {
             var job = new TiaJob { Operation = "scl", ProjectFile = project, Cpu = cpu, ExpectedSource = expectedSource, ProjectId = projectId,
-                Source = source, Block = VerifySclSource(source), ApprovedHash = PlcEngineering.Hash(source) };
+                Source = source, ApprovedHash = PlcEngineering.Hash(source) };
+            var block = VerifySclSource(source);
+            job.Block = block.Name;
+            job.BlockKind = block.Kind;
             ValidateJob(job);
             return job;
         }
 
-        private static string VerifySclSource(string source)
+        private static PlcObject VerifySclSource(string source)
         {
             if (string.IsNullOrWhiteSpace(source) || source.Length > 20000) throw new ArgumentException("请选择 1–20000 字的 SCL 草稿。");
             if (source.Any(c => c > '~' || c < ' ' && c != '\r' && c != '\n' && c != '\t'))
@@ -175,12 +182,16 @@ namespace DeskBox.Engineering.Tia
             var review = PlcEngineering.ReviewScl(source, "审批草稿");
             var block = review.Objects.Count == 1 ? review.Objects[0] : null;
             var masked = SclEditing.Mask(source, false);
-            if (block == null || block.Kind != "FB" || !Regex.IsMatch(block.Name, @"\A[A-Za-z_][A-Za-z0-9_]{0,62}\z") ||
-                !Regex.IsMatch(masked, @"\A\s*FUNCTION_BLOCK[ \t]+[\s\S]*?\bEND_FUNCTION_BLOCK[ \t]*;?\s*\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) ||
-                Regex.Matches(masked, @"\bEND_FUNCTION_BLOCK\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Count != 1 ||
-                review.Diagnostics.Any(d => d.Severity == "Error"))
-                throw new InvalidDataException("仅接受通过当前静态错误检查的单个新 FB，且源文件只能包含该块。");
-            return block.Name;
+            const RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+            if (block == null || (block.Kind != "FB" && block.Kind != "FC") ||
+                !Regex.IsMatch(block.Name, @"\A[A-Za-z_][A-Za-z0-9_]{0,62}\z") || review.Diagnostics.Any(d => d.Severity == "Error"))
+                throw new InvalidDataException("仅接受通过静态错误检查的单个 SCL FC 或 FB。");
+            string header = block.Kind == "FB" ? "FUNCTION_BLOCK" : "FUNCTION";
+            string footer = "END_" + header;
+            if (!Regex.IsMatch(masked, @"\A\s*" + header + @"[ \t]+[\s\S]*?\b" + footer + @"[ \t]*;?\s*\z", options) ||
+                Regex.Matches(masked, @"\bEND_FUNCTION(?:_BLOCK)?\b", options).Count != 1)
+                throw new InvalidDataException("SCL 文件只能包含已批准的单个完整块。");
+            return block;
         }
 
         private static void ValidateJob(TiaJob job)
@@ -205,16 +216,22 @@ namespace DeskBox.Engineering.Tia
                 throw new InvalidOperationException("请先读取工程，并明确选择一个 PLC 对象。");
             if (job.Operation == "scale" && PlcEngineering.Hash(PlcEngineering.AnalogScale(job.Block)) != job.ApprovedHash)
                 throw new InvalidOperationException("缩放模板与已批准的源文件不匹配。");
-            if (job.Operation == "scl" && (job.ApprovedHash != PlcEngineering.Hash(job.Source) || job.Block != VerifySclSource(job.Source)))
-                throw new InvalidOperationException("SCL 源或块名与批准记录不一致。");
+            if (job.Operation == "scl")
+            {
+                if (job.ApprovedHash != PlcEngineering.Hash(job.Source))
+                    throw new InvalidOperationException("SCL 源与批准记录不一致。");
+                var approved = VerifySclSource(job.Source);
+                if (job.Block != approved.Name || job.BlockKind != approved.Kind)
+                    throw new InvalidOperationException("块名或类型与批准记录不一致。");
+            }
         }
 
         public static TiaResult ReadRecoveryReceipt(string path)
         {
             var receipt = PlcEngineering.FullLocalPath(path);
             var directory = Path.GetDirectoryName(receipt);
-            if (!string.Equals(Path.GetFileName(receipt), ResponseFile, StringComparison.OrdinalIgnoreCase) || !IsJobDirectory(directory))
-                throw new InvalidOperationException("请选择当前资料目录中 TIA 作业的 result.json。");
+            if (!new[] { ResponseFile, WriteCheckpoint }.Contains(Path.GetFileName(receipt), StringComparer.OrdinalIgnoreCase) || !IsJobDirectory(directory))
+                throw new InvalidOperationException("请选择当前资料目录中 TIA 作业的 result.json 或 write-started.json。");
             var requestPath = PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile));
             var storedResult = new FileInfo(receipt);
             var storedRequest = new FileInfo(requestPath);
@@ -340,12 +357,17 @@ namespace DeskBox.Engineering.Tia
 
         public static void VerifyNewScaleBlock(PlcSnapshot before, PlcSnapshot after, string cpu, string block)
         {
+            VerifyNewBlock(before, after, cpu, block, "FB");
+        }
+
+        public static PlcObject VerifyNewBlock(PlcSnapshot before, PlcSnapshot after, string cpu, string block, string kind)
+        {
             var existing = before.Objects.ToLookup(x => x.Identity, StringComparer.OrdinalIgnoreCase);
             var updated = after.Objects.ToLookup(x => x.Identity, StringComparer.OrdinalIgnoreCase);
             var added = updated.Where(g => !existing.Contains(g.Key)).SelectMany(g => g).ToList();
-            if (added.Count != 1 || added[0].Kind != "FB" || added[0].Name != block ||
+            if (added.Count != 1 || (kind != "FC" && kind != "FB") || added[0].Kind != kind || added[0].Name != block ||
                 added[0].Scope != cpu + "/Blocks" || string.IsNullOrWhiteSpace(added[0].Interface))
-                throw new InvalidOperationException("复读未确认目标 PLC 的已批准 FB 接口，停止保存。");
+                throw new InvalidOperationException("复读未确认目标 PLC 的已批准 SCL 块接口，停止保存。");
             foreach (var group in existing)
             {
                 var previous = group.Select(x => x.Fingerprint).OrderBy(x => x, StringComparer.Ordinal);
@@ -353,6 +375,7 @@ namespace DeskBox.Engineering.Tia
                 if (!previous.SequenceEqual(current, StringComparer.Ordinal))
                     throw new InvalidOperationException("复读发现审批以外的对象变化，停止保存：" + group.Key);
             }
+            return added[0];
         }
 
         private sealed class V20Session : IDisposable
@@ -493,6 +516,9 @@ namespace DeskBox.Engineering.Tia
                     File.WriteAllText(source, approvedSource, Encoding.ASCII);
                     File.WriteAllText(Path.Combine(directory, "approved-source-diff.txt"), SclEditing.Diff("", approvedSource), Utf8);
                     var sources = Prop(Prop(cpu, "ExternalSourceGroup"), "ExternalSources");
+                    var checkpoint = new TiaResult { Copy = file, SourceHash = result.SourceHash, WriteStarted = true,
+                        Error = "已开始离线副本写入，操作尚无完整回执。", OpennessVersion = result.OpennessVersion };
+                    File.WriteAllText(Path.Combine(directory, WriteCheckpoint), Json.ToJson(checkpoint), Utf8);
                     result.WriteStarted = true;
                     var external = Call(sources, "CreateFromFile", "DeskBox-" + Path.GetFileName(directory) + ".scl", source);
                     Call(external, "GenerateBlocksFromSource");
@@ -512,10 +538,22 @@ namespace DeskBox.Engineering.Tia
                 {
                     exportSize = 0;
                     var after = Read(directory, new Dictionary<string, object>(StringComparer.Ordinal), true);
-                    VerifyNewScaleBlock(before, after, job.Cpu, job.Block);
+                    result.VerifyStartedUtc = DateTime.UtcNow.ToString("O");
+                    string kind = job.Operation == "scale" ? "FB" : job.BlockKind;
+                    var written = VerifyNewBlock(before, after, job.Cpu, job.Block, kind);
                     result.Report += Environment.NewLine + PlcEngineering.Diff(before, after);
                     File.WriteAllText(Path.Combine(directory, "diff.txt"), result.Report, Utf8);
-                    Call(project, "Save"); result.Saved = true; result.Snapshot = after;
+                    Call(project, "Save"); result.Saved = true;
+                    Call(project, "Close"); project = null;
+                    project = Call(projects, "Open", new FileInfo(file));
+                    exportSize = 0;
+                    var reopened = Read(directory, new Dictionary<string, object>(StringComparer.Ordinal), true);
+                    var persisted = VerifyNewBlock(before, reopened, job.Cpu, job.Block, kind);
+                    if (persisted.Language != written.Language || persisted.Interface != written.Interface || persisted.Content != written.Content)
+                        throw new InvalidDataException("重新打开副本后，目标块的语言、接口或导出正文与保存前不一致。");
+                    result.Snapshot = reopened;
+                    result.Verified = true;
+                    result.Report += Environment.NewLine + "已重新打开保存的副本，目标块语言、接口和导出正文一致。";
                 }
                 if (!result.Compiled) result.Error = "TIA 离线编译未通过 · " + result.CompileState + " · 错误 " + errors;
                 result.Report += Environment.NewLine + "保存副本 · " + (result.Saved ? "已保存" : "未保存修改") + "。仿真、工程师审核、现场验证未执行。";

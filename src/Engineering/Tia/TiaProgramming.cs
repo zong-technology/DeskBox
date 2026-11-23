@@ -59,7 +59,7 @@ namespace DeskBox.Engineering.Tia
         public TiaProgrammingSource Source;
 
         public bool CanTryCompile() { return Source != null && Source.Native && !string.IsNullOrEmpty(Cpu) && Source.Cpus.Contains(Cpu); }
-        public bool CanTryInsert() { return CanTryCompile() && Scope == TiaProgrammingScope.NewFB.ToString(); }
+        public bool CanTryInsert() { return CanTryCompile() && (Scope == TiaProgrammingScope.NewFB.ToString() || Scope == TiaProgrammingScope.NewFC.ToString()); }
 
         public static TiaProgrammingTarget Bind(TiaProgrammingSource source, PlcSnapshot snapshot, string cpu, TiaProgrammingScope scope, PlcObject item, bool fixture)
         {
@@ -113,7 +113,7 @@ namespace DeskBox.Engineering.Tia
     public enum TiaProgrammingState
     {
         WAITING_FOR_PROJECT, READING_PROJECT, ANALYZING_CONTEXT, GENERATING_CODE, STATIC_CHECK, AWAITING_REVIEW,
-        APPLYING_TO_COPY, COMPILING, COMPLETED, BLOCKED, FAILED, CANCELLED
+        APPLYING_TO_COPY, COMPILING, COMPLETED, BLOCKED, FAILED, CANCELLED, VERIFYING, PARTIAL_SUCCESS
     }
 
     public sealed class TiaProgrammingStep

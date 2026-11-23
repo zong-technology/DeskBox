@@ -141,7 +141,8 @@ namespace DeskBox.UI.Views
             repairDraft = Button("生成修复草稿", RepairDraft);
             var restoreBackup = Button("从快照恢复副本", RestoreBackup);
             compileCopy = Button("编译副本", () => Compile(false));
-            approveInsertion = Button("批准新增 FB 并编译", () => Compile(true));
+            approveInsertion = Button("批准新增 SCL 块并编译", () => Compile(true));
+            approveInsertion.Name = "tia-approve-insertion";
             Page("测试验证", "静态检查、TIA 离线编译和现场验证各自记录。", BuildValidationSummary(), cpu, compileCopy, approveInsertion, restoreBackup, Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
             BuildWorkbenchLayout(top, configureModel);
             tabs.SelectedIndexChanged += delegate { RefreshPageStates(); };
@@ -517,7 +518,7 @@ namespace DeskBox.UI.Views
                 editor.Select(0, editor.Lines.Length == 0 ? 0 : editor.Lines[0].Length);
                 editor.Focus();
                 editor.ScrollToCaret();
-                assistant.Text = "已定位已提交的 FB。TIA 回执提供对象路径，具体行号请在 TIA 中核对。";
+                assistant.Text = "已定位已提交的 SCL 块。TIA 回执提供对象路径，具体行号请在 TIA 中核对。";
                 return;
             }
             if (issue.Line > 0 && diagnosticDraft != null)
@@ -770,7 +771,7 @@ namespace DeskBox.UI.Views
                 string connection = readyToAttempt ? "已发现 V20 接口与权限线索，仍需打开实际工程确认许可和能力。" : "缺少 V20 接口或当前用户权限，原生操作不可用。";
                 output.Text = result.Describe() + "\r\n\r\n连接状态\r\n" + connection +
                     "\r\n\r\n工程、设备与程序块：支持读取导出文件；V20 可尝试读取离线副本。" +
-                    "\r\nSCL 导入：V20 支持经审批新增单个 FB。离线编译需选定目标 PLC。" +
+                    "\r\nSCL 导入：V20 支持经审批新增单个 FC/FB。离线编译需选定目标 PLC。" +
                     "\r\n变量表：读取、静态检查和建议。硬件：目录查询和设备建议。当前无写入入口。" +
                     "\r\n网络、LAD/FBD：查看已读取的结构或导出连线。当前无图形编辑入口。" +
                     "\r\n实际项目、真实编译与 PLCSIM 验收分别记录。";
@@ -1241,9 +1242,11 @@ namespace DeskBox.UI.Views
             string target = Convert.ToString(cpu.SelectedItem);
             var job = add ? TiaOpenness.PrepareSclInsertion(apFile, target, NativeFingerprint(), editor.Text, ProjectId()) :
                 new TiaJob { Operation = "compile", ProjectFile = apFile, Cpu = target, ExpectedSource = NativeFingerprint(), ProjectId = ProjectId() };
-            string summary = "工程 " + snapshot.Name + "\r\n路径 " + apFile + "\r\nPLC " + target + "\r\n" + (add ? "新增单个 FB " + job.Block + "，成功编译和复读后保存独立副本。\r\nSCL SHA-256 " + job.ApprovedHash : "在新副本离线编译并读取诊断。") + "\r\n将先保留原文件快照。";
+            if (add && programmingTarget.Scope != "New" + job.BlockKind)
+                throw new InvalidOperationException("SCL 块类型与绑定范围不一致。");
+            string summary = "工程 " + snapshot.Name + "\r\n路径 " + apFile + "\r\nPLC " + target + "\r\n" + (add ? "新增单个 " + job.BlockKind + " " + job.Block + "，成功编译和复读后保存独立副本。\r\nSCL SHA-256 " + job.ApprovedHash : "在新副本离线编译并读取诊断。") + "\r\n将先保留原文件快照。";
             string sourceDiff = add ? SclEditing.Diff("", job.Source) : "";
-            if (add) diff.Text = "待批准的新增 FB 差异\r\n\r\n" + sourceDiff;
+            if (add) diff.Text = "待批准的新增 SCL 块差异\r\n\r\n" + sourceDiff;
             SetPhase(Phase.WaitingForApproval);
             bool approved = add ? ConfirmInsertion(summary, sourceDiff) : MessageBox.Show(this, summary, "批准离线编译", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
             if (!approved)
@@ -1251,18 +1254,18 @@ namespace DeskBox.UI.Views
                 SetPhase(Phase.Cancelled);
                 return;
             }
-            if (add) diff.Text = "已批准的新增 FB 差异\r\n\r\n" + sourceDiff;
+            if (add) diff.Text = "已批准的新增 SCL 块差异\r\n\r\n" + sourceDiff;
             var task = add ? editorTask : null;
             var records = task == null ? null : ProgrammingStore();
             if (task != null)
             {
-                records.Step(task, TiaProgrammingState.APPLYING_TO_COPY, "用户已批准新增 FB。正在核对源哈希并启动独立副本作业。", "等待 Siemens 工作进程返回实际回执。");
+                records.Step(task, TiaProgrammingState.APPLYING_TO_COPY, "用户已批准新增 SCL 块。正在核对源哈希并启动独立副本作业。", "等待 Siemens 工作进程返回实际回执。");
                 ShowProgrammingTask(records, task);
             }
             Work(add ? "副本新增与离线编译" : "离线编译", t => TiaOpenness.Run(job, t), result =>
             {
                 if (task != null) RecordNativeProgrammingResult(records, task, result);
-                if (result.Saved && result.Snapshot != null && result.SavedCopyHash.Length != 0)
+                if (result.Verified && result.Saved && result.Snapshot != null && result.SavedCopyHash.Length != 0)
                 {
                     InvalidateProgrammingTarget("已保存新副本，复用前需要重新绑定其版本。");
                     inspected = result; apFile = result.Copy;
@@ -1270,7 +1273,7 @@ namespace DeskBox.UI.Views
                     Display(result.Snapshot);
                 }
                 ShowReceipt(result, job);
-            }, running: Phase.Validating, outcome: result => result.Compiled && (!add || result.Saved) && result.Error.Length == 0 ? Phase.Completed : Phase.Failed,
+            }, running: Phase.Validating, outcome: result => result.Compiled && (!add || result.Saved && result.Verified) && result.Error.Length == 0 ? Phase.Completed : Phase.Failed,
                 ended: error => { if (task != null) RecordProgrammingError(records, task, error, "检查 Siemens 权限和独立副本，重新确认后再操作。"); });
         }
 
@@ -1278,7 +1281,7 @@ namespace DeskBox.UI.Views
 
         private bool ConfirmInsertion(string summary, string sourceDiff)
         {
-            using (var review = new Form { Text = "核对差异并批准离线新增 FB", StartPosition = FormStartPosition.CenterParent, Size = new Size(820, 560),
+            using (var review = new Form { Text = "核对差异并批准离线新增 SCL 块", StartPosition = FormStartPosition.CenterParent, Size = new Size(820, 560),
                 MinimumSize = new Size(480, 340), ShowInTaskbar = false })
             {
                 var text = TextArea("批准前的 SCL 差异");
@@ -1302,8 +1305,8 @@ namespace DeskBox.UI.Views
             string path;
             using (var dialog = new OpenFileDialog
             {
-                Title = "选择已保存 TIA 作业目录下的 result.json", InitialDirectory = root,
-                Filter = "TIA 作业回执 (result.json)|result.json", CheckFileExists = true
+                Title = "选择 TIA 作业的完成回执或写入检查点", InitialDirectory = root,
+                Filter = "TIA 作业回执 (result.json;write-started.json)|result.json;write-started.json", CheckFileExists = true
             })
             {
                 if (savedJob != null) dialog.FileName = RecoveryReceiptPath(savedJob);

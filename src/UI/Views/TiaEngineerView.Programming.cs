@@ -23,7 +23,7 @@ namespace DeskBox.UI.Views
         private static readonly Tuple<string, TiaProgrammingScope>[] ProgrammingScopes =
         {
             Tuple.Create("生成 SCL 草稿", TiaProgrammingScope.Draft), Tuple.Create("新增 FB", TiaProgrammingScope.NewFB),
-            Tuple.Create("新增 FC 草稿", TiaProgrammingScope.NewFC), Tuple.Create("新增 DB 草稿", TiaProgrammingScope.NewDB),
+            Tuple.Create("新增 FC", TiaProgrammingScope.NewFC), Tuple.Create("新增 DB 草稿", TiaProgrammingScope.NewDB),
             Tuple.Create("新增 UDT 草稿", TiaProgrammingScope.NewUDT), Tuple.Create("已有块的替换草稿", TiaProgrammingScope.EditBlock),
             Tuple.Create("程序分析", TiaProgrammingScope.Analyze), Tuple.Create("变量及 IO 辅助", TiaProgrammingScope.Variables),
             Tuple.Create("硬件建议", TiaProgrammingScope.Hardware)
@@ -205,7 +205,7 @@ namespace DeskBox.UI.Views
                 (source.Copy.Length == 0 ? "" : "\r\n离线副本  " + source.Copy) +
                 "\r\n最近读取 UTC  " + Known(source.ReadUtc) + "\r\n最近原生验证 UTC  " + Known(lastNativeValidation) +
                 "\r\n\r\n读取、分析和本机 SCL 草稿可用。" +
-                (target.CanTryInsert() ? "可在授权后尝试新增单个 ASCII FB 并编译独立副本。" : target.CanTryCompile() ? "可在授权后尝试离线编译。当前范围没有块写入入口。" : "当前来源没有 TIA 写入或编译入口。");
+                (target.CanTryInsert() ? "可在授权后尝试新增单个 ASCII FC/FB 并编译独立副本。" : target.CanTryCompile() ? "可在授权后尝试离线编译。当前范围没有块写入入口。" : "当前来源没有 TIA 写入或编译入口。");
         }
 
         private static string ScopeLabel(TiaProgrammingTarget target)
@@ -277,7 +277,7 @@ namespace DeskBox.UI.Views
                 }, source =>
                 {
                     task.Historical = true;
-                    if (new[] { "WAITING_FOR_PROJECT", "READING_PROJECT", "ANALYZING_CONTEXT", "GENERATING_CODE", "STATIC_CHECK", "APPLYING_TO_COPY", "COMPILING" }.Contains(task.State))
+                    if (new[] { "WAITING_FOR_PROJECT", "READING_PROJECT", "ANALYZING_CONTEXT", "GENERATING_CODE", "STATIC_CHECK", "APPLYING_TO_COPY", "COMPILING", "VERIFYING" }.Contains(task.State))
                         store.Step(task, TiaProgrammingState.CANCELLED, "识别到上次执行未结束的记录。", "保留已有产出，从当前已核对的目标重新提交。");
                     ShowProgrammingTask(store, task);
                     if (source == null) { requirement.Text = task.Requirement; FocusRequirement(); return; }
@@ -383,13 +383,17 @@ namespace DeskBox.UI.Views
 
         private void RecordNativeProgrammingResult(TiaProgrammingStore store, TiaProgrammingTask task, TiaResult result)
         {
-            var receipts = result.Copy.Length == 0 ? new string[0] : new[] { result.Copy, RecoveryReceiptPath(result) };
+            var receipts = new[] { result.Copy, result.Copy.Length == 0 ? "" : RecoveryReceiptPath(result), result.McpAudit }
+                .Where(path => path.Length != 0).ToArray();
             if (result.CompileStartedUtc.Length != 0)
                 store.Step(task, TiaProgrammingState.COMPILING, "Siemens 编译调用 UTC " + result.CompileStartedUtc + " 至 " + result.CompileFinishedUtc,
                     "按真实回执核对编译和保存结果。", result.Error, outputs: receipts);
-            bool saved = result.Compiled && result.Saved && result.Error.Length == 0;
-            store.Step(task, saved ? TiaProgrammingState.COMPLETED : TiaProgrammingState.FAILED,
-                saved ? "Siemens 回执确认独立副本已编译并保存。" : "Siemens 回执没有确认编译并保存。",
+            if (result.VerifyStartedUtc.Length != 0)
+                store.Step(task, TiaProgrammingState.VERIFYING, "Siemens 回读开始 UTC " + result.VerifyStartedUtc,
+                    "核对目标块与保存后的副本。", outputs: receipts);
+            bool saved = result.Compiled && result.Saved && result.Verified && result.Error.Length == 0;
+            store.Step(task, saved ? TiaProgrammingState.COMPLETED : result.Saved ? TiaProgrammingState.PARTIAL_SUCCESS : TiaProgrammingState.FAILED,
+                saved ? "Siemens 回执确认独立副本已编译、保存并重新打开核验。" : "Siemens 回执没有确认编译并保存。",
                 "核对本机作业回执和保留的草稿。", saved ? "" : result.Error.Length == 0 ? result.CompileState : result.Error, outputs: receipts);
             if (programmingTask == task) ShowProgrammingTask(store, task);
         }
