@@ -18,3 +18,14 @@
 本次回归定位并修复了菜单在 WinForms 完成点击派发前释放，以及从宽窗缩窄时助手占用编辑区的问题。测试覆盖三个菜单入口、窗口切换和助手折叠状态下停止任务。 [菜单复测](https://github.com/zong-technology/DeskBox/actions/runs/45302882433) · [窄窗复测](https://github.com/zong-technology/DeskBox/actions/runs/45304140089)
 
 Windows 安装包及 12 张安装截图随构建产物交付。安装包为未签名测试版，要求 .NET Framework 4.8，已下载并核对 SHA-256 清单。任务运行、窄窗和诊断的额外截图位于原生测试产物的 `hologram-qa/tia/`。 [安装包及截图](https://github.com/zong-technology/DeskBox/actions/runs/45304140089/artifacts/14879833407) · [交互证据](https://github.com/zong-technology/DeskBox/actions/runs/45304140089/artifacts/14879873423)
+
+## 连续对话、任务进度与连接错误
+
+| 模块 | 源码 | 行为 |
+| --- | --- | --- |
+| 连续对话 | `src/UI/Views/TiaEngineerView.Programming.cs`、`src/Engineering/Tia/TiaPlanning.cs` | 发送成功受理后清除本次输入，运行时可编辑下一条。最近三轮成功返回的需求、回复及有长度限制的 AI 草稿通过模型消息角色传递。切换项目、模型或资料权限时重新建立会话范围。「更多操作」可新建工程对话。历史只在当前工作台会话内传递。 |
+| 回复和进度 | `src/UI/Views/TiaEngineerView.Pages.cs`、`src/UI/Views/TiaEngineerView.cs` | 发出与收到的条目使用不同标题、颜色和缩进。发送后打开工程对话，近期真实任务步骤显示在对话上方，当前操作显示在输入栏旁。解释类回复记录为「已回复」，草稿生成及替换保留已有审核流程。 |
+| 绑定和发现 | `src/UI/Views/TiaEngineerView.cs`、`src/Engineering/Tia/TiaOpenness.cs` | 工程窗由 DeskBox 主窗托管。后台读取结束后再打开选择和确认窗；失败的资料读取会保留旧绑定。打开的工程必须在发现后明确确认读取，缺少运行时、权限、连接掉线及无打开工程的情况显示各自的工作台状态。 |
+| MCP 进程错误 | `src/Program.cs`、`src/Engineering/Tia/TiaMcp.cs` | 未处理的作业启动异常现在返回非零退出码，并经标准错误管道附加到当前作业的失败详情。非法作业和实际未安装 V20 分别进入 Windows 回归。 |
+
+`4.3.0-alpha.6` 从 `c61da43` 构建并通过 181 项 TIA 回归与 70 项安装检查。回归在本机模型端核对了第二条请求包含上一轮需求及量程确认，也验证了继续解释上一版代码时源码不变。在 Windows 实测绑定窗所有者、取消操作、读取失败保留绑定、缺失 V20 的页内提示及损坏作业通过 MCP 标准错误返回。真实 Siemens 附加仍需许可环境复验。安装包已下载并与 SHA-256 清单核对。 [CI 日志](https://github.com/zong-technology/DeskBox/actions/runs/45412651856) · [Windows 安装包](https://github.com/zong-technology/DeskBox/actions/runs/45412651856/artifacts/14932130241) · [原生界面及任务证据](https://github.com/zong-technology/DeskBox/actions/runs/45412651856/artifacts/14931275319)
