@@ -857,8 +857,8 @@ public static class TiaEngineerAcceptance
             Check(requestReceived.IsSet && !button("发送工程需求").Enabled && prompt.TextLength == 0,
                 "Ctrl+Enter sends a real request and clears only the submitted text");
             Check(view.Controls.Find("tia-cancel-task", true).Single().Enabled &&
-                view.Controls.Find("tia-assistant-stage", true).Single().Text == "生成 SCL" &&
-                view.Controls.Find("tia-conversation-steps", true).Single().Text.Contains("生成 SCL"),
+                view.Controls.Find("tia-assistant-stage", true).Single().Text == "等待模型回复" &&
+                view.Controls.Find("tia-conversation-steps", true).Single().Text.Contains("等待模型回复"),
                 "An active provider request exposes actual programming stages in the conversation and enables stop");
             SendKeys.SendWait("Pending");
             Check(prompt.Focused && prompt.Text.Contains("Pending"), "Input remains editable while a request is in progress");

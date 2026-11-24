@@ -704,7 +704,7 @@ namespace DeskBox.UI.Views
             if (modelStatus == null) return;
             if (activeWorkbenchAction != null)
             {
-                string step = activeWorkbenchAction == "生成 SCL 编程任务" && latestProgrammingStage.Length != 0 ? latestProgrammingStage : activeWorkbenchAction;
+                string step = activeWorkbenchAction == EngineeringChatAction && latestProgrammingStage.Length != 0 ? latestProgrammingStage : activeWorkbenchAction;
                 modelStatus.Text = operation != null && operation.IsCancellationRequested ? "正在停止 · " + step : "当前操作 · " + step;
             }
             else

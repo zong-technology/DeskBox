@@ -21,6 +21,7 @@ namespace DeskBox.UI.Views
         private DarkButton isolatedDraft;
         private readonly List<AiMessage> engineeringTurns = new List<AiMessage>();
         private string conversationScope;
+        private const string EngineeringChatAction = "处理工程需求";
         private string lastNativeValidation = "", latestProgrammingStage = "";
 
         private static readonly Tuple<string, TiaProgrammingScope>[] ProgrammingScopes =
@@ -239,7 +240,7 @@ namespace DeskBox.UI.Views
                 case "WAITING_FOR_PROJECT": return "等待核对目标";
                 case "READING_PROJECT": return "核对工程版本";
                 case "ANALYZING_CONTEXT": return "分析工程上下文";
-                case "GENERATING_CODE": return "生成 SCL";
+                case "GENERATING_CODE": return "等待模型回复";
                 case "STATIC_CHECK": return "静态检查";
                 case "AWAITING_REVIEW": return "待审查草稿";
                 case "APPLYING_TO_COPY": return "执行已审批的离线作业";
@@ -282,7 +283,7 @@ namespace DeskBox.UI.Views
         private void UpdateAssistantStage()
         {
             if (assistantStage == null) return;
-            bool generating = activeWorkbenchAction == "生成 SCL 编程任务";
+            bool generating = activeWorkbenchAction == EngineeringChatAction;
             string text = (generating || activeWorkbenchAction == null) && latestProgrammingStage.Length != 0
                 ? latestProgrammingStage : activeWorkbenchAction ?? "等待工程需求";
             assistantStage.Text = text;
@@ -420,7 +421,7 @@ namespace DeskBox.UI.Views
                 SetConversationSteps(update.Item4);
                 UpdateAssistantStage();
             });
-            Work("生成 SCL 编程任务", token => GenerateProgrammingDraft(store, task, source, model, before, history, progress, token), result =>
+            Work(EngineeringChatAction, token => GenerateProgrammingDraft(store, task, source, model, before, history, progress, token), result =>
             {
                 var draft = result.Item1;
                 var review = result.Item2;
@@ -434,8 +435,10 @@ namespace DeskBox.UI.Views
                     (draft.Scl.Length == 0 ? "" : "\r\n\r\nSCL 草稿\r\n" + Limit(draft.Scl, 6000)) });
                 if (engineeringTurns.Count > 6) engineeringTurns.RemoveRange(0, 2);
                 if (review == null) return;
+                bool typing = requirement.Focused;
                 if (editor.TextLength == 0 || SameSource(editor.Text, draft.Scl)) LoadScl(draft.Scl, draft.Name, task);
                 else ShowDraftPreview(draft.Scl, draft.Name, task);
+                if (typing) requirement.Focus();
                 output.Text = "任务 " + task.Id + " · 本机源码 " + Path.Combine(store.Folder(task), task.DraftFile) + "\r\n\r\n" + DraftReview(review);
                 if (pendingScl == null)
                 {
@@ -452,6 +455,7 @@ namespace DeskBox.UI.Views
                     bool cancelled = error is OperationCanceledException;
                     AddConversation(cancelled ? "任务已取消" : "任务未完成", cancelled ? "可从「更多操作」重新提交。" : error.Message);
                 });
+            if (consumeInput) requirement.Focus();
         }
 
         private void RecordProgrammingError(TiaProgrammingStore store, TiaProgrammingTask task, Exception error, string next)
