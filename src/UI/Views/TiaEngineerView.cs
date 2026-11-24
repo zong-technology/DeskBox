@@ -130,7 +130,8 @@ namespace DeskBox.UI.Views
             analysis = TextArea("程序分析"); hardware = TextArea("硬件目录及建议"); topology = TextArea("网络与设备");
             tags = TextArea("变量与 IO"); diff = TextArea("工程差异"); output = TextArea("编译和操作日志"); assistant = TextArea("AI 工程助手");
             diff.Font = UiKit.CachedFont("Consolas", 10, FontStyle.Regular);
-            generate = Button("生成 SCL 草稿", Generate);
+            generate = Button("发送工程需求", Generate);
+            generate.Name = "tia-send-requirement";
             generate.Primary = true;
             isolatedDraft = Button("生成隔离草稿", () =>
                 SubmitRequirement(string.IsNullOrWhiteSpace(requirement.Text) ? submittedRequirement : requirement.Text, true));
@@ -836,7 +837,11 @@ namespace DeskBox.UI.Views
                 {
                     liveStatus = "TIA 不可用";
                     string message = "无法发现打开的工程。请核对已安装的 TIA Portal 版本和 Openness 授权。\r\n" + result.Error;
-                    if (!automatic) { assistant.Text = message; output.Text = message + "\r\nMCP 审计 · " + result.McpAudit; }
+                    if (!automatic)
+                    {
+                        assistant.Text = message;
+                        output.Text = message + "\r\n" + result.Report + "\r\nMCP 审计 · " + result.McpAudit;
+                    }
                     return;
                 }
                 liveStatus = result.CompatibleProcesses == 0 ? "V20 无实例" : result.OpenProjects.Count == 0 ? "V20 无打开工程" : "V20 已发现工程";

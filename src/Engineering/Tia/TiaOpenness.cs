@@ -439,14 +439,25 @@ namespace DeskBox.Engineering.Tia
             private void Discover(TiaResult result)
             {
                 var processes = Type(Ns + "TiaPortal").GetMethod("GetProcesses", BindingFlags.Public | BindingFlags.Static).Invoke(null, null);
+                var unavailable = new List<string>();
                 foreach (var process in Items(processes))
                 {
                     result.CompatibleProcesses++;
-                    var path = ProjectPath(process);
+                    int pid = Convert.ToInt32(Prop(process, "Id", false) ?? Prop(process, "ID"));
+                    string path;
+                    try { path = ProjectPath(process); }
+                    catch (TargetInvocationException error)
+                    {
+                        unavailable.Add("PID " + pid + " · " + (error.InnerException ?? error).Message);
+                        continue;
+                    }
                     if (!string.Equals(Path.GetExtension(path), ".ap20", StringComparison.OrdinalIgnoreCase)) continue;
-                    result.OpenProjects.Add(new TiaOpenProject { ProcessId = (int)Prop(process, "Id"), Path = path, Name = Path.GetFileNameWithoutExtension(path) });
+                    result.OpenProjects.Add(new TiaOpenProject { ProcessId = pid, Path = path, Name = Path.GetFileNameWithoutExtension(path) });
                 }
                 result.Report = "V20 Openness 枚举实例 " + result.CompatibleProcesses + " · 已打开的独立 .ap20 主工程 " + result.OpenProjects.Count;
+                if (unavailable.Count != 0) result.Report += Environment.NewLine + string.Join(Environment.NewLine, unavailable);
+                if (unavailable.Count != 0 && unavailable.Count == result.CompatibleProcesses)
+                    result.Error = "无法读取已发现的 TIA 实例。请检查实例是否仍打开及访问权限。";
             }
 
             private void ReadOpen(TiaJob job, string directory, TiaResult result)

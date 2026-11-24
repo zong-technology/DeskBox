@@ -636,7 +636,7 @@ public static class TiaEngineerAcceptance
         using (var respond = new ManualResetEventSlim(true))
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, "FB_BoundScale"));
-            await Click(button("生成 SCL 草稿"));
+            await Click(button("发送工程需求"));
             await WaitEnabled(button("绑定工程"));
             Check(request.IsCompleted, "The bound programming operation completes its actual model exchange");
             string payload = await request;
@@ -673,7 +673,7 @@ public static class TiaEngineerAcceptance
         using (var respond = new ManualResetEventSlim(true))
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, planOnly: true));
-            await Click(button("生成 SCL 草稿"));
+            await Click(button("发送工程需求"));
             await WaitEnabled(button("绑定工程"));
             var firstPayload = await request;
             Check(!firstPayload.Contains("FB_BoundScale") && !firstPayload.Contains("ScaleSourceB"), "Changing projects clears the model conversation scope");
@@ -686,7 +686,7 @@ public static class TiaEngineerAcceptance
         using (var respond = new ManualResetEventSlim(true))
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, planOnly: true));
-            await Click(button("生成 SCL 草稿"));
+            await Click(button("发送工程需求"));
             await WaitEnabled(button("绑定工程"));
             var payload = await request;
             Check(payload.Contains("生成量程未确认") && payload.Contains("请确认量程。") && payload.Contains("5530 至 27648"),
@@ -704,12 +704,26 @@ public static class TiaEngineerAcceptance
             Check(payload.Contains("本机隔离草稿") && isolated.Isolated && isolated.Target == null && store.ReadDraft(isolated).Contains("FB_IsolatedScale"),
                 "The isolated action completes a new local draft after a planning-only response");
         }
+        string originalCode = editor.Text;
+        prompt.Text = "请解释上轮的接口，不修改代码。";
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim(true))
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, answerOnly: true));
+            await Click(button("发送工程需求"));
+            await WaitEnabled(button("绑定工程"));
+            var payload = await request;
+            var answer = store.Recent().First();
+            Check(payload.Contains("FB_IsolatedScale") && answer.State == "ANSWERED" &&
+                answer.DraftFile.Length == 0 && editor.Text == originalCode,
+                "An explanatory follow-up includes the previous generated block and leaves the editor untouched");
+        }
         prompt.Text = "继续检查当前草稿的接口。";
         using (var received = new ManualResetEventSlim())
         using (var respond = new ManualResetEventSlim(true))
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, disconnect: true));
-            await Click(button("生成 SCL 草稿"));
+            await Click(button("发送工程需求"));
             await WaitEnabled(button("绑定工程"));
             await request;
             Check(store.Recent().First().State == "FAILED" && store.ReadDraft(invalidated).Contains("FB_BoundScale"),
@@ -723,7 +737,7 @@ public static class TiaEngineerAcceptance
         using (var respond = new ManualResetEventSlim())
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, disconnect: true));
-            await Click(button("生成 SCL 草稿"));
+            await Click(button("发送工程需求"));
             var deadline = DateTime.UtcNow.AddSeconds(5);
             while (!received.IsSet && DateTime.UtcNow < deadline) await Task.Delay(30);
             try
@@ -840,18 +854,19 @@ public static class TiaEngineerAcceptance
             SendKeys.SendWait("^{ENTER}");
             var until = DateTime.UtcNow.AddSeconds(6);
             while (!requestReceived.IsSet && DateTime.UtcNow < until) await Task.Delay(30);
-            Check(requestReceived.IsSet && !button("生成 SCL 草稿").Enabled && prompt.TextLength == 0,
+            Check(requestReceived.IsSet && !button("发送工程需求").Enabled && prompt.TextLength == 0,
                 "Ctrl+Enter sends a real request and clears only the submitted text");
             Check(view.Controls.Find("tia-cancel-task", true).Single().Enabled &&
-                view.Controls.Find("tia-assistant-stage", true).Single().Text == "生成 SCL",
-                "An active provider request exposes the actual stage and enables the independent stop control");
+                view.Controls.Find("tia-assistant-stage", true).Single().Text == "生成 SCL" &&
+                view.Controls.Find("tia-conversation-steps", true).Single().Text.Contains("生成 SCL"),
+                "An active provider request exposes actual programming stages in the conversation and enables stop");
             SendKeys.SendWait("Pending");
             Check(prompt.Focused && prompt.Text.Contains("Pending"), "Input remains editable while a request is in progress");
             await Capture(form, evidence, "tia-task-running.png");
             canReply.Set();
             string payload = await request;
             until = DateTime.UtcNow.AddSeconds(8);
-            while (!button("生成 SCL 草稿").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
+            while (!button("发送工程需求").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
             Check(payload.Contains("Confirm") && payload.Contains("中文工程需求") && !payload.Contains("Pending") &&
                 draft.Text.Contains("FB_ReviewedScale") && prompt.Text.Contains("Pending"), "Only submitted text reaches the model, its structured reply opens the SCL editor, and later input is retained");
             var localTask = new TiaProgrammingStore(AppPaths.File("tia-programming-local")).Recent().First();
@@ -974,7 +989,7 @@ public static class TiaEngineerAcceptance
         Check(draft.Focused && draft.Height >= 100, "The narrow programming page keeps a usable SCL editor above the fixed composer");
         await Capture(form, evidence, "tia-editor-narrow.png");
     }
-    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null, bool planOnly = false, bool disconnect = false)
+    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null, bool planOnly = false, bool disconnect = false, bool answerOnly = false)
     {
         using (var client = listener.AcceptTcpClient())
         using (var stream = client.GetStream())
@@ -1005,7 +1020,7 @@ public static class TiaEngineerAcceptance
             requestReceived.Set();
             if (!canReply.Wait(TimeSpan.FromSeconds(4))) throw new TimeoutException("Waiting for editor input");
             if (disconnect) return Encoding.UTF8.GetString(body);
-            var plan = planOnly ? new PlcDraft { Kind = "PLAN", Purpose = "待确认设备数据。", MissingParameters = new[] { "请确认量程。" } } :
+            var plan = answerOnly ? new PlcDraft { Kind = "ANSWER", Purpose = "输入为原始值，输出为缩放结果。" } : planOnly ? new PlcDraft { Kind = "PLAN", Purpose = "待确认设备数据。", MissingParameters = new[] { "请确认量程。" } } :
                 new PlcDraft { Kind = "FB", Name = name, Purpose = "审查草稿", Scl = source ?? PlcEngineering.AnalogScale(name), Tests = new[] { "复核静态诊断及预期行为" } };
             var reply = Encoding.UTF8.GetBytes(Json.ToJson(new { choices = new[] { new { message = new { content = Json.ToJson(plan) } } } }));
             var header = Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + reply.Length + "\r\nConnection: close\r\n\r\n");

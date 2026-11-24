@@ -77,7 +77,7 @@ namespace DeskBox.UI.Views
         {
             using (var choose = ReviewWindow("绑定工程 · 选择资料", 650, 265))
             {
-                var instructions = Caption("选择 V20 独立原生工程、已恢复的归档工程或导出资料。\r\n归档识别后提供恢复说明。SCL 草稿可独立于工程创建。");
+                var instructions = Caption("已打开的 V20 工程可先只读发现。需要离线编程时，选择已关闭的独立 .ap20 工程。\r\n也可读取工程导出资料后绑定目标 PLC。");
                 instructions.Dock = DockStyle.Fill;
                 instructions.AutoEllipsis = false;
                 instructions.Padding = new Padding(13);
@@ -85,11 +85,13 @@ namespace DeskBox.UI.Views
                 choices.Dock = DockStyle.Bottom;
                 var native = new Button { AutoSize = true, Text = "V20 工程或归档", DialogResult = DialogResult.Yes };
                 var exports = new Button { AutoSize = true, Text = "工程导出资料", DialogResult = DialogResult.No };
+                var discover = new Button { AutoSize = true, Text = "发现打开的工程", DialogResult = DialogResult.OK };
                 var close = new Button { AutoSize = true, Text = "返回", DialogResult = DialogResult.Cancel };
-                choices.Controls.AddRange(new Control[] { native, exports, close });
+                choices.Controls.AddRange(new Control[] { discover, native, exports, close });
                 choose.Controls.AddRange(new Control[] { instructions, choices });
                 choose.CancelButton = close;
                 var result = choose.ShowDialog(FindForm());
+                if (result == DialogResult.OK) DiscoverOpenProjects(false);
                 if (result == DialogResult.Yes) OpenProgrammingProject(true);
                 if (result == DialogResult.No)
                 {
@@ -245,6 +247,7 @@ namespace DeskBox.UI.Views
                 case "VERIFYING": return "回读核验";
                 case "COMPLETED": return "已编译并核验";
                 case "PARTIAL_SUCCESS": return "副本已保存 · 核验未通过";
+                case "ANSWERED": return "已回复";
                 case "BLOCKED": return "待处理";
                 case "FAILED": return "任务失败";
                 case "CANCELLED": return "任务已取消";
@@ -267,7 +270,13 @@ namespace DeskBox.UI.Views
             programmingTask = task;
             latestProgrammingStage = TaskStateLabel(task.State);
             programmingProgress.Text = ProgrammingTaskSummary(store, task);
+            SetConversationSteps(RecentProgrammingSteps(task));
             UpdateAssistantStage();
+        }
+
+        private static string RecentProgrammingSteps(TiaProgrammingTask task)
+        {
+            return string.Join("  →  ", task.Steps.Skip(Math.Max(0, task.Steps.Count - 3)).Select(step => TaskStateLabel(step.State)));
         }
 
         private void UpdateAssistantStage()
@@ -349,7 +358,8 @@ namespace DeskBox.UI.Views
             engineeringTurns.Clear();
             conversationScope = null;
             submittedRequirement = null;
-            if (conversation != null) conversation.Text = "提交工程需求，或继续补充上一轮的条件。";
+            if (conversation != null) conversation.Text = EmptyEngineeringConversation;
+            SetConversationSteps("");
         }
 
         private void SubmitRequirement(string prompt, bool requestIsolation = false, bool consumeInput = true)
@@ -381,7 +391,7 @@ namespace DeskBox.UI.Views
                 return;
             }
             string authorization = useContext ? "已绑定 PLC 的对象、来源与可用代码。此操作只生成草稿。" : "";
-            string scope = string.Join("\n", new[] { AiEnvironment.Suffix, provider.Id, provider.BaseUrl, provider.Protocol, provider.Model,
+            string scope = string.Join("\n", new[] { AiEnvironment.Suffix, provider.Id, provider.BaseUrl, provider.Protocol, provider.Model, provider.UpdatedAt.ToString(),
                 target == null ? "" : target.BindingId, useContext.ToString() });
             var history = scope == conversationScope ? engineeringTurns.ToArray() : new AiMessage[0];
             var model = ApproveModel(authorization, useContext, history.Length != 0);
@@ -392,7 +402,7 @@ namespace DeskBox.UI.Views
                 SetPhase(Phase.Cancelled);
                 return;
             }
-            if (scope != conversationScope) ResetEngineeringConversation();
+            if (scope != conversationScope) { ResetEngineeringConversation(); ShowProgrammingTask(store, task); }
             conversationScope = scope;
             submittedRequirement = prompt;
             if (consumeInput && requirement.Text == prompt) requirement.Clear();
@@ -401,12 +411,13 @@ namespace DeskBox.UI.Views
             if (!compact && !Store.Settings.TiaAssistantCollapsed) assistantPane.Visible = true;
             if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
             string before = editor.Text;
-            var progress = new Progress<Tuple<string, string, string>>(update =>
+            var progress = new Progress<Tuple<string, string, string, string>>(update =>
             {
                 if (IsDisposed || programmingTask != task || operation == null || operation.IsCancellationRequested) return;
                 latestProgrammingStage = update.Item1;
                 programmingProgress.Text = update.Item2;
                 assistant.Text = update.Item3;
+                SetConversationSteps(update.Item4);
                 UpdateAssistantStage();
             });
             Work("生成 SCL 编程任务", token => GenerateProgrammingDraft(store, task, source, model, before, history, progress, token), result =>
@@ -415,7 +426,8 @@ namespace DeskBox.UI.Views
                 var review = result.Item2;
                 ShowProgrammingTask(store, task);
                 lastAiAnalysis = draft.Plan();
-                assistant.Text = (review == null ? "尚未生成源码。" : "已在本机保存 " + task.DraftFile) + "\r\n" + task.Next + "\r\n\r\n" + lastAiAnalysis;
+                assistant.Text = draft.Kind == "ANSWER" ? lastAiAnalysis :
+                    (review == null ? "待确认的工程条件" : "已在本机保存 " + task.DraftFile) + "\r\n" + task.Next + "\r\n\r\n" + lastAiAnalysis;
                 AddConversation("AI 工程师", assistant.Text);
                 engineeringTurns.Add(new AiMessage { Role = "user", Content = prompt });
                 engineeringTurns.Add(new AiMessage { Role = "assistant", Content = Limit(draft.Plan(), 2800) +
@@ -431,7 +443,8 @@ namespace DeskBox.UI.Views
                     verificationStatic = review.Diagnostics.Count == 0 ? "已检查，当前规则未发现问题" : review.Diagnostics.Count + " 项诊断待复核";
                     SetDiagnostics(review.Diagnostics, editor.Text);
                 }
-            }, keepPage: true, running: Phase.Executing, outcome: result => task.State == TiaProgrammingState.BLOCKED.ToString() ? Phase.WaitingForInput : Phase.WaitingForApproval,
+            }, keepPage: true, running: Phase.Executing, outcome: result => result.Item1.Kind == "ANSWER" ? Phase.Completed :
+                task.State == TiaProgrammingState.BLOCKED.ToString() ? Phase.WaitingForInput : Phase.WaitingForApproval,
                 ended: error =>
                 {
                     RecordProgrammingError(store, task, error, "检查错误后重试，已写出的成果保留在任务目录。");
@@ -480,10 +493,10 @@ namespace DeskBox.UI.Views
         }
 
         private static Tuple<PlcDraft, PlcSnapshot> GenerateProgrammingDraft(TiaProgrammingStore store, TiaProgrammingTask task, PlcSnapshot snapshot,
-            AiProvider model, string earlier, AiMessage[] history, IProgress<Tuple<string, string, string>> progress, CancellationToken token)
+            AiProvider model, string earlier, AiMessage[] history, IProgress<Tuple<string, string, string, string>> progress, CancellationToken token)
         {
             var target = task.Target;
-            Action<string> report = summary => progress.Report(Tuple.Create(TaskStateLabel(task.State), ProgrammingTaskSummary(store, task), summary));
+            Action<string> report = summary => progress.Report(Tuple.Create(TaskStateLabel(task.State), ProgrammingTaskSummary(store, task), summary, RecentProgrammingSteps(task)));
             Action<TiaProgrammingState, string, string> step = (state, note, next) =>
             {
                 store.Step(task, state, note, next);
@@ -523,6 +536,11 @@ namespace DeskBox.UI.Views
                 deadline.CancelAfter(TimeSpan.FromSeconds(90));
                 try { draft = TiaPlanning.Plan(model, task.Requirement, context, deadline.Token, task.Isolated, history); }
                 catch (OperationCanceledException) { token.ThrowIfCancellationRequested(); throw new TimeoutException("AI 生成超过 90 秒。请重试或更换模型。"); }
+            }
+            if (draft.Kind == "ANSWER")
+            {
+                store.Step(task, TiaProgrammingState.ANSWERED, Limit(draft.Purpose, 4000), "可继续追问，或提出新的编程需求。");
+                return Tuple.Create(draft, (PlcSnapshot)null);
             }
             if (draft.Kind == "PLAN")
             {
