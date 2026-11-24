@@ -107,6 +107,8 @@ namespace DeskBox.UI.Views
                 box.ForeColor = Palette.Text;
             }
             foreach (TabPage tab in assistantTabs.TabPages) tab.BackColor = Palette.PanelAlt;
+            conversationSteps.BackColor = Palette.PanelAlt;
+            conversationSteps.ForeColor = Palette.Text;
             assistantTabs.Colors = Palette;
             assistantTabs.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
             assistantTabs.FitLabels();

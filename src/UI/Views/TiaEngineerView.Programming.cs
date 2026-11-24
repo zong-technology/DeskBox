@@ -494,6 +494,9 @@ namespace DeskBox.UI.Views
             ShowProgrammingTask(store, task);
             SetPhase(Phase.WaitingForInput);
             assistant.Text = reason + "\r\n" + next;
+            AddConversation("任务未发送", assistant.Text);
+            assistantTabs.SelectedIndex = 2;
+            requirement.Focus();
         }
 
         private static Tuple<PlcDraft, PlcSnapshot> GenerateProgrammingDraft(TiaProgrammingStore store, TiaProgrammingTask task, PlcSnapshot snapshot,
