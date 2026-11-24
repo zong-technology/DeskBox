@@ -187,7 +187,7 @@ namespace DeskBox.UI.Views
             secondary.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 47));
             var more = new DarkButton("更多操作") { AccessibleName = "更多需求操作", Font = generate.Font };
             more.Name = "tia-composer-more";
-            more.Click += delegate { OpenComposerMenu(more, configureModel); };
+            BindComposerMenu(more, configureModel);
             more.Dock = DockStyle.Fill;
             more.Margin = new Padding(gap, 0, 0, 0);
             cancel.Dock = DockStyle.Fill;
@@ -207,19 +207,22 @@ namespace DeskBox.UI.Views
             return pane;
         }
 
-        private void OpenComposerMenu(DarkButton button, Action configureModel)
+        private void BindComposerMenu(DarkButton button, Action configureModel)
         {
             var menu = MenuBuilder.Create(Palette);
             var load = MenuBuilder.Item("添加工程资料", () => RunAction(() => { var files = SelectExports(); if (files != null) LoadExports(files, true); }));
             var retry = MenuBuilder.Item("重生成上次需求", () => RunAction(() => SubmitRequirement(submittedRequirement)));
-            load.Enabled = operation == null;
-            retry.Enabled = operation == null && !string.IsNullOrWhiteSpace(submittedRequirement);
+            menu.Opening += delegate
+            {
+                load.Enabled = operation == null;
+                retry.Enabled = operation == null && !string.IsNullOrWhiteSpace(submittedRequirement);
+            };
             menu.Items.AddRange(new ToolStripItem[] { MenuBuilder.Item("保存需求草稿", () => RunAction(SaveRequirement)),
                 MenuBuilder.Item("填入示例", FillExample), retry, load });
             if (configureModel != null) menu.Items.Add(MenuBuilder.Item("配置 AI 服务商", () => RunAction(configureModel)));
             button.ContextMenuStrip = menu;
-            menu.Closed += delegate { button.ContextMenuStrip = null; menu.Dispose(); };
-            menu.Show(button, new Point(0, 0), ToolStripDropDownDirection.AboveLeft);
+            button.Disposed += delegate { menu.Dispose(); };
+            button.Click += delegate { menu.Show(button, new Point(0, 0), ToolStripDropDownDirection.AboveLeft); };
         }
 
         private void BuildProgrammingPage()
