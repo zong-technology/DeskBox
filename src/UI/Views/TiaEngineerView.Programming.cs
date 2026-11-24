@@ -18,7 +18,7 @@ namespace DeskBox.UI.Views
         private TiaProgrammingTask programmingTask, editorTask, previewTask;
         private RichTextBox programmingProgress;
         private DarkButton isolatedDraft;
-        private string lastNativeValidation = "";
+        private string lastNativeValidation = "", latestProgrammingStage = "";
 
         private static readonly Tuple<string, TiaProgrammingScope>[] ProgrammingScopes =
         {
@@ -226,18 +226,57 @@ namespace DeskBox.UI.Views
             }
         }
 
+        private static string TaskStateLabel(string state)
+        {
+            switch (state)
+            {
+                case "WAITING_FOR_PROJECT": return "等待核对目标";
+                case "READING_PROJECT": return "核对工程版本";
+                case "ANALYZING_CONTEXT": return "分析工程上下文";
+                case "GENERATING_CODE": return "生成 SCL";
+                case "STATIC_CHECK": return "静态检查";
+                case "AWAITING_REVIEW": return "待审查草稿";
+                case "APPLYING_TO_COPY": return "执行已审批的离线作业";
+                case "COMPILING": return "TIA 编译";
+                case "VERIFYING": return "回读核验";
+                case "COMPLETED": return "已编译并核验";
+                case "PARTIAL_SUCCESS": return "副本已保存 · 核验未通过";
+                case "BLOCKED": return "待处理";
+                case "FAILED": return "任务失败";
+                case "CANCELLED": return "任务已取消";
+                default: return state;
+            }
+        }
+
         private static string ProgrammingTaskSummary(TiaProgrammingStore store, TiaProgrammingTask task)
         {
-            return "任务 " + task.Id + "\r\n" + task.State + "\r\n目标 " + (task.Target == null ? "通用 SCL 草稿" : task.Target.Source.Name + " / " + Known(task.Target.Cpu)) +
-                "\r\n下一步 " + task.Next + "\r\n\r\n" + string.Join("\r\n\r\n", task.Steps.Select(s => s.StartedUtc + "  " + s.State + "\r\n" + s.Summary +
+            return TaskStateLabel(task.State) + "\r\n" + (task.Next.Length == 0 ? "" : task.Next + "\r\n") +
+                "目标 " + (task.Target == null ? "通用草稿" : task.Target.Source.Name + " / " + Known(task.Target.Cpu)) +
+                "\r\n任务 " + task.Id + "\r\n\r\n" + string.Join("\r\n\r\n", task.Steps.AsEnumerable().Reverse().Select(s =>
+                    TaskStateLabel(s.State) + "  ·  " + s.StartedUtc + "\r\n" + s.Summary +
                     (s.Error.Length == 0 ? "" : "\r\n" + s.Error) + (s.NeedsApproval ? "\r\n需要人工确认" : "") +
-                    (s.Outputs.Length == 0 ? "" : "\r\n产出  " + string.Join("\r\n", s.Outputs)))) + "\r\n\r\n本机记录  " + store.Folder(task);
+                    (s.Outputs.Length == 0 ? "" : "\r\n" + string.Join("\r\n", s.Outputs)))) + "\r\n\r\n本机记录  " + store.Folder(task);
         }
 
         private void ShowProgrammingTask(TiaProgrammingStore store, TiaProgrammingTask task)
         {
             programmingTask = task;
+            latestProgrammingStage = TaskStateLabel(task.State);
             programmingProgress.Text = ProgrammingTaskSummary(store, task);
+            UpdateAssistantStage();
+        }
+
+        private void UpdateAssistantStage()
+        {
+            if (assistantStage == null) return;
+            bool generating = activeWorkbenchAction == "生成 SCL 编程任务";
+            string text = (generating || activeWorkbenchAction == null) && latestProgrammingStage.Length != 0
+                ? latestProgrammingStage : activeWorkbenchAction ?? "等待工程需求";
+            assistantStage.Text = text;
+            assistantStage.ForeColor = phase == Phase.Failed ? TiaWorkbenchStyle.Error(Palette) :
+                phase == Phase.WaitingForInput || phase == Phase.WaitingForApproval ? TiaWorkbenchStyle.Warning(Palette) :
+                operation == null ? Palette.TextDim : Palette.Accent;
+            workbenchTips.SetToolTip(assistantStage, text);
         }
 
         private void OpenProgrammingHistory()
@@ -335,16 +374,19 @@ namespace DeskBox.UI.Views
             {
                 store.Step(task, TiaProgrammingState.CANCELLED, "用户未批准发送需求。", "可重新提交。");
                 ShowProgrammingTask(store, task);
+                SetPhase(Phase.Cancelled);
                 return;
             }
             AddConversation("工程需求", prompt);
             if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
             string before = editor.Text;
-            var progress = new Progress<string>(message =>
+            var progress = new Progress<Tuple<string, string, string>>(update =>
             {
-                if (IsDisposed || programmingTask != task || operation == null) return;
-                programmingProgress.Text = message;
-                assistant.Text = string.Join("\n", message.Split('\n').Take(4));
+                if (IsDisposed || programmingTask != task || operation == null || operation.IsCancellationRequested) return;
+                latestProgrammingStage = update.Item1;
+                programmingProgress.Text = update.Item2;
+                assistant.Text = update.Item3;
+                UpdateAssistantStage();
             });
             Work("生成 SCL 编程任务", token => GenerateProgrammingDraft(store, task, source, model, before, progress, token), result =>
             {
@@ -407,13 +449,14 @@ namespace DeskBox.UI.Views
         }
 
         private static Tuple<PlcDraft, PlcSnapshot> GenerateProgrammingDraft(TiaProgrammingStore store, TiaProgrammingTask task, PlcSnapshot snapshot,
-            AiProvider model, string earlier, IProgress<string> progress, CancellationToken token)
+            AiProvider model, string earlier, IProgress<Tuple<string, string, string>> progress, CancellationToken token)
         {
             var target = task.Target;
+            Action<string> report = summary => progress.Report(Tuple.Create(TaskStateLabel(task.State), ProgrammingTaskSummary(store, task), summary));
             Action<TiaProgrammingState, string, string> step = (state, note, next) =>
             {
                 store.Step(task, state, note, next);
-                progress.Report(ProgrammingTaskSummary(store, task));
+                report(note);
             };
             string context = "";
             if (target != null)
@@ -468,7 +511,7 @@ namespace DeskBox.UI.Views
             task.DraftHash = PlcEngineering.Hash(draft.Scl);
             task.EditorHash = TiaProgrammingTask.HashEditorText(draft.Scl);
             store.Step(task, TiaProgrammingState.STATIC_CHECK, "已保存可编辑的 SCL 文件。", "执行本机静态检查。", outputs: new[] { file });
-            progress.Report(ProgrammingTaskSummary(store, task));
+            report("已保存可编辑的 SCL 文件，正在静态检查。");
             var review = PlcEngineering.ReviewScl(draft.Scl, task.DraftFile);
             var diffFile = store.Write(task, "review.diff", SclEditing.Diff(earlier, draft.Scl));
             var reportFile = store.Write(task, "static-review.txt", draft.Plan() + "\r\n\r\n" + DraftReview(review));

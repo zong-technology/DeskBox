@@ -629,6 +629,9 @@ public static class TiaEngineerAcceptance
         var task = store.Recent().First();
         Check(task.Target.Cpu == "PLC_B" && task.State == "AWAITING_REVIEW" && editor.Text.Contains("FB_BoundScale") && !editor.ReadOnly,
             "One real bound flow produces editable code and waits for human review");
+        Check(view.Controls.Find("tia-composer-target", true).Single().Text.Contains("PLC_B") &&
+            view.Controls.Find("tia-assistant-stage", true).Single().Text == "待审查草稿",
+            "The submission target and task stage match the actual bound draft awaiting review");
         Check(task.Steps.Select(s => s.State).SequenceEqual(new[] { "WAITING_FOR_PROJECT", "READING_PROJECT", "ANALYZING_CONTEXT", "GENERATING_CODE", "STATIC_CHECK", "AWAITING_REVIEW" }),
             "Task log records the stages that actually ran without claiming native compilation");
         var assistantTab = Children(view).OfType<TabControl>().Single(tc => tc.TabPages.Cast<TabPage>().Any(p => p.Text == "编程任务"));
@@ -714,12 +717,33 @@ public static class TiaEngineerAcceptance
         mouse_event(4, 0, 0, 0, UIntPtr.Zero);
         await Task.Delay(100);
     }
+    private static async Task ClickComposerMenu(TiaEngineerView view, string action)
+    {
+        Control source = view.Controls.Find("tia-composer-more", true).Single();
+        await Click(source);
+        var menu = source.ContextMenuStrip;
+        Check(menu != null && menu.Visible, "The requirement menu is visible for " + action);
+        var choice = menu.Items.Cast<ToolStripItem>().Single(item => item.Text == action);
+        var point = menu.PointToScreen(new Point(choice.Bounds.Left + choice.Bounds.Width / 2, choice.Bounds.Top + choice.Bounds.Height / 2));
+        if (WindowFromPoint(point) != menu.Handle) throw new InvalidOperationException("Requirement menu item is obscured: " + action);
+        Cursor.Position = point;
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        await Task.Delay(120);
+    }
     private static async Task ExerciseRequirement(MainForm form, Store store, TiaEngineerView view, TabControl tabs, TcpListener listener, string evidence)
     {
         var button = new Func<string, DarkButton>(label => Children(view).OfType<DarkButton>().Single(b => b.Text == label));
         var prompt = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "工程需求");
         var draft = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "SCL 草稿");
-        Check(prompt.Parent.Name == "tia-composer" && !tabs.Contains(prompt), "The editable composer lives in the assistant, outside the SCL tab control");
+        var assistantPane = view.Controls.Find("tia-assistant-pane", true).Single();
+        Check(prompt.Parent.Name == "tia-composer" && !tabs.Contains(prompt) && !assistantPane.Contains(prompt),
+            "The fixed composer is independent of the assistant and center tabs");
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
+        await Click(prompt);
+        Check(!assistantPane.Visible && prompt.Focused && button("停止任务").Visible,
+            "Collapsing the assistant keeps task input and cancellation available from the bottom dock");
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
         await Click(button("输入工程需求"));
         Check(tabs.SelectedIndex == 0 && prompt.Focused && prompt.TabStop && !prompt.ReadOnly, "Top entry focuses the visible editable native requirement input");
         await Click(prompt);
@@ -732,9 +756,9 @@ public static class TiaEngineerAcceptance
         SendKeys.SendWait("^c");
         Check(prompt.SelectionLength == prompt.TextLength && Clipboard.GetText().Contains("中文工程需求"), "Ctrl+A and Ctrl+C select and copy the full multiline requirement");
         var initial = prompt.Text;
-        await Click(button("保存需求草稿"));
+        await ClickComposerMenu(view, "保存需求草稿");
         Check(Json.Load(AppPaths.File("tia-requirement-local.json"), "") == initial, "Explicit draft save writes the complete requirement to the isolated profile");
-        await Click(button("配置 AI 服务商"));
+        await ClickComposerMenu(view, "配置 AI 服务商");
         var settings = Application.OpenForms.Cast<Form>().SingleOrDefault(window => window != form && window.Controls.Find("ai-environment", true).Any(c => c.Visible));
         Check(settings != null, "Provider shortcut opens the actual AI settings page");
         var enterSetting = settings.Controls.Find("tia-enter-sends", true).OfType<CheckBox>().Single();
@@ -756,6 +780,9 @@ public static class TiaEngineerAcceptance
             var until = DateTime.UtcNow.AddSeconds(6);
             while (!requestReceived.IsSet && DateTime.UtcNow < until) await Task.Delay(30);
             Check(requestReceived.IsSet && !button("生成 SCL 草稿").Enabled, "Configured Ctrl+Enter sends a real request to the local model fixture");
+            Check(view.Controls.Find("tia-cancel-task", true).Single().Enabled &&
+                view.Controls.Find("tia-assistant-stage", true).Single().Text == "生成 SCL",
+                "An active provider request exposes the actual stage and enables the independent stop control");
             SendKeys.SendWait("Pending");
             Check(prompt.Focused && prompt.Text.Contains("Pending"), "Input remains editable while a request is in progress");
             await Capture(form, evidence, "tia-task-running.png");
@@ -802,7 +829,9 @@ public static class TiaEngineerAcceptance
         await Click(button("静态检查草稿"));
         var list = Children(view).OfType<ListView>().Single(item => item.AccessibleName == "工程诊断列表");
         var severity = Children(view).OfType<ComboBox>().Single(item => item.AccessibleName == "诊断级别");
-        Check(tabs.SelectedIndex == 6 && list.Items.Count == 2, "Static source review produces two diagnostic rows");
+        Check(tabs.SelectedIndex == 6 && list.Items.Count == 2 &&
+            view.Controls.Find("tia-diagnostic-origin", true).Single().Text == "SCL 静态检查",
+            "Static source review shows the diagnostic origin with two diagnostic rows");
         severity.SelectedIndex = 1;
         Check(list.Items.Count == 0, "Error filter excludes warnings");
         severity.SelectedIndex = 2;
@@ -810,9 +839,9 @@ public static class TiaEngineerAcceptance
         unknown.Selected = true;
         list.Focus();
         await Capture(form, evidence, "tia-diagnostics.png");
-        SendKeys.SendWait("{ENTER}");
+        await Click(view.Controls.Find("tia-locate-diagnostic", true).Single());
         Check(tabs.SelectedIndex == 0 && draft.SelectionStart == draft.GetFirstCharIndexFromLine(5) + 4,
-            "Activating a warning lands on the SCL reference column");
+            "Locating the selected warning lands on the SCL reference column");
         severity.SelectedIndex = 0;
         string diagnosedSource = draft.Text;
         string correctedSource = diagnosedSource.Replace("#Unknown", "#Known");
