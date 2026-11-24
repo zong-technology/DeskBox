@@ -149,7 +149,7 @@ namespace DeskBox.UI.Views
             approveInsertion.Name = "tia-approve-insertion";
             Page("测试验证", "静态检查、TIA 离线编译和现场验证各自记录。", BuildValidationSummary(), cpu, compileCopy, approveInsertion, restoreBackup, Button("加入待办", AddReviewTask), repairDraft, Button("解释编译诊断", ExplainCompile), Button("查看能力与环境", Inspect));
             BuildWorkbenchLayout(top, configureModel);
-            tabs.SelectedIndexChanged += delegate { RefreshPageStates(); };
+            tabs.SelectedIndexChanged += delegate { if (compact) LayoutWorkbench(); RefreshPageStates(); };
             tree.AfterSelect += delegate(object sender, TreeViewEventArgs e) { ShowObject(e.Node == null ? null : e.Node.Tag as PlcObject); };
             tree.NodeMouseDoubleClick += delegate(object sender, TreeNodeMouseClickEventArgs e) { ShowObject(e.Node.Tag as PlcObject); };
             tree.NodeMouseClick += delegate(object sender, TreeNodeMouseClickEventArgs e)

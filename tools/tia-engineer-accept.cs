@@ -926,7 +926,8 @@ public static class TiaEngineerAcceptance
         await Capture(form, evidence, "tia-workbench-1024.png");
         draft.Focus();
         await Task.Delay(120);
-        Check(draft.Focused && draft.Height >= 100, "The narrow programming page scrolls to a usable SCL editor");
+        Console.WriteLine("Narrow editor " + draft.Size + ", focused=" + draft.Focused);
+        Check(draft.Focused && draft.Height >= 100, "The narrow programming page keeps a usable SCL editor above the fixed composer");
         await Capture(form, evidence, "tia-editor-narrow.png");
     }
     private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null, bool planOnly = false, bool disconnect = false)

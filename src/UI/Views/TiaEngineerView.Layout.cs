@@ -327,8 +327,9 @@ namespace DeskBox.UI.Views
             contextDetails.Visible = !compact;
             outputPages.Visible = outputDivider.Visible = !settings.TiaLogCollapsed;
             outputDivider.MinSize = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.MinimumOutputHeight);
-            int outputLimit = compact ? (assistantOpen ? 106 : Math.Min(156, height / 4)) :
-                Math.Min(300, Math.Max(92, height < 690 ? height / 5 : height / 3));
+            int outputLimit = compact
+                ? Math.Min(tabs.SelectedIndex == 0 ? 92 : assistantOpen ? 106 : 156, height / 4)
+                : Math.Min(300, Math.Max(92, height < 690 ? height / 5 : height / 3));
             outputPane.Height = TiaWorkbenchStyle.Pixels(this, settings.TiaLogCollapsed ? TiaWorkbenchStyle.ToolbarHeight : Clamp(settings.TiaLogHeight, TiaWorkbenchStyle.MinimumOutputHeight, outputLimit));
             toggleTree.Text = treeOpen ? "收起导航" : "展开导航";
             toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
