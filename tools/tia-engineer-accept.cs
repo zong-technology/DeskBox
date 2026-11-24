@@ -682,6 +682,30 @@ public static class TiaEngineerAcceptance
             Check(store.Recent().First().State == "FAILED" && store.ReadDraft(invalidated).Contains("FB_BoundScale"),
                 "A model disconnect records failure while the previous task artifact remains readable");
         }
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
+        var stop = view.Controls.Find("tia-cancel-task", true).Single();
+        string unsent = prompt.Text, beforeStop = editor.Text;
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim())
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, disconnect: true));
+            await Click(button("生成 SCL 草稿"));
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!received.IsSet && DateTime.UtcNow < deadline) await Task.Delay(30);
+            try
+            {
+                Check(received.IsSet && stop.Enabled && !assistantTab.Visible, "A pending task can be stopped with the assistant collapsed");
+                await Click(stop);
+            }
+            finally { respond.Set(); }
+            await request;
+            await WaitEnabled(button("生成 SCL 草稿"));
+            var cancelled = store.Recent().First();
+            Check(cancelled.State == "CANCELLED" && cancelled.DraftFile.Length == 0 && !stop.Enabled &&
+                prompt.Text == unsent && editor.Text == beforeStop,
+                "Stopping a model request records cancellation and keeps demand and editor contents");
+        }
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
     }
 
     private static async Task WaitEnabled(Control control)

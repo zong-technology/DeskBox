@@ -200,6 +200,7 @@ namespace DeskBox.UI.Views
 
             useProjectContext.Dock = DockStyle.Bottom;
             useProjectContext.Height = TiaWorkbenchStyle.Pixels(this, 21);
+            useProjectContext.CheckedChanged += delegate { UpdateComposerTarget(); };
             pane.Controls.AddRange(new Control[] { requirement, actionsPanel, useProjectContext, metadata });
             requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.15); };
             requirement.Leave += delegate { requirement.BackColor = Palette.PanelAlt; };
@@ -407,8 +408,7 @@ namespace DeskBox.UI.Views
                 (target.Source.Native ? "  ·  离线副本" : "  ·  本机草稿")) + "  ·  " + PhaseLabel(phase);
             workbenchTips.SetToolTip(projectHeading, projectHeading.Text);
             workbenchTips.SetToolTip(modeStatus, modeStatus.Text);
-            composerTarget.Text = target == null ? "工程需求   ·   通用 SCL 草稿" : "工程需求   ·   " + target.Source.Name + " / " + Known(target.Cpu);
-            workbenchTips.SetToolTip(composerTarget, composerTarget.Text);
+            UpdateComposerTarget();
             workbenchTips.SetToolTip(modelStatus, modelStatus.Text);
             string tiaStatus = liveProject != null ? liveStatus : inspected != null ? "V20 已读副本" : !v20Checked ? liveStatus : v20Discovered ? "V20 接口已发现" : "V20 接口未就绪";
             connectionStatus.Text = tiaStatus + " · " + mcpStatus;
@@ -425,6 +425,15 @@ namespace DeskBox.UI.Views
             if (blockDetails.Text != detail) blockDetails.Text = detail;
             RefreshPageStates();
             RefreshValidation();
+        }
+
+        private void UpdateComposerTarget()
+        {
+            if (composerTarget == null) return;
+            var target = programmingTarget;
+            composerTarget.Text = target == null ? "工程需求   ·   通用 SCL 草稿" : "工程需求   ·   " + target.Source.Name +
+                " / " + Known(target.Cpu) + (useProjectContext.Checked && Store.Settings.AiFileAccess ? "   ·   已授权引用" : "   ·   隔离草稿");
+            workbenchTips.SetToolTip(composerTarget, composerTarget.Text);
         }
 
         private void AppendOperation(string action)

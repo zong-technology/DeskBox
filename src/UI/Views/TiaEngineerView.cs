@@ -681,7 +681,7 @@ namespace DeskBox.UI.Views
             if (approveInsertion != null) approveInsertion.Enabled = nativeReady && AllowsNativeCompilation(true) && mode.SelectedIndex == 2 && editor.TextLength != 0 && pendingScl == null;
             generate.Enabled = operation == null && !string.IsNullOrWhiteSpace(requirement.Text);
             if (isolatedDraft != null) isolatedDraft.Enabled = generate.Enabled;
-            useProjectContext.Enabled = operation == null && snapshot != null;
+            useProjectContext.Enabled = operation == null && programmingTarget != null && Store.Settings.AiFileAccess;
             useProjectContext.Visible = snapshot != null;
             if (applyDraft != null) applyDraft.Enabled = operation == null && pendingScl != null && mode.SelectedIndex > 0;
             if (repairDraft != null) repairDraft.Enabled = operation == null && diagnosticDraft != null && currentDiagnostics.Count > 0 && SameSource(diagnosticDraft, editor.Text);
