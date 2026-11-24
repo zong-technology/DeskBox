@@ -118,7 +118,7 @@ namespace DeskBox.UI.Views
         {
             assistantTabs = new TiaWorkbenchTabs { Dock = DockStyle.Fill };
             conversation = TextArea("工程对话记录");
-            conversation.Text = "提交工程需求后会在此显示本次对话。";
+            conversation.Text = "提交工程需求，或继续补充上一轮的条件。";
             var statusPage = new TabPage("任务概览");
             statusPage.Controls.Add(assistant);
             var conversationPage = new TabPage("工程对话");
@@ -138,10 +138,26 @@ namespace DeskBox.UI.Views
 
         private void AddConversation(string speaker, string message)
         {
-            const string empty = "提交工程需求后会在此显示本次对话。";
-            if (conversation.Text == empty) conversation.Clear();
-            if (conversation.TextLength > 14000) conversation.Text = conversation.Text.Substring(conversation.TextLength - 10000);
-            conversation.AppendText(speaker + "  ·  " + DateTime.Now.ToString("HH:mm") + "\r\n" + Limit(message, 6000) + "\r\n\r\n");
+            if (conversation.Text == "提交工程需求，或继续补充上一轮的条件。") conversation.Clear();
+            if (conversation.TextLength > 17000)
+            {
+                int trim = conversation.Text.IndexOf("\n\n", conversation.TextLength - 12000, StringComparison.Ordinal);
+                if (trim >= 0) { conversation.Select(0, trim + 2); conversation.SelectedText = ""; }
+            }
+            bool user = speaker == "工程需求";
+            string header = (user ? "你 · 工程需求" : speaker) + "   " + DateTime.Now.ToString("HH:mm");
+            string body = Limit(message, 6000);
+            int start = conversation.TextLength;
+            conversation.AppendText(header + "\n" + body + "\n\n");
+            conversation.Select(start, conversation.TextLength - start);
+            conversation.SelectionIndent = TiaWorkbenchStyle.Pixels(this, user ? 26 : 8);
+            conversation.SelectionRightIndent = TiaWorkbenchStyle.Pixels(this, user ? 8 : 26);
+            conversation.SelectionBackColor = user ? Palette.PanelAlt : Palette.CardBg;
+            conversation.SelectionColor = Palette.Text;
+            conversation.Select(start, header.Length);
+            conversation.SelectionFont = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
+            conversation.SelectionColor = user ? Palette.Accent : Palette.Text;
+            conversation.Select(conversation.TextLength, 0);
             conversation.ScrollToCaret();
         }
 

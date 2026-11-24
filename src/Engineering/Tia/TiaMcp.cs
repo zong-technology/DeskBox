@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using DeskBox.Core;
 using Message = System.Collections.Generic.Dictionary<string, object>;
 
@@ -54,7 +55,8 @@ namespace DeskBox.Engineering.Tia
             var start = new ProcessStartInfo(typeof(TiaMcp).Assembly.Location, "--tia-mcp " + id + " \"" + root.TrimEnd('\\') + "\"")
             {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
-                RedirectStandardOutput = true, StandardOutputEncoding = Utf8
+                RedirectStandardOutput = true, StandardOutputEncoding = Utf8,
+                RedirectStandardError = true, StandardErrorEncoding = Utf8
             };
             var time = Stopwatch.StartNew();
             string step = "initialize";
@@ -64,14 +66,15 @@ namespace DeskBox.Engineering.Tia
                 using (var process = Process.Start(start))
                 try
                 {
-                    var initialized = Request(process, 1, step, new { protocolVersion = Protocol, capabilities = new { },
+                    var stderr = process.StandardError.ReadToEndAsync();
+                    var initialized = Request(process, stderr, 1, step, new { protocolVersion = Protocol, capabilities = new { },
                         clientInfo = new { name = "DeskBox", version = "1.0" } }, token, 10000);
                     if (!Equals(Get(initialized, "protocolVersion"), Protocol) || Get(Get(initialized, "capabilities") as Message, "tools") == null)
                         throw new InvalidDataException("TIA MCP 协议版本不兼容，或未声明工具能力。");
                     Send(process.StandardInput, new { jsonrpc = "2.0", method = "notifications/initialized" });
 
                     step = "tools/list";
-                    var listing = Request(process, 2, step, new { }, token, 10000);
+                    var listing = Request(process, stderr, 2, step, new { }, token, 10000);
                     var entries = Get(listing, "tools") as System.Collections.IEnumerable;
                     var match = entries == null ? null : entries.OfType<Message>().SingleOrDefault(x => Equals(Get(x, "name"), tool));
                     if (match == null) throw new InvalidDataException("TIA MCP 缺少当前作业工具 " + tool + "。");
@@ -80,7 +83,7 @@ namespace DeskBox.Engineering.Tia
                         throw new InvalidDataException("TIA MCP 工具参数或回执结构不兼容：" + tool);
 
                     step = "tools/call";
-                    var response = Request(process, 3, step, new { name = tool, arguments = new { jobId = id } }, token,
+                    var response = Request(process, stderr, 3, step, new { name = tool, arguments = new { jobId = id } }, token,
                         job.Operation == "discover" || job.Operation == "read-open" ? 60000 : 300000);
                     var receipt = Get(response, "structuredContent") as Message;
                     var succeeded = Get(receipt, "succeeded");
@@ -112,13 +115,17 @@ namespace DeskBox.Engineering.Tia
             }
         }
 
-        private static Message Request(Process process, int id, string method, object args, CancellationToken token, int timeoutMs)
+        private static Message Request(Process process, Task<string> stderr, int id, string method, object args, CancellationToken token, int timeoutMs)
         {
             token.ThrowIfCancellationRequested();
             Send(process.StandardInput, new { jsonrpc = "2.0", id, method, @params = args });
             var pending = process.StandardOutput.ReadLineAsync();
             if (!pending.Wait(timeoutMs, token)) throw new TimeoutException("TIA MCP " + method + " 超时。请检查 Openness 授权提示或 TIA 状态。");
-            if (pending.Result == null) throw new IOException("TIA MCP 进程在返回 " + method + " 前退出。");
+            if (pending.Result == null)
+            {
+                string detail = stderr.Wait(500, token) ? stderr.Result.Trim() : "";
+                throw new IOException("TIA MCP 进程在返回 " + method + " 前退出。" + (detail.Length == 0 ? "" : "\r\n" + detail));
+            }
             var message = Json.FromJson<Message>(pending.Result);
             if (!Equals(Get(message, "jsonrpc"), "2.0") || !Equals(Get(message, "id"), id))
                 throw new InvalidDataException("TIA MCP JSON-RPC 回执无效：" + method);

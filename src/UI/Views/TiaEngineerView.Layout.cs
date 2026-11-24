@@ -211,7 +211,7 @@ namespace DeskBox.UI.Views
         {
             var menu = MenuBuilder.Create(Palette);
             var load = MenuBuilder.Item("添加工程资料", () => RunAction(() => { var files = SelectExports(); if (files != null) LoadExports(files, true); }));
-            var retry = MenuBuilder.Item("重生成上次需求", () => RunAction(() => SubmitRequirement(submittedRequirement)));
+            var retry = MenuBuilder.Item("重生成上次需求", () => RunAction(() => SubmitRequirement(submittedRequirement, consumeInput: false)));
             menu.Opening += delegate
             {
                 load.Enabled = operation == null;
@@ -219,6 +219,9 @@ namespace DeskBox.UI.Views
             };
             menu.Items.AddRange(new ToolStripItem[] { MenuBuilder.Item("保存需求草稿", () => RunAction(SaveRequirement)),
                 MenuBuilder.Item("填入示例", FillExample), retry, load });
+            var resetConversation = MenuBuilder.Item("新工程对话", ResetEngineeringConversation);
+            menu.Items.Add(resetConversation);
+            menu.Opening += delegate { resetConversation.Enabled = operation == null; };
             if (configureModel != null) menu.Items.Add(MenuBuilder.Item("配置 AI 服务商", () => RunAction(configureModel)));
             button.ContextMenuStrip = menu;
             button.Disposed += delegate { menu.Dispose(); };

@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -18,6 +19,8 @@ namespace DeskBox.UI.Views
         private TiaProgrammingTask programmingTask, editorTask, previewTask;
         private RichTextBox programmingProgress;
         private DarkButton isolatedDraft;
+        private readonly List<AiMessage> engineeringTurns = new List<AiMessage>();
+        private string conversationScope;
         private string lastNativeValidation = "", latestProgrammingStage = "";
 
         private static readonly Tuple<string, TiaProgrammingScope>[] ProgrammingScopes =
@@ -51,6 +54,7 @@ namespace DeskBox.UI.Views
 
         private void InvalidateProgrammingTarget(string reason)
         {
+            ResetEngineeringConversation();
             if (programmingTarget == null) return;
             programmingTarget = null;
             if (programmingTask != null && programmingTask.Target != null && programmingTask.State == TiaProgrammingState.AWAITING_REVIEW.ToString())
@@ -85,7 +89,7 @@ namespace DeskBox.UI.Views
                 choices.Controls.AddRange(new Control[] { native, exports, close });
                 choose.Controls.AddRange(new Control[] { instructions, choices });
                 choose.CancelButton = close;
-                var result = choose.ShowDialog(this);
+                var result = choose.ShowDialog(FindForm());
                 if (result == DialogResult.Yes) OpenProgrammingProject(true);
                 if (result == DialogResult.No)
                 {
@@ -165,7 +169,7 @@ namespace DeskBox.UI.Views
                 itemChoice.SelectedIndexChanged += delegate { update(); };
                 test.CheckedChanged += delegate { update(); };
                 refill();
-                var reply = dialog.ShowDialog(this);
+                var reply = dialog.ShowDialog(FindForm());
                 if (reply == DialogResult.Retry) { PickBindingSource(); return; }
                 if (reply != DialogResult.Yes || candidate == null) return;
                 InvalidateProgrammingTarget("用户重新确认了工程绑定。");
@@ -222,7 +226,7 @@ namespace DeskBox.UI.Views
                 details.Text = TargetSummary(programmingTarget);
                 details.BackColor = Palette.CardBg; details.ForeColor = Palette.Text;
                 dialog.Controls.Add(details);
-                dialog.ShowDialog(this);
+                dialog.ShowDialog(FindForm());
             }
         }
 
@@ -277,6 +281,7 @@ namespace DeskBox.UI.Views
                 phase == Phase.WaitingForInput || phase == Phase.WaitingForApproval ? TiaWorkbenchStyle.Warning(Palette) :
                 operation == null ? Palette.TextDim : Palette.Accent;
             workbenchTips.SetToolTip(assistantStage, text);
+            UpdateComposerStatus();
         }
 
         private void OpenProgrammingHistory()
@@ -302,7 +307,7 @@ namespace DeskBox.UI.Views
                 if (list.Items.Count != 0) list.SelectedIndex = 0;
                 else details.Text = "当前 AI 环境暂无编程任务。";
                 dialog.Controls.AddRange(new Control[] { details, buttons, list });
-                if (dialog.ShowDialog(this) != DialogResult.Yes || list.SelectedItem == null) return;
+                if (dialog.ShowDialog(FindForm()) != DialogResult.Yes || list.SelectedItem == null) return;
                 var task = (TiaProgrammingTask)list.SelectedItem;
                 var confirmed = programmingTarget;
                 Work("重新核对编程任务目标", token =>
@@ -339,7 +344,15 @@ namespace DeskBox.UI.Views
                 editorTask.EditorHash == TiaProgrammingTask.HashEditorText(editor.Text));
         }
 
-        private void SubmitRequirement(string prompt, bool requestIsolation = false)
+        private void ResetEngineeringConversation()
+        {
+            engineeringTurns.Clear();
+            conversationScope = null;
+            submittedRequirement = null;
+            if (conversation != null) conversation.Text = "提交工程需求，或继续补充上一轮的条件。";
+        }
+
+        private void SubmitRequirement(string prompt, bool requestIsolation = false, bool consumeInput = true)
         {
             if (operation != null || string.IsNullOrWhiteSpace(prompt)) return;
             var source = snapshot;
@@ -350,7 +363,6 @@ namespace DeskBox.UI.Views
             store.Step(task, TiaProgrammingState.WAITING_FOR_PROJECT, target == null ? "未确认工程目标。本任务仅生成通用隔离草稿。" :
                 "已固定工程、PLC 和编程范围，等待核对版本。", "生成前核对本次任务的资料和权限。");
             ShowProgrammingTask(store, task);
-            submittedRequirement = prompt;
 
             if (target != null && new[] { "Analyze", "Variables", "Hardware" }.Contains(target.Scope))
             {
@@ -369,7 +381,10 @@ namespace DeskBox.UI.Views
                 return;
             }
             string authorization = useContext ? "已绑定 PLC 的对象、来源与可用代码。此操作只生成草稿。" : "";
-            var model = ApproveModel(authorization, useContext);
+            string scope = string.Join("\n", new[] { AiEnvironment.Suffix, provider.Id, provider.BaseUrl, provider.Protocol, provider.Model,
+                target == null ? "" : target.BindingId, useContext.ToString() });
+            var history = scope == conversationScope ? engineeringTurns.ToArray() : new AiMessage[0];
+            var model = ApproveModel(authorization, useContext, history.Length != 0);
             if (model == null)
             {
                 store.Step(task, TiaProgrammingState.CANCELLED, "用户未批准发送需求。", "可重新提交。");
@@ -377,7 +392,13 @@ namespace DeskBox.UI.Views
                 SetPhase(Phase.Cancelled);
                 return;
             }
+            if (scope != conversationScope) ResetEngineeringConversation();
+            conversationScope = scope;
+            submittedRequirement = prompt;
+            if (consumeInput && requirement.Text == prompt) requirement.Clear();
             AddConversation("工程需求", prompt);
+            assistantTabs.SelectedIndex = 2;
+            if (!compact && !Store.Settings.TiaAssistantCollapsed) assistantPane.Visible = true;
             if (mode.SelectedIndex == 0) mode.SelectedIndex = 1;
             string before = editor.Text;
             var progress = new Progress<Tuple<string, string, string>>(update =>
@@ -388,7 +409,7 @@ namespace DeskBox.UI.Views
                 assistant.Text = update.Item3;
                 UpdateAssistantStage();
             });
-            Work("生成 SCL 编程任务", token => GenerateProgrammingDraft(store, task, source, model, before, progress, token), result =>
+            Work("生成 SCL 编程任务", token => GenerateProgrammingDraft(store, task, source, model, before, history, progress, token), result =>
             {
                 var draft = result.Item1;
                 var review = result.Item2;
@@ -396,6 +417,10 @@ namespace DeskBox.UI.Views
                 lastAiAnalysis = draft.Plan();
                 assistant.Text = (review == null ? "尚未生成源码。" : "已在本机保存 " + task.DraftFile) + "\r\n" + task.Next + "\r\n\r\n" + lastAiAnalysis;
                 AddConversation("AI 工程师", assistant.Text);
+                engineeringTurns.Add(new AiMessage { Role = "user", Content = prompt });
+                engineeringTurns.Add(new AiMessage { Role = "assistant", Content = Limit(draft.Plan(), 2800) +
+                    (draft.Scl.Length == 0 ? "" : "\r\n\r\nSCL 草稿\r\n" + Limit(draft.Scl, 6000)) });
+                if (engineeringTurns.Count > 6) engineeringTurns.RemoveRange(0, 2);
                 if (review == null) return;
                 if (editor.TextLength == 0 || SameSource(editor.Text, draft.Scl)) LoadScl(draft.Scl, draft.Name, task);
                 else ShowDraftPreview(draft.Scl, draft.Name, task);
@@ -407,7 +432,13 @@ namespace DeskBox.UI.Views
                     SetDiagnostics(review.Diagnostics, editor.Text);
                 }
             }, keepPage: true, running: Phase.Executing, outcome: result => task.State == TiaProgrammingState.BLOCKED.ToString() ? Phase.WaitingForInput : Phase.WaitingForApproval,
-                ended: error => RecordProgrammingError(store, task, error, "检查错误后重试，已写出的成果保留在任务目录。"));
+                ended: error =>
+                {
+                    RecordProgrammingError(store, task, error, "检查错误后重试，已写出的成果保留在任务目录。");
+                    if (IsDisposed || conversationScope != scope || draftEnvironment != AiEnvironment.Suffix) return;
+                    bool cancelled = error is OperationCanceledException;
+                    AddConversation(cancelled ? "任务已取消" : "任务未完成", cancelled ? "可从「更多操作」重新提交。" : error.Message);
+                });
         }
 
         private void RecordProgrammingError(TiaProgrammingStore store, TiaProgrammingTask task, Exception error, string next)
@@ -449,7 +480,7 @@ namespace DeskBox.UI.Views
         }
 
         private static Tuple<PlcDraft, PlcSnapshot> GenerateProgrammingDraft(TiaProgrammingStore store, TiaProgrammingTask task, PlcSnapshot snapshot,
-            AiProvider model, string earlier, IProgress<Tuple<string, string, string>> progress, CancellationToken token)
+            AiProvider model, string earlier, AiMessage[] history, IProgress<Tuple<string, string, string>> progress, CancellationToken token)
         {
             var target = task.Target;
             Action<string> report = summary => progress.Report(Tuple.Create(TaskStateLabel(task.State), ProgrammingTaskSummary(store, task), summary));
@@ -490,7 +521,7 @@ namespace DeskBox.UI.Views
             using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
                 deadline.CancelAfter(TimeSpan.FromSeconds(90));
-                try { draft = TiaPlanning.Plan(model, task.Requirement, context, deadline.Token, task.Isolated); }
+                try { draft = TiaPlanning.Plan(model, task.Requirement, context, deadline.Token, task.Isolated, history); }
                 catch (OperationCanceledException) { token.ThrowIfCancellationRequested(); throw new TimeoutException("AI 生成超过 90 秒。请重试或更换模型。"); }
             }
             if (draft.Kind == "PLAN")

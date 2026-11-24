@@ -25,7 +25,13 @@ namespace DeskBox
         {
             if (args.Length == 3 && args[0] == "--tia-mcp")
             {
-                Environment.ExitCode = Engineering.Tia.TiaOpenness.RunMcpServer(args[1], args[2]);
+                try { Environment.ExitCode = Engineering.Tia.TiaOpenness.RunMcpServer(args[1], args[2]); }
+                catch (Exception error)
+                {
+                    using (var stderr = new StreamWriter(Console.OpenStandardError(), new System.Text.UTF8Encoding(false)))
+                        stderr.WriteLine(error.GetType().Name + " · " + error.Message);
+                    Environment.ExitCode = 2;
+                }
                 return;
             }
             bool bridge = args.Length == 1 && args[0] == "--bridge";
