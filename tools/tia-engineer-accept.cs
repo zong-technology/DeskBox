@@ -922,7 +922,8 @@ public static class TiaEngineerAcceptance
         await Task.Delay(140);
         await Click(button("输入工程需求"));
         await Click(prompt);
-        Check(prompt.Focused && prompt.Bounds.Height >= 60, "Narrow layout still hit-tests the prompt and gives it keyboard focus");
+        Check(prompt.Focused && prompt.Bounds.Height >= 60 && !assistantPane.Visible,
+            "Narrow layout keeps the prompt usable and frees code space from the desktop assistant");
         await Capture(form, evidence, "tia-workbench-1024.png");
         draft.Focus();
         await Task.Delay(120);

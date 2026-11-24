@@ -682,7 +682,7 @@ namespace DeskBox.UI.Views
             generate.Enabled = operation == null && !string.IsNullOrWhiteSpace(requirement.Text);
             if (isolatedDraft != null) isolatedDraft.Enabled = generate.Enabled;
             useProjectContext.Enabled = operation == null && programmingTarget != null && Store.Settings.AiFileAccess;
-            useProjectContext.Visible = snapshot != null;
+            useProjectContext.Visible = programmingTarget != null && Store.Settings.AiFileAccess;
             if (applyDraft != null) applyDraft.Enabled = operation == null && pendingScl != null && mode.SelectedIndex > 0;
             if (repairDraft != null) repairDraft.Enabled = operation == null && diagnosticDraft != null && currentDiagnostics.Count > 0 && SameSource(diagnosticDraft, editor.Text);
             bool stopping = operation != null && operation.IsCancellationRequested;

@@ -301,7 +301,9 @@ namespace DeskBox.UI.Views
         {
             var settings = Store.Settings;
             int width = LayoutUnits(Body.DisplayRectangle.Width), height = LayoutUnits(Body.DisplayRectangle.Height);
-            compact = width < TiaWorkbenchStyle.CompactWidth;
+            bool narrow = width < TiaWorkbenchStyle.CompactWidth;
+            if (narrow != compact) compactAssistant = false;
+            compact = narrow;
             bool assistantOpen = !settings.TiaAssistantCollapsed && (!compact || compactAssistant);
             bool treeOpen = !settings.TiaTreeCollapsed;
             navigationPane.Width = TiaWorkbenchStyle.Pixels(this, Clamp(settings.TiaTreeWidth, compact ? 154 : 240, compact ? 185 : Math.Min(420, width - (assistantOpen ? 750 : 435))));
@@ -342,7 +344,7 @@ namespace DeskBox.UI.Views
         private void ToggleAssistant()
         {
             Store.Settings.TiaAssistantCollapsed = assistantPane.Visible;
-            compactAssistant = !Store.Settings.TiaAssistantCollapsed;
+            if (compact) compactAssistant = !Store.Settings.TiaAssistantCollapsed;
             SaveLayout();
         }
 
@@ -415,7 +417,7 @@ namespace DeskBox.UI.Views
             UpdateComposerTarget();
             workbenchTips.SetToolTip(modelStatus, modelStatus.Text);
             string tiaStatus = liveProject != null ? liveStatus : inspected != null ? "V20 已读副本" : !v20Checked ? liveStatus : v20Discovered ? "V20 接口已发现" : "V20 接口未就绪";
-            connectionStatus.Text = tiaStatus + " · " + mcpStatus;
+            connectionStatus.Text = tiaStatus + Environment.NewLine + mcpStatus;
             workbenchTips.SetToolTip(connectionStatus, connectionStatus.Text);
             if (liveProject != null) workbenchTips.SetToolTip(projectHeading, liveProject.Path + " · PID " + liveProject.ProcessId);
             connectionStatus.ForeColor = inspected != null ? TiaWorkbenchStyle.Success(Palette) : v20Checked && !v20Discovered ? TiaWorkbenchStyle.Warning(Palette) : Palette.TextDim;
