@@ -826,7 +826,7 @@ public static class TiaEngineerAcceptance
         using (var reply = new ManualResetEventSlim(true))
         {
             var response = Task.Run(() => ServePlan(listener, received, reply, "FB_SecondDraft"));
-            await Click(button("重生成上次需求"));
+            await ClickComposerMenu(view, "重生成上次需求");
             var until = DateTime.UtcNow.AddSeconds(8);
             while ((!response.IsCompleted || tabs.SelectedIndex != 5) && DateTime.UtcNow < until) await Task.Delay(30);
             Check(response.IsCompleted && tabs.SelectedIndex == 5 && draft.Text.Contains("FB_ReviewedScale"), "A new model draft opens the change preview without replacing existing source");
