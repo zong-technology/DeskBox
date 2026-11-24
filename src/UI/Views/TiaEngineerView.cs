@@ -133,6 +133,7 @@ namespace DeskBox.UI.Views
             generate = Button("发送工程需求", Generate);
             generate.Name = "tia-send-requirement";
             generate.Primary = true;
+            generate.DoubleClick += delegate { if (generate.Enabled) RunAction(Generate); };
             isolatedDraft = Button("生成隔离草稿", () =>
                 SubmitRequirement(string.IsNullOrWhiteSpace(requirement.Text) ? submittedRequirement : requirement.Text, true));
             modelStatus = Caption("");

@@ -991,7 +991,9 @@ public static class TiaEngineerAcceptance
     }
     private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null, bool planOnly = false, bool disconnect = false, bool answerOnly = false)
     {
-        using (var client = listener.AcceptTcpClient())
+        var pending = listener.AcceptTcpClientAsync();
+        if (!pending.Wait(8000)) throw new TimeoutException("The test model did not receive an engineering request for " + name);
+        using (var client = pending.Result)
         using (var stream = client.GetStream())
         {
             stream.ReadTimeout = 5000;
