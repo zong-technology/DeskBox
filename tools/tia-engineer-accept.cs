@@ -297,6 +297,7 @@ public static class TiaEngineerAcceptance
             if (!env.Installations.Any(x => x.Version == 20 && x.AssemblyPath != null))
                 Reject(() => TiaOpenness.Run(new TiaJob { ProjectFile = project }, CancellationToken.None), "Missing V20 prevents all native transactions");
 #if NETFRAMEWORK || TIA_WINFORMS
+            TestV20SessionOwnership(temp);
             var jsonDraft = Json.ToJson(new PlcDraft { Kind = "FB", Name = "FB_AnalogScale", Purpose = "Scale", Scl = PlcEngineering.AnalogScale("FB_AnalogScale") });
             Check(TiaPlanning.ParseDraft(jsonDraft).Name == "FB_AnalogScale", "Model JSON accepts one matching SCL draft");
             Reject(() => TiaPlanning.ParseDraft(jsonDraft.Replace("END_FUNCTION_BLOCK", "// END_FUNCTION_BLOCK")), "A commented closing marker cannot validate an incomplete draft");
@@ -307,6 +308,56 @@ public static class TiaEngineerAcceptance
         finally { try { Directory.Delete(temp, true); } catch (IOException) { } }
     }
 #if NETFRAMEWORK || TIA_WINFORMS
+    private static void TestV20SessionOwnership(string folder)
+    {
+        // This fixture models the SDK signatures. No Siemens runtime or PLC runs here.
+        var path = Path.Combine(folder, "OpenedFixture.ap20");
+        var open = new Siemens.Engineering.FixtureProcess(702, new FileInfo(path));
+        Siemens.Engineering.TiaPortal.BlockDedicatedStart = true;
+        Siemens.Engineering.TiaPortal.Instances = new[] { null, new Siemens.Engineering.FixtureProcess(701, null), open };
+        var discovered = new TiaResult();
+        ExerciseV20Session(new TiaJob { Operation = "discover" }, folder, false, discovered);
+        Check(discovered.Error.Length == 0 && discovered.OpenProjects.Single().ProcessId == 702 &&
+            discovered.OpenProjects[0].Path == path && Siemens.Engineering.TiaPortal.Attached == 0 &&
+            Siemens.Engineering.TiaPortal.DedicatedStarts == 0,
+            "Discovery uses the static SDK without starting or attaching to any Portal session");
+
+        var attached = new TiaResult();
+        ExerciseV20Session(new TiaJob { Operation = "read-open", PortalProcessId = 702, ProjectFile = path }, folder, false, attached);
+        Check(attached.OpenedReadOnly && attached.Snapshot.Name == "OpenedFixture" &&
+            attached.Snapshot.Objects.Any(item => item.Name == "Fixture rack") &&
+            Siemens.Engineering.TiaPortal.Attached == 702 && open.Project.Closed == 0 &&
+            Siemens.Engineering.TiaPortal.Disposed == 1 && Siemens.Engineering.TiaPortal.DedicatedStarts == 0,
+            "Read attaches only to the selected PID and detaches without closing the user's project");
+
+        Siemens.Engineering.TiaPortal.Instances = null;
+        var empty = new TiaResult();
+        try
+        {
+            ExerciseV20Session(new TiaJob { Operation = "discover" }, folder, false, empty);
+            Check(false, "An invalid null enumeration is rejected");
+        }
+        catch (System.Reflection.TargetInvocationException e)
+        {
+            Check(e.InnerException is InvalidOperationException && e.InnerException.Message.Contains("GetProcesses") &&
+                empty.OpennessStage.Contains("枚举"), "A null SDK result identifies the discovery stage and method");
+        }
+
+        Siemens.Engineering.TiaPortal.BlockDedicatedStart = false;
+        var copied = new TiaResult();
+        ExerciseV20Session(new TiaJob { ProjectFile = path }, folder, true, copied);
+        Check(copied.OpenedReadOnly && Siemens.Engineering.TiaPortal.DedicatedStarts == 1 &&
+            Siemens.Engineering.TiaPortal.LastCopy.Closed == 1 && open.Project.Closed == 0,
+            "Dedicated copy inspection still owns and closes only its own project");
+    }
+
+    private static void ExerciseV20Session(TiaJob job, string folder, bool dedicated, TiaResult receipt)
+    {
+        var type = typeof(TiaOpenness).GetNestedType("V20Session", System.Reflection.BindingFlags.NonPublic);
+        using (var session = (IDisposable)Activator.CreateInstance(type, typeof(TiaEngineerAcceptance).Assembly.Location, dedicated))
+            type.GetMethod("Execute").Invoke(session, new object[] { job, job.ProjectFile, folder, receipt });
+    }
+
     private static void TestMcp(string root, string evidence)
     {
         var result = TiaOpenness.Run(new TiaJob { Operation = "discover" }, CancellationToken.None);
@@ -315,6 +366,9 @@ public static class TiaEngineerAcceptance
             audit.Contains(result.Error.Length == 0 ? "tool_succeeded" : "tool_failed"), "Real DeskBox processes negotiate MCP, discover the tool and record its outcome");
         Check(result.Error.Length == 0 ? result.OpennessVersion.Length != 0 : result.Snapshot == null && result.OpenProjects.Count == 0,
             "Unavailable Openness returns a real MCP tool error with no engineering data");
+        if (result.Error.Length != 0 && result.OpennessVersion.Length == 0)
+            Check(result.OpennessStage.Contains("权限") && result.OpennessErrorDetails.Contains("RequireV20"),
+                "Missing native setup keeps the operation stage and original error in the real MCP receipt");
         var evidenceFolder = Path.GetDirectoryName(result.McpAudit);
         File.Copy(result.McpAudit, Path.Combine(evidence, "mcp-discovery-audit.jsonl"), true);
         File.Copy(Path.Combine(evidenceFolder, "result.json"), Path.Combine(evidence, "mcp-discovery-result.json"), true);
@@ -1044,3 +1098,83 @@ public static class TiaEngineerAcceptance
     }
 #endif
 }
+
+#if NETFRAMEWORK || TIA_WINFORMS
+namespace Siemens.Engineering
+{
+    public enum TiaPortalMode { WithoutUserInterface }
+    public enum ProjectOpenMode { Secondary }
+
+    public sealed class TiaPortal : IDisposable
+    {
+        public static FixtureProcess[] Instances;
+        public static bool BlockDedicatedStart;
+        public static int DedicatedStarts, Attached, Disposed;
+        public static FixtureProject LastCopy;
+        private readonly FixtureProcess process;
+        public FixtureProjects Projects { get; private set; }
+
+        public TiaPortal(TiaPortalMode mode)
+        {
+            if (BlockDedicatedStart) throw new NullReferenceException("Regression fixture rejects a dedicated launch during discovery or attach.");
+            DedicatedStarts++;
+            Projects = new FixtureProjects();
+        }
+
+        internal TiaPortal(FixtureProcess process)
+        {
+            this.process = process;
+            Attached = process.Id;
+            Projects = new FixtureProjects { process.Project };
+        }
+
+        public static FixtureProcess[] GetProcesses() { return Instances; }
+        public static FixtureProcess GetProcess(int id) { return Instances.SingleOrDefault(p => p != null && p.Id == id); }
+        public FixtureProcess GetCurrentProcess() { return process; }
+        public void Dispose() { Disposed++; }
+    }
+
+    public sealed class FixtureProcess
+    {
+        public int Id { get; private set; }
+        public FileInfo ProjectPath { get; private set; }
+        internal readonly FixtureProject Project;
+
+        public FixtureProcess(int id, FileInfo path)
+        {
+            Id = id;
+            ProjectPath = path;
+            Project = path == null ? null : new FixtureProject(Path.GetFileNameWithoutExtension(path.Name), true);
+        }
+
+        public TiaPortal Attach() { return new TiaPortal(this); }
+    }
+
+    public sealed class FixtureProjects : List<FixtureProject>
+    {
+        public FixtureProject Open(FileInfo file, object authentication, ProjectOpenMode mode)
+        {
+            var copy = new FixtureProject(Path.GetFileNameWithoutExtension(file.Name), false);
+            Add(copy);
+            return TiaPortal.LastCopy = copy;
+        }
+    }
+
+    public sealed class FixtureProject
+    {
+        public string Name { get; private set; }
+        public bool IsPrimary { get; private set; }
+        public int Closed { get; private set; }
+        public object[] Devices { get { return new object[] { new FixtureDevice() }; } }
+
+        public FixtureProject(string name, bool primary) { Name = name; IsPrimary = primary; }
+        public void Close() { Closed++; }
+    }
+
+    public sealed class FixtureDevice
+    {
+        public string Name { get { return "Fixture rack"; } }
+        public object[] DeviceItems { get { return new object[0]; } }
+    }
+}
+#endif

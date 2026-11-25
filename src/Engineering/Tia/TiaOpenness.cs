@@ -30,7 +30,7 @@ namespace DeskBox.Engineering.Tia
     public sealed class TiaResult
     {
         public string Error = "", Copy = "", Report = "", CompileState = "未运行", SourceHash = "";
-        public string OpennessVersion = "", SavedCopyHash = "";
+        public string OpennessVersion = "", SavedCopyHash = "", OpennessStage = "", OpennessErrorDetails = "";
         public string CompileStartedUtc = "", CompileFinishedUtc = "", VerifyStartedUtc = "";
         public bool Saved, Compiled, WriteStarted, OpenedReadOnly, Verified;
         public PlcSnapshot Snapshot;
@@ -116,6 +116,8 @@ namespace DeskBox.Engineering.Tia
             try
             {
                 ValidateJob(job);
+                bool live = job.Operation == "discover" || job.Operation == "read-open";
+                if (live) result.OpennessStage = "检查 V20 安装与当前用户权限";
                 var installation = RequireV20();
                 result.OpennessVersion = FileVersionInfo.GetVersionInfo(installation.AssemblyPath).FileVersion ?? "";
                 var project = "";
@@ -130,13 +132,15 @@ namespace DeskBox.Engineering.Tia
                     if (job.ExpectedSource.Length != 0 && result.SourceHash != job.ExpectedSource)
                         throw new IOException("工程快照指纹与审批不一致。");
                 }
-                using (var api = new V20Session(installation.AssemblyPath, job.Operation != "discover" && job.Operation != "read-open")) api.Execute(job, project, directory, result);
+                if (live) result.OpennessStage = "加载 V20 Openness";
+                using (var api = new V20Session(installation.AssemblyPath, !live)) api.Execute(job, project, directory, result);
                 if (result.Saved) result.SavedCopyHash = PlcEngineering.Hash(string.Join("\n", CopyTree(Path.GetDirectoryName(project), null, CancellationToken.None)));
             }
             catch (Exception e)
             {
+                if (result.OpennessStage.Length != 0) result.OpennessErrorDetails = e.ToString();
                 while (e is TargetInvocationException && e.InnerException != null) e = e.InnerException;
-                result.Error = e.GetType().Name + " · " + e.Message;
+                result.Error = (result.OpennessStage.Length == 0 ? "" : result.OpennessStage + "失败 · ") + e.GetType().Name + " · " + e.Message;
                 if (result.WriteStarted && result.CompileState == "未运行" && job != null)
                     result.Diagnostics.Add(new PlcDiagnostic { Severity = "Error", Source = job.Block + ".scl", Message = e.Message });
             }
@@ -392,12 +396,16 @@ namespace DeskBox.Engineering.Tia
             public V20Session(string path, bool dedicated)
             {
                 apiDir = Path.GetDirectoryName(path);
+                ownsProject = dedicated;
                 AppDomain.CurrentDomain.AssemblyResolve += Resolve;
                 try
                 {
                     api = Assembly.LoadFrom(path);
-                    var mode = Type(Ns + "TiaPortalMode");
-                    portal = (IDisposable)Activator.CreateInstance(Type(Ns + "TiaPortal"), Enum.Parse(mode, "WithoutUserInterface"));
+                    if (dedicated)
+                    {
+                        var mode = Type(Ns + "TiaPortalMode");
+                        portal = (IDisposable)Activator.CreateInstance(Type(Ns + "TiaPortal"), Enum.Parse(mode, "WithoutUserInterface"));
+                    }
                 }
                 catch { AppDomain.CurrentDomain.AssemblyResolve -= Resolve; throw; }
             }
@@ -436,46 +444,78 @@ namespace DeskBox.Engineering.Tia
                 return path == null ? "" : path.FullName;
             }
 
+            private object CallPortal(string name, Type[] parameterTypes, params object[] args)
+            {
+                var type = Type(Ns + "TiaPortal");
+                var method = type.GetMethod(name, BindingFlags.Public | BindingFlags.Static, null, parameterTypes, null);
+                if (method == null) throw new MissingMethodException(type.FullName, name);
+                return method.Invoke(null, args);
+            }
+
             private void Discover(TiaResult result)
             {
-                var processes = Type(Ns + "TiaPortal").GetMethod("GetProcesses", BindingFlags.Public | BindingFlags.Static).Invoke(null, null);
+                result.OpennessStage = "枚举正在运行的 TIA 实例";
+                var processes = CallPortal("GetProcesses", System.Type.EmptyTypes);
+                if (processes == null) throw new InvalidOperationException("V20 Openness 的 GetProcesses 返回空结果。");
+
+                result.OpennessStage = "读取打开的工程路径";
                 var unavailable = new List<string>();
+                bool readProcess = false;
                 foreach (var process in Items(processes))
                 {
-                    result.CompatibleProcesses++;
-                    int pid = Convert.ToInt32(Prop(process, "Id", false) ?? Prop(process, "ID"));
-                    string path;
-                    try { path = ProjectPath(process); }
-                    catch (TargetInvocationException error)
+                    if (process == null)
                     {
-                        unavailable.Add("PID " + pid + " · " + (error.InnerException ?? error).Message);
+                        unavailable.Add("V20 Openness 返回了空的实例条目。");
                         continue;
                     }
-                    if (!string.Equals(Path.GetExtension(path), ".ap20", StringComparison.OrdinalIgnoreCase)) continue;
-                    result.OpenProjects.Add(new TiaOpenProject { ProcessId = pid, Path = path, Name = Path.GetFileNameWithoutExtension(path) });
+                    result.CompatibleProcesses++;
+                    int pid = 0;
+                    try
+                    {
+                        pid = Convert.ToInt32(Prop(process, "Id", false) ?? Prop(process, "ID"));
+                        if (pid <= 0) throw new InvalidDataException("TIA 实例未提供有效 PID。");
+                        var path = ProjectPath(process);
+                        if (string.Equals(Path.GetExtension(path), ".ap20", StringComparison.OrdinalIgnoreCase))
+                            result.OpenProjects.Add(new TiaOpenProject { ProcessId = pid, Path = path, Name = Path.GetFileNameWithoutExtension(path) });
+                        readProcess = true;
+                    }
+                    catch (TargetInvocationException error)
+                    {
+                        unavailable.Add((pid == 0 ? "TIA 实例" : "PID " + pid) + " · " + (error.InnerException ?? error).Message);
+                    }
+                    catch (InvalidDataException error)
+                    {
+                        unavailable.Add(error.Message);
+                    }
                 }
                 result.Report = "V20 Openness 枚举实例 " + result.CompatibleProcesses + " · 已打开的独立 .ap20 主工程 " + result.OpenProjects.Count;
                 if (unavailable.Count != 0) result.Report += Environment.NewLine + string.Join(Environment.NewLine, unavailable);
-                if (unavailable.Count != 0 && unavailable.Count == result.CompatibleProcesses)
+                if (unavailable.Count != 0 && !readProcess)
                     result.Error = "无法读取已发现的 TIA 实例。请检查实例是否仍打开及访问权限。";
             }
 
             private void ReadOpen(TiaJob job, string directory, TiaResult result)
             {
-                var type = Type(Ns + "TiaPortal");
-                var process = type.GetMethod("GetProcess", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(int) }, null)
-                    .Invoke(null, new object[] { job.PortalProcessId });
+                result.OpennessStage = "核对所选 TIA 实例和工程路径";
+                var process = CallPortal("GetProcess", new[] { typeof(int) }, job.PortalProcessId);
                 var expected = PlcEngineering.FullLocalPath(job.ProjectFile);
                 if (process == null || !string.Equals(ProjectPath(process), expected, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("所选 TIA 工程已关闭或切换。请重新发现工程。");
-                portal = (IDisposable)Call(process, "Attach");
-                if (!string.Equals(ProjectPath(Call(portal, "GetCurrentProcess")), expected, StringComparison.OrdinalIgnoreCase))
+
+                result.OpennessStage = "附加到所选 TIA 实例";
+                portal = Call(process, "Attach") as IDisposable;
+                if (portal == null) throw new InvalidOperationException("V20 Openness 没有返回可用的附加会话。");
+                var attachedProcess = Call(portal, "GetCurrentProcess");
+                if (attachedProcess == null || !string.Equals(ProjectPath(attachedProcess), expected, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("附加后的工程与所选路径不一致。");
-                project = Items(Prop(portal, "Projects")).SingleOrDefault(x => Convert.ToBoolean(Prop(x, "IsPrimary")));
+
+                result.OpennessStage = "读取打开工程的元数据";
+                project = Items(Prop(portal, "Projects")).SingleOrDefault(x => x != null && Convert.ToBoolean(Prop(x, "IsPrimary")));
                 if (project == null) throw new InvalidOperationException("TIA 实例没有可读取的主工程。");
                 var cpus = new Dictionary<string, object>(StringComparer.Ordinal);
                 var snapshot = Read(directory, cpus, false);
-                if (!string.Equals(ProjectPath(Call(portal, "GetCurrentProcess")), expected, StringComparison.OrdinalIgnoreCase))
+                var currentProcess = Call(portal, "GetCurrentProcess");
+                if (currentProcess == null || !string.Equals(ProjectPath(currentProcess), expected, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("工程在读取期间关闭或切换。请重新发现工程。");
                 snapshot.Origin = "TIA V20 Openness · 已打开工程 · 只读";
                 snapshot.Notes.Clear();

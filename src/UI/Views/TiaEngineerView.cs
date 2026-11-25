@@ -841,7 +841,7 @@ namespace DeskBox.UI.Views
                     if (!automatic)
                     {
                         assistant.Text = message;
-                        output.Text = message + "\r\n" + result.Report + "\r\nMCP 审计 · " + result.McpAudit;
+                        output.AppendText("\r\n\r\n请核对已安装的 TIA Portal 版本和 Openness 授权。");
                     }
                     return;
                 }
@@ -1409,10 +1409,13 @@ namespace DeskBox.UI.Views
                 if (result.CompileFinishedUtc.Length != 0) lastNativeValidation = result.CompileFinishedUtc;
             }
             if (result.Saved || result.WriteStarted) savedJob = result;
-            output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report + "\r\n\r\n工作副本 · " + result.Copy;
+            output.Text = (result.Error.Length == 0 ? "" : "失败 · " + result.Error + "\r\n") + result.Report;
+            if (result.Copy.Length != 0) output.AppendText("\r\n\r\n工作副本 · " + result.Copy);
             if (result.OpennessVersion.Length != 0) output.AppendText("\r\nOpenness · " + result.OpennessVersion);
             if (result.McpAudit.Length != 0) output.AppendText("\r\nMCP 审计 · " + result.McpAudit);
             if (result.Copy.Length != 0) output.AppendText("\r\n作业回执 · " + RecoveryReceiptPath(result));
+            else if (result.McpAudit.Length != 0) output.AppendText("\r\n作业回执 · " + Path.Combine(Path.GetDirectoryName(result.McpAudit), "result.json"));
+            if (result.OpennessErrorDetails.Length != 0) output.AppendText("\r\n\r\nOpenness 错误详情\r\n" + result.OpennessErrorDetails);
             bool canRepair = job != null && job.Operation == "scl" && result.Diagnostics.Any(issue => MatchesBlock(issue, job.Block));
             bool compiled = job != null && result.CompileStartedUtc.Length != 0;
             SetDiagnostics(result.Diagnostics, canRepair ? job.Source : null, canRepair ? job.Block : null,
