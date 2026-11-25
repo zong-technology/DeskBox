@@ -67,3 +67,13 @@ powershell -NoProfile -File tools\tia-v20-smoke.ps1 `
 每次调用在证据目录的 `tia-jobs/<id>/` 留下 `approved-operation.json`、`mcp-audit.jsonl` 和 `result.json`。尝试写入前另有 `write-started.json`。测试 B、C、E 需要实际 V20，测试 D 的原生覆盖仍缺少实现。测试 F 的断连、关闭工程、权限、重名和真实编译错误需在授权测试项目逐项复验。受控 V20 附加和离线副本作业没有 PLC 下载、CPU 控制或在线强制工具。
 
 原生接口依据 [连接到 TIA Portal](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/adLw3rfN9TpyKEtxYa3ghA/content)、[从外部源生成块](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/kxNuDb_uRdA8BYt~s8WRXw/content)、[离线编译](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/DwXLzDT2glAOnCAxC4jvtA/content)和 [MCP 2025-06-18 工具规范](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)。
+
+## 已打开工程发现修复
+
+用户反馈点击「发现打开的工程」后显示空引用异常。核对源码发现 V20 会话构造器忽略了会话模式。发现和附加也会尝试构造无界面的 TIA 实例，副本会话则没有标记工程所有权。
+
+- 发现时只加载 Openness 并调用静态 `GetProcesses()`，处理空条目、失效实例和缺失接口。读取时验证 PID 和完整工程路径，经用户确认附加到所选进程并读取元数据。
+- 附加会话结束后释放连接。独立副本仍由其专用会话关闭。回执保留失败阶段、完整异常和 MCP 审计路径，工作台「操作结果」可直接查看。
+- Windows 回归使用测试宿主中的 Siemens API 签名夹具，重现发现、附加时错误构造无界面实例的路径。夹具覆盖静态发现、所选 PID 附加、空枚举结果和副本关闭行为。真实 V20 已打开工程仍需持证机器复验。 [Siemens 连接接口文档](https://docs.tia.siemens.cloud/api/khub/maps/Rc0LxW522mLHDCX_sejL~A/topics/adLw3rfN9TpyKEtxYa3ghA/content)
+
+`4.3.0-alpha.7` 从 `21e89d7` 构建，通过 186 项 TIA 回归和 70 项安装检查，安装包已下载并校验 SHA-256。 [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/45555072419) · [测试安装包](https://github.com/zong-technology/DeskBox/actions/runs/45555072419/artifacts/14994824519)
