@@ -71,8 +71,7 @@ namespace DeskBox.Engineering.Tia
                 foreach (var candidate in new[] { Path.Combine(root, "SupportPackages"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Siemens", "Automation", "Portal V" + version, "SupportPackages") })
                     if (Directory.Exists(candidate)) result.HardwareSupportPaths.Add(candidate);
             }
-            foreach (var process in Process.GetProcessesByName("Siemens.Automation.Portal"))
-                using (process) result.RunningProcesses.Add(process.Id);
+            result.RunningProcesses.AddRange(RunningPortalIds());
             try
             {
                 var group = (System.Security.Principal.SecurityIdentifier)new System.Security.Principal.NTAccount(Environment.MachineName, "Siemens TIA Openness").Translate(typeof(System.Security.Principal.SecurityIdentifier));
@@ -81,6 +80,14 @@ namespace DeskBox.Engineering.Tia
             }
             catch (Exception e) { result.Warnings.Add("Openness 用户组无法验证：" + e.Message); }
             return result;
+        }
+
+        internal static int[] RunningPortalIds()
+        {
+            return Process.GetProcessesByName("Siemens.Automation.Portal").Select(process =>
+            {
+                using (process) return process.Id;
+            }).ToArray();
         }
 
         private static void ReadProducts(RegistryKey hive, TiaEnvironment result)

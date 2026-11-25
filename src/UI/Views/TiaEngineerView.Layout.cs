@@ -9,15 +9,15 @@ namespace DeskBox.UI.Views
 {
     public sealed partial class TiaEngineerView
     {
-        private Panel navigationPane, assistantPane, outputPane, outputPages, codeInspector;
+        private Panel navigationPane, assistantPane, outputPane, outputPages, codeInspector, composer;
         private Splitter navigationDivider, assistantDivider, outputDivider;
         private DarkButton toggleAssistant, toggleTree, toggleOutput;
         private DarkButton[] outputTabs;
         private RichTextBox history, validationSummary, blockDetails;
-        private Label projectHeading, connectionStatus, contextDetails, editorStatus, diagnosisCount, navigationEmpty, modeStatus;
+        private Label projectHeading, connectionStatus, contextDetails, editorStatus, diagnosisCount, navigationEmpty, modeStatus, composerTarget, assistantStage;
         private Control diagnosticPage;
         private readonly ToolTip workbenchTips = new ToolTip { ShowAlways = true };
-        private bool compact, compactAssistant = true, v20Checked, v20Discovered;
+        private bool compact, compactAssistant, v20Checked, v20Discovered;
 
         private void BuildWorkbenchLayout(FlowLayoutPanel toolbar, Action configureModel)
         {
@@ -28,7 +28,8 @@ namespace DeskBox.UI.Views
                 Store.Settings.TiaLayoutVersion = 1;
             }
             navigationPane = BuildProjectNavigation();
-            assistantPane = BuildAssistant(configureModel);
+            assistantPane = BuildAssistant();
+            composer = BuildComposer(configureModel);
             outputPane = BuildOutputPane();
             navigationDivider = new Splitter { Name = "tia-tree-divider", Dock = DockStyle.Left, Width = TiaWorkbenchStyle.RailGap };
             assistantDivider = new Splitter { Name = "tia-assistant-divider", Dock = DockStyle.Right, Width = TiaWorkbenchStyle.RailGap };
@@ -48,7 +49,7 @@ namespace DeskBox.UI.Views
             toolbar.Padding = new Padding(8, 2, 8, 4);
             FormatCombo(mode);
             FormatCombo(cpu);
-            Body.Controls.AddRange(new Control[] { shell, toolbar, BuildContextBar() });
+            Body.Controls.AddRange(new Control[] { shell, composer, toolbar, BuildContextBar() });
             Body.SizeChanged += delegate { LayoutWorkbench(); };
             navigationDivider.SplitterMoved += delegate
             {
@@ -140,7 +141,7 @@ namespace DeskBox.UI.Views
             return pane;
         }
 
-        private Panel BuildAssistant(Action configureModel)
+        private Panel BuildAssistant()
         {
             var pane = new Panel { Name = "tia-assistant-pane", Dock = DockStyle.Right, Width = 350, Padding = new Padding(8, 0, 8, 5) };
             contextDetails = Caption("");
@@ -150,30 +151,81 @@ namespace DeskBox.UI.Views
             contextDetails.Padding = new Padding(6, 5, 4, 4);
             assistant.TabStop = false;
             assistant.Margin = Padding.Empty;
-            modelStatus.Height = TiaWorkbenchStyle.Pixels(this, 30);
-            var tools = Bar();
-            tools.Dock = DockStyle.Bottom;
-            tools.Controls.AddRange(new Control[] { generate, Button("添加工程资料", delegate { var files = SelectExports(); if (files != null) LoadExports(files, true); }),
-                Button("保存需求草稿", SaveRequirement), Button("填入示例", FillExample), regenerate });
-            if (configureModel != null) tools.Controls.Add(Button("配置 AI 服务商", configureModel));
-            var choices = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true };
-            choices.Controls.AddRange(new Control[] { useProjectContext, voiceAccess });
+            assistantStage = Caption("");
+            assistantStage.Name = "tia-assistant-stage";
+            assistantStage.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
+            assistantStage.Padding = new Padding(TiaWorkbenchStyle.Pixels(this, 6), 0, 0, 0);
+            voiceAccess.Dock = DockStyle.Bottom;
             voiceAccess.CheckedChanged += delegate { if (voiceAccess.Checked) voiceScope = DeskBox.Ai.AiEnvironment.Token; };
-            var composer = new Panel { Dock = DockStyle.Bottom, Name = "tia-composer" };
-            composer.Controls.AddRange(new Control[] { requirement, choices, tools, Heading("工程需求") });
-            Action fitComposer = delegate
-            {
-                int target = TiaWorkbenchStyle.Pixels(this, compact ? 96 : 150) + tools.Height + choices.Height;
-                if (composer.Height != target) composer.Height = target;
-            };
-            tools.SizeChanged += delegate { fitComposer(); };
-            choices.SizeChanged += delegate { fitComposer(); };
-            pane.SizeChanged += delegate { fitComposer(); };
-            fitComposer();
-            pane.Controls.AddRange(new Control[] { BuildAssistantContent(), composer, contextDetails, modelStatus, Heading("AI 工程师") });
+            var content = BuildAssistantContent();
+            pane.Controls.AddRange(new Control[] { content, voiceAccess, assistantStage, contextDetails, Heading("AI 工程师") });
+            return pane;
+        }
+
+        private Panel BuildComposer(Action configureModel)
+        {
+            int gap = TiaWorkbenchStyle.Pixels(this, DesignTokens.Space8);
+            int row = TiaWorkbenchStyle.Pixels(this, 31);
+            var pane = new Panel { Dock = DockStyle.Bottom, Name = "tia-composer", Padding = new Padding(gap, 2, gap, gap),
+                Height = TiaWorkbenchStyle.Pixels(this, 118) };
+            composerTarget = Caption("");
+            composerTarget.Name = "tia-composer-target";
+            composerTarget.Dock = DockStyle.Fill;
+            composerTarget.TextAlign = ContentAlignment.MiddleLeft;
+            var metadata = new TableLayoutPanel { Dock = DockStyle.Top, Height = TiaWorkbenchStyle.Pixels(this, 25), ColumnCount = 2, RowCount = 1 };
+            metadata.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 53));
+            metadata.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 47));
+            modelStatus.Dock = DockStyle.Fill;
+            modelStatus.TextAlign = ContentAlignment.MiddleRight;
+            metadata.Controls.Add(composerTarget, 0, 0);
+            metadata.Controls.Add(modelStatus, 1, 0);
+
+            var actionsPanel = new Panel { Dock = DockStyle.Right, Width = TiaWorkbenchStyle.Pixels(this, 192), Padding = new Padding(gap, 0, 0, 0) };
+            var secondary = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = row, ColumnCount = 2, RowCount = 1,
+                Margin = Padding.Empty };
+            secondary.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 53));
+            secondary.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 47));
+            var more = new DarkButton("更多操作") { AccessibleName = "更多需求操作", Font = generate.Font };
+            more.Name = "tia-composer-more";
+            BindComposerMenu(more, configureModel);
+            more.Dock = DockStyle.Fill;
+            more.Margin = new Padding(gap, 0, 0, 0);
+            cancel.Dock = DockStyle.Fill;
+            cancel.Margin = Padding.Empty;
+            secondary.Controls.Add(cancel, 0, 0);
+            secondary.Controls.Add(more, 1, 0);
+            generate.Dock = DockStyle.Top;
+            generate.Height = row;
+            actionsPanel.Controls.AddRange(new Control[] { generate, secondary });
+
+            useProjectContext.Dock = DockStyle.Bottom;
+            useProjectContext.Height = TiaWorkbenchStyle.Pixels(this, 21);
+            useProjectContext.CheckedChanged += delegate { UpdateComposerTarget(); };
+            pane.Controls.AddRange(new Control[] { requirement, actionsPanel, useProjectContext, metadata });
             requirement.Enter += delegate { requirement.BackColor = UiKit.Mix(Palette.PanelAlt, Palette.Accent, 0.15); };
             requirement.Leave += delegate { requirement.BackColor = Palette.PanelAlt; };
             return pane;
+        }
+
+        private void BindComposerMenu(DarkButton button, Action configureModel)
+        {
+            var menu = MenuBuilder.Create(Palette);
+            var load = MenuBuilder.Item("添加工程资料", () => RunAction(() => { var files = SelectExports(); if (files != null) LoadExports(files, true); }));
+            var retry = MenuBuilder.Item("重生成上次需求", () => RunAction(() => SubmitRequirement(submittedRequirement, consumeInput: false)));
+            menu.Opening += delegate
+            {
+                load.Enabled = operation == null;
+                retry.Enabled = operation == null && !string.IsNullOrWhiteSpace(submittedRequirement);
+            };
+            menu.Items.AddRange(new ToolStripItem[] { MenuBuilder.Item("保存需求草稿", () => RunAction(SaveRequirement)),
+                MenuBuilder.Item("填入示例", FillExample), retry, load });
+            var resetConversation = MenuBuilder.Item("新工程对话", ResetEngineeringConversation);
+            menu.Items.Add(resetConversation);
+            menu.Opening += delegate { resetConversation.Enabled = operation == null; };
+            if (configureModel != null) menu.Items.Add(MenuBuilder.Item("配置 AI 服务商", () => RunAction(configureModel)));
+            button.ContextMenuStrip = menu;
+            button.Disposed += delegate { menu.Dispose(); };
+            button.Click += delegate { menu.Show(button, new Point(0, 0), ToolStripDropDownDirection.AboveLeft); };
         }
 
         private void BuildProgrammingPage()
@@ -217,7 +269,7 @@ namespace DeskBox.UI.Views
             toolbar.Padding = new Padding(0, 1, 0, 1);
             toolbar.AutoSize = false;
             toolbar.Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.ToolbarHeight);
-            outputTabs = new[] { "编译结果", "诊断", "操作日志" }.Select((name, index) => Button(name, () => OpenOutput(index), false)).ToArray();
+            outputTabs = new[] { "操作结果", "诊断", "操作日志" }.Select((name, index) => Button(name, () => OpenOutput(index), false)).ToArray();
             foreach (var button in outputTabs) { button.Height = TiaWorkbenchStyle.Pixels(this, 32); toolbar.Controls.Add(button); }
             diagnosisCount = Caption("无诊断记录");
             diagnosisCount.Name = "tia-diagnosis-count";
@@ -252,7 +304,9 @@ namespace DeskBox.UI.Views
         {
             var settings = Store.Settings;
             int width = LayoutUnits(Body.DisplayRectangle.Width), height = LayoutUnits(Body.DisplayRectangle.Height);
-            compact = width < TiaWorkbenchStyle.CompactWidth;
+            bool narrow = width < TiaWorkbenchStyle.CompactWidth;
+            if (narrow != compact) compactAssistant = false;
+            compact = narrow;
             bool assistantOpen = !settings.TiaAssistantCollapsed && (!compact || compactAssistant);
             bool treeOpen = !settings.TiaTreeCollapsed;
             navigationPane.Width = TiaWorkbenchStyle.Pixels(this, Clamp(settings.TiaTreeWidth, compact ? 154 : 240, compact ? 185 : Math.Min(420, width - (assistantOpen ? 750 : 435))));
@@ -265,7 +319,7 @@ namespace DeskBox.UI.Views
                 assistantDivider.Height = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.RailGap);
                 assistantDivider.MinSize = TiaWorkbenchStyle.Pixels(this, 178);
                 assistantDivider.MinExtra = TiaWorkbenchStyle.Pixels(this, 235);
-                assistantPane.Height = TiaWorkbenchStyle.Pixels(this, Clamp(settings.TiaAssistantHeight, 178, Math.Min(350, height - 240)));
+                assistantPane.Height = TiaWorkbenchStyle.Pixels(this, Clamp(settings.TiaAssistantHeight, 178, Math.Min(350, height - 390)));
             }
             else
             {
@@ -278,8 +332,9 @@ namespace DeskBox.UI.Views
             contextDetails.Visible = !compact;
             outputPages.Visible = outputDivider.Visible = !settings.TiaLogCollapsed;
             outputDivider.MinSize = TiaWorkbenchStyle.Pixels(this, TiaWorkbenchStyle.MinimumOutputHeight);
-            int outputLimit = compact ? (assistantOpen ? 106 : Math.Min(156, height / 4)) :
-                Math.Min(300, Math.Max(92, height < 690 ? height / 5 : height / 3));
+            int outputLimit = compact
+                ? Math.Min(tabs.SelectedIndex == 0 ? 92 : assistantOpen ? 106 : 156, height / 4)
+                : Math.Min(300, Math.Max(92, height < 690 ? height / 5 : height / 3));
             outputPane.Height = TiaWorkbenchStyle.Pixels(this, settings.TiaLogCollapsed ? TiaWorkbenchStyle.ToolbarHeight : Clamp(settings.TiaLogHeight, TiaWorkbenchStyle.MinimumOutputHeight, outputLimit));
             toggleTree.Text = treeOpen ? "收起导航" : "展开导航";
             toggleAssistant.Text = assistantOpen ? "收起助手" : "展开助手";
@@ -292,16 +347,8 @@ namespace DeskBox.UI.Views
         private void ToggleAssistant()
         {
             Store.Settings.TiaAssistantCollapsed = assistantPane.Visible;
-            compactAssistant = !Store.Settings.TiaAssistantCollapsed;
+            if (compact) compactAssistant = !Store.Settings.TiaAssistantCollapsed;
             SaveLayout();
-        }
-
-        private void RevealAssistant()
-        {
-            compactAssistant = true;
-            if (!Store.Settings.TiaAssistantCollapsed && assistantPane.Visible) return;
-            Store.Settings.TiaAssistantCollapsed = false;
-            LayoutWorkbench();
         }
 
         private void ResetLayout()
@@ -313,7 +360,7 @@ namespace DeskBox.UI.Views
             settings.TiaLogHeight = defaults.TiaLogHeight;
             settings.TiaAssistantHeight = defaults.TiaAssistantHeight;
             settings.TiaTreeCollapsed = settings.TiaAssistantCollapsed = settings.TiaLogCollapsed = false;
-            compactAssistant = true;
+            compactAssistant = false;
             SaveLayout();
         }
 
@@ -364,16 +411,22 @@ namespace DeskBox.UI.Views
         {
             if (projectHeading == null) return;
             var target = programmingTarget;
-            projectHeading.Text = target != null ? target.Source.Name : programmingSource != null ? programmingSource.Name : snapshot == null ? "未加载工程" : "当前资料待重新读取";
-            modeStatus.Text = (target == null ? "未绑定" : Known(target.Cpu) + "  ·  " + ScopeLabel(target) + (target.ObjectName.Length == 0 ? "" : "  ·  " + target.ObjectName) +
+            projectHeading.Text = target != null ? target.Source.Name : programmingSource != null ? programmingSource.Name : liveProject != null ? snapshot.Name : snapshot == null ? "未加载工程" : "当前资料待重新读取";
+            modeStatus.Text = (target == null ? liveProject == null ? "未绑定" :
+                (cpu.SelectedIndex > 0 ? Convert.ToString(cpu.SelectedItem) : "请选择 PLC") + "  ·  工程只读" : Known(target.Cpu) + "  ·  " + ScopeLabel(target) + (target.ObjectName.Length == 0 ? "" : "  ·  " + target.ObjectName) +
                 (target.Source.Native ? "  ·  离线副本" : "  ·  本机草稿")) + "  ·  " + PhaseLabel(phase);
             workbenchTips.SetToolTip(projectHeading, projectHeading.Text);
             workbenchTips.SetToolTip(modeStatus, modeStatus.Text);
-            connectionStatus.Text = inspected != null ? "V20 · 副本已读取" : !v20Checked ? "V20 · 待检测" : v20Discovered ? "V20 · 接口已发现" : "V20 · 原生接口未就绪";
+            UpdateComposerTarget();
+            workbenchTips.SetToolTip(modelStatus, modelStatus.Text);
+            string tiaStatus = liveProject != null ? liveStatus : inspected != null ? "V20 已读副本" : !v20Checked ? liveStatus : v20Discovered ? "V20 接口已发现" : "V20 接口未就绪";
+            connectionStatus.Text = tiaStatus + Environment.NewLine + mcpStatus;
+            workbenchTips.SetToolTip(connectionStatus, connectionStatus.Text);
+            if (liveProject != null) workbenchTips.SetToolTip(projectHeading, liveProject.Path + " · PID " + liveProject.ProcessId);
             connectionStatus.ForeColor = inspected != null ? TiaWorkbenchStyle.Success(Palette) : v20Checked && !v20Discovered ? TiaWorkbenchStyle.Warning(Palette) : Palette.TextDim;
             var objectName = selected == null ? "未选中对象" : selected.Name;
             var origin = snapshot == null ? "未绑定工程资料" : snapshot.Origin;
-            contextDetails.Text = target == null ? "当前编程目标 · 未绑定\r\n" + origin + " · " + objectName + "\r\n请选择绑定，或生成通用 SCL 草稿。" :
+            contextDetails.Text = liveProject != null && target == null ? liveProject.Path + "\r\n" + objectName + "\r\n工程只读 · 独立副本需重新绑定" : target == null ? "当前编程目标 · 未绑定\r\n" + origin + " · " + objectName + "\r\n请选择绑定，或生成通用 SCL 草稿。" :
                 "当前编程目标 · " + target.Source.Origin + "\r\n" + Known(target.Cpu) + "  ·  " + ScopeLabel(target) + "\r\n" + (target.ObjectName.Length == 0 ? "未选择单个对象" : target.ObjectName);
             workbenchTips.SetToolTip(contextDetails, TargetSummary(target));
             var detail = selected == null ? "在工程树中选择程序块或变量。" : selected.Name + "\r\n\r\n" + selected.Kind + "   " + selected.Language +
@@ -381,6 +434,15 @@ namespace DeskBox.UI.Views
             if (blockDetails.Text != detail) blockDetails.Text = detail;
             RefreshPageStates();
             RefreshValidation();
+        }
+
+        private void UpdateComposerTarget()
+        {
+            if (composerTarget == null) return;
+            var target = programmingTarget;
+            composerTarget.Text = target == null ? "工程需求   ·   通用 SCL 草稿" : "工程需求   ·   " + target.Source.Name +
+                " / " + Known(target.Cpu) + (useProjectContext.Checked && Store.Settings.AiFileAccess ? "   ·   已授权引用" : "   ·   隔离草稿");
+            workbenchTips.SetToolTip(composerTarget, composerTarget.Text);
         }
 
         private void AppendOperation(string action)
@@ -423,9 +485,11 @@ namespace DeskBox.UI.Views
         private void ApplyWorkbenchPalette(Palette palette)
         {
             if (projectHeading == null) return;
-            foreach (Control surface in new Control[] { projectHeading.Parent.Parent, projectHeading.Parent, navigationPane, assistantPane, outputPane, codeInspector })
+            foreach (Control surface in new Control[] { projectHeading.Parent.Parent, projectHeading.Parent, navigationPane, assistantPane, outputPane, codeInspector, composer })
                 surface.BackColor = palette.HeaderBg;
             contextDetails.BackColor = palette.Panel;
+            assistantStage.BackColor = palette.PanelAlt;
+            UpdateAssistantStage();
             editor.BackColor = TiaWorkbenchStyle.EditorBackground(palette);
             foreach (var box in new[] { blockDetails, history, validationSummary }) { box.BackColor = palette.CardBg; box.ForeColor = palette.Text; }
             foreach (var divider in new[] { navigationDivider, assistantDivider, outputDivider }) divider.BackColor = palette.Bg;

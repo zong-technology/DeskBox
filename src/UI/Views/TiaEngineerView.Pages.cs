@@ -14,7 +14,9 @@ namespace DeskBox.UI.Views
         private string lastWorkbenchError, activeWorkbenchAction;
         private string verificationStatic, verifiedDraft, verificationCompile;
         private TiaEnvironment environmentReport;
+        private const string EmptyEngineeringConversation = "提交工程需求，或继续补充上一轮的条件。";
         private RichTextBox conversation;
+        private Label conversationSteps;
         private TiaWorkbenchTabs assistantTabs;
         private ListView variableGrid, lineChanges;
         private DarkInput variableSearch;
@@ -105,6 +107,8 @@ namespace DeskBox.UI.Views
                 box.ForeColor = Palette.Text;
             }
             foreach (TabPage tab in assistantTabs.TabPages) tab.BackColor = Palette.PanelAlt;
+            conversationSteps.BackColor = Palette.PanelAlt;
+            conversationSteps.ForeColor = Palette.Text;
             assistantTabs.Colors = Palette;
             assistantTabs.Font = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Regular);
             assistantTabs.FitLabels();
@@ -118,11 +122,17 @@ namespace DeskBox.UI.Views
         {
             assistantTabs = new TiaWorkbenchTabs { Dock = DockStyle.Fill };
             conversation = TextArea("工程对话记录");
-            conversation.Text = "提交工程需求后会在此显示本次对话。";
+            conversation.Text = EmptyEngineeringConversation;
             var statusPage = new TabPage("任务概览");
             statusPage.Controls.Add(assistant);
             var conversationPage = new TabPage("工程对话");
-            conversationPage.Controls.Add(conversation);
+            conversationSteps = Caption("");
+            conversationSteps.Name = "tia-conversation-steps";
+            conversationSteps.Height = TiaWorkbenchStyle.Pixels(this, 42);
+            conversationSteps.Padding = new Padding(TiaWorkbenchStyle.Pixels(this, 6), 2, 4, 2);
+            conversationSteps.TextAlign = ContentAlignment.MiddleLeft;
+            conversationSteps.Visible = false;
+            conversationPage.Controls.AddRange(new Control[] { conversation, conversationSteps });
             programmingProgress = TextArea("编程任务步骤");
             programmingProgress.Text = "提交 SCL 编程任务后显示真实步骤、文件与下一步。";
             var taskPage = new TabPage("编程任务");
@@ -136,12 +146,36 @@ namespace DeskBox.UI.Views
             return assistantTabs;
         }
 
+        private void SetConversationSteps(string steps)
+        {
+            if (conversationSteps == null) return;
+            conversationSteps.Text = steps;
+            conversationSteps.Visible = steps.Length != 0;
+            workbenchTips.SetToolTip(conversationSteps, steps);
+        }
+
         private void AddConversation(string speaker, string message)
         {
-            const string empty = "提交工程需求后会在此显示本次对话。";
-            if (conversation.Text == empty) conversation.Clear();
-            if (conversation.TextLength > 14000) conversation.Text = conversation.Text.Substring(conversation.TextLength - 10000);
-            conversation.AppendText(speaker + "  ·  " + DateTime.Now.ToString("HH:mm") + "\r\n" + Limit(message, 6000) + "\r\n\r\n");
+            if (conversation.Text == EmptyEngineeringConversation) conversation.Clear();
+            if (conversation.TextLength > 17000)
+            {
+                int trim = conversation.Text.IndexOf("\n\n", conversation.TextLength - 12000, StringComparison.Ordinal);
+                if (trim >= 0) { conversation.Select(0, trim + 2); conversation.SelectedText = ""; }
+            }
+            bool user = speaker == "工程需求";
+            string header = (user ? "你 · 工程需求" : speaker) + "   " + DateTime.Now.ToString("HH:mm");
+            string body = Limit(message, 6000);
+            int start = conversation.TextLength;
+            conversation.AppendText(header + "\n" + body + "\n\n");
+            conversation.Select(start, conversation.TextLength - start);
+            conversation.SelectionIndent = TiaWorkbenchStyle.Pixels(this, user ? 26 : 8);
+            conversation.SelectionRightIndent = TiaWorkbenchStyle.Pixels(this, user ? 8 : 26);
+            conversation.SelectionBackColor = user ? Palette.PanelAlt : Palette.CardBg;
+            conversation.SelectionColor = Palette.Text;
+            conversation.Select(start, header.Length);
+            conversation.SelectionFont = UiKit.CachedFont("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
+            conversation.SelectionColor = user ? Palette.Accent : Palette.Text;
+            conversation.Select(conversation.TextLength, 0);
             conversation.ScrollToCaret();
         }
 

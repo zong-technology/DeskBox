@@ -207,6 +207,13 @@ public static class TiaEngineerAcceptance
             prepared.Source += "// changed after approval";
             try { TiaOpenness.Run(prepared, CancellationToken.None); Check(false, "Edited approved source must fail"); }
             catch (InvalidOperationException ex) { Check(ex.Message.Contains("批准记录不一致"), "Changed approved source is rejected before TIA detection"); }
+            const string fc = "FUNCTION FC_Scale : Real\nVAR_INPUT\n Raw : Real;\nEND_VAR\nBEGIN\n #FC_Scale := #Raw;\nEND_FUNCTION";
+            var approvedFc = TiaOpenness.PrepareSclInsertion(project, "Rack/CPU", "source-sha", fc);
+            Check(approvedFc.Block == "FC_Scale" && approvedFc.BlockKind == "FC" && approvedFc.ApprovedHash == PlcEngineering.Hash(fc),
+                "An FC approval binds source, type and target");
+            approvedFc.BlockKind = "FB";
+            try { TiaOpenness.Run(approvedFc, CancellationToken.None); Check(false, "Changed approved FC type must fail"); }
+            catch (InvalidOperationException ex) { Check(ex.Message.Contains("类型与批准记录不一致"), "Changed FC type is rejected before native operation"); }
             var backup = Path.Combine(temp, "snapshot"); var copy = Path.Combine(temp, "work");
             var manifest = TiaOpenness.CopyTree(source, backup, CancellationToken.None);
             Check(manifest.SequenceEqual(TiaOpenness.CopyTree(backup, copy, CancellationToken.None)), "Binary copy and snapshot manifest match");
@@ -219,6 +226,9 @@ public static class TiaEngineerAcceptance
             try
             {
                 DeskBox.Core.AppPaths.DataDir = temp;
+#if NETFRAMEWORK || TIA_WINFORMS
+                TestMcp(temp, evidence);
+#endif
                 string jobDir = Path.Combine(temp, "tia-jobs", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(jobDir);
                 string recorded = Path.Combine(jobDir, "snapshot"), work = Path.Combine(jobDir, "work");
@@ -253,6 +263,9 @@ public static class TiaEngineerAcceptance
                 File.WriteAllText(receiptPath, Json.ToJson(saved));
                 var recoverable = TiaOpenness.ReadRecoveryReceipt(receiptPath);
                 Check(recoverable.WriteStarted && !recoverable.Saved, "A failed write that has a confirmed snapshot can be recovered");
+                string checkpoint = Path.Combine(jobDir, "write-started.json");
+                File.Move(receiptPath, checkpoint);
+                Check(TiaOpenness.ReadRecoveryReceipt(checkpoint).WriteStarted, "Interrupted writes can recover from a durable checkpoint without a final receipt");
                 saved = reloaded;
 #endif
                 string restored = TiaOpenness.RestoreSnapshot(saved, CancellationToken.None);
@@ -274,6 +287,10 @@ public static class TiaEngineerAcceptance
             Reject(() => TiaOpenness.VerifyNewScaleBlock(before, after, "CPU", "Approved"), "Unapproved modification of an existing object blocks save");
             after.Objects[0] = originalBlock;
             Reject(() => TiaOpenness.VerifyNewScaleBlock(before, after, "OtherCPU", "Approved"), "FB in another controller cannot satisfy the approval");
+            var newFc = new PlcObject { Name = "FC_Scale", Kind = "FC", Scope = "CPU/Blocks", Interface = "Raw : Real", Fingerprint = "fc" };
+            after.Objects[1] = newFc;
+            Check(TiaOpenness.VerifyNewBlock(before, after, "CPU", "FC_Scale", "FC") == newFc, "An FC readback must match the approved name, target and type");
+            Reject(() => TiaOpenness.VerifyNewBlock(before, after, "CPU", "FC_Scale", "FB"), "FC readback cannot satisfy an FB approval");
             Reject(() => TiaOpenness.Run(new TiaJob { Operation = "download", ProjectFile = project }, CancellationToken.None), "Online write request rejected before native environment detection");
             TestProgrammingRecords(temp);
             var env = TiaEnvironmentInspector.Inspect(); Console.WriteLine(env.Describe());
@@ -289,6 +306,65 @@ public static class TiaEngineerAcceptance
         }
         finally { try { Directory.Delete(temp, true); } catch (IOException) { } }
     }
+#if NETFRAMEWORK || TIA_WINFORMS
+    private static void TestMcp(string root, string evidence)
+    {
+        var result = TiaOpenness.Run(new TiaJob { Operation = "discover" }, CancellationToken.None);
+        var audit = File.ReadAllText(result.McpAudit);
+        Check(audit.Contains("tia_discover_projects") && audit.Contains("tools/call") &&
+            audit.Contains(result.Error.Length == 0 ? "tool_succeeded" : "tool_failed"), "Real DeskBox processes negotiate MCP, discover the tool and record its outcome");
+        Check(result.Error.Length == 0 ? result.OpennessVersion.Length != 0 : result.Snapshot == null && result.OpenProjects.Count == 0,
+            "Unavailable Openness returns a real MCP tool error with no engineering data");
+        var evidenceFolder = Path.GetDirectoryName(result.McpAudit);
+        File.Copy(result.McpAudit, Path.Combine(evidence, "mcp-discovery-audit.jsonl"), true);
+        File.Copy(Path.Combine(evidenceFolder, "result.json"), Path.Combine(evidence, "mcp-discovery-result.json"), true);
+
+        var id = Guid.NewGuid().ToString("N");
+        var jobRoot = Path.Combine(root, "tia-jobs");
+        var job = Path.Combine(jobRoot, id);
+        Directory.CreateDirectory(job);
+        File.WriteAllText(Path.Combine(job, "approved-operation.json"), Json.ToJson(new TiaJob { Operation = "discover" }));
+        var start = new System.Diagnostics.ProcessStartInfo(typeof(TiaOpenness).Assembly.Location, "--tia-mcp " + id + " \"" + jobRoot + "\"")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true
+        };
+        using (var process = System.Diagnostics.Process.Start(start))
+        {
+            try
+            {
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}");
+                Check(ReadMcpTestResponse(process).Contains("2025-06-18"), "The stdio server returns an MCP initialize response");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
+                string listing = ReadMcpTestResponse(process);
+                Check(listing.Contains("tia_discover_projects") && !listing.Contains("tia_compile_offline_copy"), "A discovery job advertises only its read capability");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"tia_compile_offline_copy\",\"arguments\":{\"jobId\":\"" + id + "\"}}}");
+                Check(ReadMcpTestResponse(process).Contains("-32602"), "MCP denies switching discovery to compile");
+                process.StandardInput.WriteLine("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"tia_discover_projects\",\"arguments\":{\"jobId\":\"unknown\"}}}");
+                Check(ReadMcpTestResponse(process).Contains("-32602") && !File.Exists(Path.Combine(job, "started.lock")), "Invalid MCP arguments never start an engineering operation");
+                process.StandardInput.Close();
+                Check(process.WaitForExit(5000) && process.ExitCode == 0, "Closing MCP stdin stops the idle server");
+            }
+            finally { if (!process.HasExited) process.Kill(); }
+        }
+        File.WriteAllText(Path.Combine(job, "approved-operation.json"), "{");
+        start.RedirectStandardError = true;
+        using (var rejected = System.Diagnostics.Process.Start(start))
+        {
+            var error = rejected.StandardError.ReadToEndAsync();
+            Check(rejected.WaitForExit(5000) && rejected.ExitCode == 2 && error.Wait(5000) &&
+                error.Result.Contains("InvalidOperationException"),
+                "A damaged MCP job exits with a readable error through the pipe");
+        }
+    }
+
+    private static string ReadMcpTestResponse(System.Diagnostics.Process process)
+    {
+        var pending = process.StandardOutput.ReadLineAsync();
+        if (!pending.Wait(5000) || pending.Result == null) throw new IOException("MCP test server did not reply.");
+        return pending.Result;
+    }
+#endif
     private static void TestProgrammingRecords(string root)
     {
         var file = Path.Combine(root, "binding-source.csv");
@@ -363,14 +439,28 @@ public static class TiaEngineerAcceptance
         var view = form.Controls.Find("page-tia", true).OfType<TiaEngineerView>().Single();
         var tree = Children(view).OfType<TreeView>().Single(); var tabs = view.Controls.Find("tia-work-tabs", true).OfType<TabControl>().Single();
         var mode = Children(view).OfType<ComboBox>().First(x => x.AccessibleName == "操作模式");
-        var approve = Children(view).OfType<DarkButton>().Single(x => x.Text == "批准新增 FB 并编译");
+        var approve = Children(view).OfType<DarkButton>().Single(x => x.Name == "tia-approve-insertion");
         Check(mode.SelectedIndex == 0 && !approve.Enabled, "Default read-only mode and write approval gate");
         Check(view.Controls.Find("tia-state-0", true).Single().Text.Contains("尚无 SCL 草稿") && !tree.Visible,
             "An empty installed workbench names both the missing draft and the missing engineering tree");
         await Capture(form, evidence, "tia-empty.png");
-        var detect = Children(view).OfType<DarkButton>().Single(b => b.Text == "检测环境");
-        await Click(detect);
+        await Click(view.Controls.Find("tia-bind-project", true).Single());
+        var picker = Application.OpenForms.Cast<Form>().Single(window => window.Text == "绑定工程 · 选择资料");
+        Check(picker.Owner == form, "The empty project picker is owned by the main DeskBox window");
+        picker.DialogResult = DialogResult.Cancel;
+        await Task.Delay(120);
+        Check(picker.IsDisposed && mode.Enabled, "Cancelling an empty project picker returns control to the workbench");
+        var discover = view.Controls.Find("tia-discover-projects", true).OfType<DarkButton>().Single();
+        await Click(discover);
         var detectionDeadline = DateTime.UtcNow.AddSeconds(12);
+        while (!mode.Enabled && DateTime.UtcNow < detectionDeadline) await Task.Delay(50);
+        Check(mode.Enabled && view.Controls.Find("tia-connection-status", true).Single().Text.Contains("MCP 已响应") &&
+            !Application.OpenForms.Cast<Form>().Any(window => window != form && window.Visible),
+            "Discovery with no compatible native installation reports the actual MCP response inline");
+        tabs.SelectedIndex = 6;
+        var detect = Children(view).OfType<DarkButton>().Single(b => b.Text == "查看能力与环境");
+        await Click(detect);
+        detectionDeadline = DateTime.UtcNow.AddSeconds(12);
         while (!mode.Enabled && DateTime.UtcNow < detectionDeadline) await Task.Delay(50);
         Check(mode.Enabled && tabs.SelectedIndex == 6 && Children(view).OfType<RichTextBox>()
             .Single(area => area.AccessibleName == "编译和操作日志").Text.Contains("连接状态"), "Environment detection publishes actionable status for the actual Windows host");
@@ -546,8 +636,8 @@ public static class TiaEngineerAcceptance
         using (var respond = new ManualResetEventSlim(true))
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, "FB_BoundScale"));
-            await Click(button("生成 SCL 草稿"));
-            await WaitEnabled(button("生成 SCL 草稿"));
+            await Click(button("发送工程需求"));
+            await WaitEnabled(button("绑定工程"));
             Check(request.IsCompleted, "The bound programming operation completes its actual model exchange");
             string payload = await request;
             Check(payload.Contains("PLC_B") && payload.Contains("ScaleSourceB") && !payload.Contains("ScaleSourceA"), "Only the bound PLC context reaches the explicit model request");
@@ -555,6 +645,9 @@ public static class TiaEngineerAcceptance
         var task = store.Recent().First();
         Check(task.Target.Cpu == "PLC_B" && task.State == "AWAITING_REVIEW" && editor.Text.Contains("FB_BoundScale") && !editor.ReadOnly,
             "One real bound flow produces editable code and waits for human review");
+        Check(view.Controls.Find("tia-composer-target", true).Single().Text.Contains("PLC_B") &&
+            view.Controls.Find("tia-assistant-stage", true).Single().Text == "待审查草稿",
+            "The submission target and task stage match the actual bound draft awaiting review");
         Check(task.Steps.Select(s => s.State).SequenceEqual(new[] { "WAITING_FOR_PROJECT", "READING_PROJECT", "ANALYZING_CONTEXT", "GENERATING_CODE", "STATIC_CHECK", "AWAITING_REVIEW" }),
             "Task log records the stages that actually ran without claiming native compilation");
         var assistantTab = Children(view).OfType<TabControl>().Single(tc => tc.TabPages.Cast<TabPage>().Any(p => p.Text == "编程任务"));
@@ -565,6 +658,10 @@ public static class TiaEngineerAcceptance
         foreach (string item in new[] { "task.json", task.DraftFile, "review.diff", "static-review.txt" })
             File.Copy(Path.Combine(store.Folder(task), item), Path.Combine(output, item), true);
 
+        view.LoadExports(new[] { Path.Combine(AppPaths.DataDir, "missing-binding-data.csv") });
+        await WaitEnabled(button("绑定工程"));
+        Check(view.Controls.Find("tia-context-details", true).Single().Text.Contains("PLC_B"),
+            "A failed import keeps the previously confirmed project and PLC");
         view.LoadExports(oldFiles);
         await WaitEnabled(button("绑定工程"));
         var invalidated = store.Recent().Single(item => item.Id == task.Id);
@@ -576,12 +673,24 @@ public static class TiaEngineerAcceptance
         using (var respond = new ManualResetEventSlim(true))
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, planOnly: true));
-            await Click(button("生成 SCL 草稿"));
-            await WaitEnabled(button("生成 SCL 草稿"));
-            await request;
+            await Click(button("发送工程需求"));
+            await WaitEnabled(button("绑定工程"));
+            var firstPayload = await request;
+            Check(!firstPayload.Contains("FB_BoundScale") && !firstPayload.Contains("ScaleSourceB"), "Changing projects clears the model conversation scope");
             var blocked = store.Recent().First();
             Check(blocked.State == "BLOCKED" && blocked.DraftFile.Length == 0 && blocked.Next.Contains("生成隔离草稿") && blocked.Steps.Last().Error.Contains("量程"),
                 "A planning-only reply ends with a concrete blocker and an isolated-draft action");
+        }
+        prompt.Text = "补充参数：原始值为 5530 至 27648。";
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim(true))
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, planOnly: true));
+            await Click(button("发送工程需求"));
+            await WaitEnabled(button("绑定工程"));
+            var payload = await request;
+            Check(payload.Contains("生成量程未确认") && payload.Contains("请确认量程。") && payload.Contains("5530 至 27648"),
+                "A follow-up sends the prior user request and AI clarification with the new parameters");
         }
         assistantTab.SelectedIndex = 1;
         using (var received = new ManualResetEventSlim())
@@ -589,22 +698,65 @@ public static class TiaEngineerAcceptance
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, "FB_IsolatedScale"));
             await Click(button("生成隔离草稿"));
-            await WaitEnabled(button("生成 SCL 草稿"));
+            await WaitEnabled(button("绑定工程"));
             var payload = await request;
             var isolated = store.Recent().First();
             Check(payload.Contains("本机隔离草稿") && isolated.Isolated && isolated.Target == null && store.ReadDraft(isolated).Contains("FB_IsolatedScale"),
                 "The isolated action completes a new local draft after a planning-only response");
         }
+        string originalCode = editor.Text;
+        prompt.Text = "请解释上轮的接口，不修改代码。";
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim(true))
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, answerOnly: true));
+            await Click(button("发送工程需求"));
+            await WaitEnabled(button("绑定工程"));
+            var payload = await request;
+            var answer = store.Recent().First();
+            Check(payload.Contains("FB_IsolatedScale") && answer.State == "ANSWERED" &&
+                answer.DraftFile.Length == 0 && editor.Text == originalCode,
+                "An explanatory follow-up includes the previous generated block and leaves the editor untouched");
+        }
+        prompt.Text = "继续检查当前草稿的接口。";
         using (var received = new ManualResetEventSlim())
         using (var respond = new ManualResetEventSlim(true))
         {
             var request = Task.Run(() => ServePlan(listener, received, respond, disconnect: true));
-            await Click(button("生成 SCL 草稿"));
-            await WaitEnabled(button("生成 SCL 草稿"));
+            await Click(button("发送工程需求"));
+            await WaitEnabled(button("绑定工程"));
             await request;
             Check(store.Recent().First().State == "FAILED" && store.ReadDraft(invalidated).Contains("FB_BoundScale"),
                 "A model disconnect records failure while the previous task artifact remains readable");
         }
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
+        var stop = view.Controls.Find("tia-cancel-task", true).Single();
+        prompt.Text = "继续生成审查草稿。";
+        string unsent = "下一条尚未提交的需求", beforeStop = editor.Text;
+        using (var received = new ManualResetEventSlim())
+        using (var respond = new ManualResetEventSlim())
+        {
+            var request = Task.Run(() => ServePlan(listener, received, respond, disconnect: true));
+            await Click(button("发送工程需求"));
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!received.IsSet && DateTime.UtcNow < deadline) await Task.Delay(30);
+            try
+            {
+                Check(received.IsSet && stop.Enabled && !assistantTab.Visible && prompt.TextLength == 0 &&
+                    view.Controls.Find("tia-model-status", true).Single().Text.Contains("当前操作"),
+                    "A pending task can be tracked and stopped with the assistant collapsed");
+                prompt.Text = unsent;
+                await Click(stop);
+            }
+            finally { respond.Set(); }
+            await request;
+            await WaitEnabled(button("绑定工程"));
+            var cancelled = store.Recent().First();
+            Check(cancelled.State == "CANCELLED" && cancelled.DraftFile.Length == 0 && !stop.Enabled &&
+                prompt.Text == unsent && editor.Text == beforeStop,
+                "Stopping a model request records cancellation and keeps demand and editor contents");
+        }
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
     }
 
     private static async Task WaitEnabled(Control control)
@@ -640,12 +792,33 @@ public static class TiaEngineerAcceptance
         mouse_event(4, 0, 0, 0, UIntPtr.Zero);
         await Task.Delay(100);
     }
+    private static async Task ClickComposerMenu(TiaEngineerView view, string action)
+    {
+        Control source = view.Controls.Find("tia-composer-more", true).Single();
+        await Click(source);
+        var menu = source.ContextMenuStrip;
+        Check(menu != null && menu.Visible, "The requirement menu is visible for " + action);
+        var choice = menu.Items.Cast<ToolStripItem>().Single(item => item.Text == action);
+        var point = menu.PointToScreen(new Point(choice.Bounds.Left + choice.Bounds.Width / 2, choice.Bounds.Top + choice.Bounds.Height / 2));
+        if (WindowFromPoint(point) != menu.Handle) throw new InvalidOperationException("Requirement menu item is obscured: " + action);
+        Cursor.Position = point;
+        mouse_event(2, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(4, 0, 0, 0, UIntPtr.Zero);
+        await Task.Delay(120);
+    }
     private static async Task ExerciseRequirement(MainForm form, Store store, TiaEngineerView view, TabControl tabs, TcpListener listener, string evidence)
     {
         var button = new Func<string, DarkButton>(label => Children(view).OfType<DarkButton>().Single(b => b.Text == label));
         var prompt = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "工程需求");
         var draft = Children(view).OfType<RichTextBox>().Single(b => b.AccessibleName == "SCL 草稿");
-        Check(prompt.Parent.Name == "tia-composer" && !tabs.Contains(prompt), "The editable composer lives in the assistant, outside the SCL tab control");
+        var assistantPane = view.Controls.Find("tia-assistant-pane", true).Single();
+        Check(prompt.Parent.Name == "tia-composer" && !tabs.Contains(prompt) && !assistantPane.Contains(prompt),
+            "The fixed composer is independent of the assistant and center tabs");
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
+        await Click(prompt);
+        Check(!assistantPane.Visible && prompt.Focused && button("停止任务").Visible,
+            "Collapsing the assistant keeps task input and cancellation available from the bottom dock");
+        await Click(view.Controls.Find("tia-toggle-assistant", true).Single());
         await Click(button("输入工程需求"));
         Check(tabs.SelectedIndex == 0 && prompt.Focused && prompt.TabStop && !prompt.ReadOnly, "Top entry focuses the visible editable native requirement input");
         await Click(prompt);
@@ -658,9 +831,9 @@ public static class TiaEngineerAcceptance
         SendKeys.SendWait("^c");
         Check(prompt.SelectionLength == prompt.TextLength && Clipboard.GetText().Contains("中文工程需求"), "Ctrl+A and Ctrl+C select and copy the full multiline requirement");
         var initial = prompt.Text;
-        await Click(button("保存需求草稿"));
+        await ClickComposerMenu(view, "保存需求草稿");
         Check(Json.Load(AppPaths.File("tia-requirement-local.json"), "") == initial, "Explicit draft save writes the complete requirement to the isolated profile");
-        await Click(button("配置 AI 服务商"));
+        await ClickComposerMenu(view, "配置 AI 服务商");
         var settings = Application.OpenForms.Cast<Form>().SingleOrDefault(window => window != form && window.Controls.Find("ai-environment", true).Any(c => c.Visible));
         Check(settings != null, "Provider shortcut opens the actual AI settings page");
         var enterSetting = settings.Controls.Find("tia-enter-sends", true).OfType<CheckBox>().Single();
@@ -681,27 +854,37 @@ public static class TiaEngineerAcceptance
             SendKeys.SendWait("^{ENTER}");
             var until = DateTime.UtcNow.AddSeconds(6);
             while (!requestReceived.IsSet && DateTime.UtcNow < until) await Task.Delay(30);
-            Check(requestReceived.IsSet && !button("生成 SCL 草稿").Enabled, "Configured Ctrl+Enter sends a real request to the local model fixture");
+            Check(requestReceived.IsSet && !button("发送工程需求").Enabled && prompt.TextLength == 0,
+                "Ctrl+Enter sends a real request and clears only the submitted text");
+            Check(view.Controls.Find("tia-cancel-task", true).Single().Enabled &&
+                view.Controls.Find("tia-assistant-stage", true).Single().Text == "等待模型回复" &&
+                view.Controls.Find("tia-conversation-steps", true).Single().Text.Contains("等待模型回复"),
+                "An active provider request exposes actual programming stages in the conversation and enables stop");
             SendKeys.SendWait("Pending");
             Check(prompt.Focused && prompt.Text.Contains("Pending"), "Input remains editable while a request is in progress");
             await Capture(form, evidence, "tia-task-running.png");
             canReply.Set();
             string payload = await request;
             until = DateTime.UtcNow.AddSeconds(8);
-            while (!button("生成 SCL 草稿").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
+            while (!button("发送工程需求").Enabled && DateTime.UtcNow < until) await Task.Delay(30);
             Check(payload.Contains("Confirm") && payload.Contains("中文工程需求") && !payload.Contains("Pending") &&
                 draft.Text.Contains("FB_ReviewedScale") && prompt.Text.Contains("Pending"), "Only submitted text reaches the model, its structured reply opens the SCL editor, and later input is retained");
             var localTask = new TiaProgrammingStore(AppPaths.File("tia-programming-local")).Recent().First();
             Check(localTask.Target == null && localTask.Isolated && localTask.DraftFile == "FB_ReviewedScale.scl", "An unbound task keeps a local deliverable and carries no project write authority");
             var conversation = Children(view).OfType<RichTextBox>().Single(box => box.AccessibleName == "工程对话记录");
-            Check(conversation.Text.Contains("Confirm") && conversation.Text.Contains("AI 工程师") && !conversation.Text.Contains("Pending"),
-                "Assistant transcript reflects the submitted exchange and excludes the unsent draft");
+            Check(conversation.Visible && conversation.Text.Contains("你 · 工程需求") && conversation.Text.Contains("Confirm") &&
+                conversation.Text.Contains("AI 工程师") && !conversation.Text.Contains("Pending"),
+                "The automatically shown transcript labels the sender and keeps the unsent draft separate");
+            conversation.Select(0, 1);
+            var userColor = conversation.SelectionColor;
+            conversation.Select(conversation.Text.IndexOf("AI 工程师", StringComparison.Ordinal), 1);
+            Check(userColor != conversation.SelectionColor, "Sent and received entries use distinct native text colors");
         }
         using (var received = new ManualResetEventSlim())
         using (var reply = new ManualResetEventSlim(true))
         {
             var response = Task.Run(() => ServePlan(listener, received, reply, "FB_SecondDraft"));
-            await Click(button("重生成上次需求"));
+            await ClickComposerMenu(view, "重生成上次需求");
             var until = DateTime.UtcNow.AddSeconds(8);
             while ((!response.IsCompleted || tabs.SelectedIndex != 5) && DateTime.UtcNow < until) await Task.Delay(30);
             Check(response.IsCompleted && tabs.SelectedIndex == 5 && draft.Text.Contains("FB_ReviewedScale"), "A new model draft opens the change preview without replacing existing source");
@@ -728,7 +911,9 @@ public static class TiaEngineerAcceptance
         await Click(button("静态检查草稿"));
         var list = Children(view).OfType<ListView>().Single(item => item.AccessibleName == "工程诊断列表");
         var severity = Children(view).OfType<ComboBox>().Single(item => item.AccessibleName == "诊断级别");
-        Check(tabs.SelectedIndex == 6 && list.Items.Count == 2, "Static source review produces two diagnostic rows");
+        Check(tabs.SelectedIndex == 6 && list.Items.Count == 2 &&
+            view.Controls.Find("tia-diagnostic-origin", true).Single().Text == "SCL 静态检查",
+            "Static source review shows the diagnostic origin with two diagnostic rows");
         severity.SelectedIndex = 1;
         Check(list.Items.Count == 0, "Error filter excludes warnings");
         severity.SelectedIndex = 2;
@@ -736,9 +921,9 @@ public static class TiaEngineerAcceptance
         unknown.Selected = true;
         list.Focus();
         await Capture(form, evidence, "tia-diagnostics.png");
-        SendKeys.SendWait("{ENTER}");
+        await Click(view.Controls.Find("tia-locate-diagnostic", true).Single());
         Check(tabs.SelectedIndex == 0 && draft.SelectionStart == draft.GetFirstCharIndexFromLine(5) + 4,
-            "Activating a warning lands on the SCL reference column");
+            "Locating the selected warning lands on the SCL reference column");
         severity.SelectedIndex = 0;
         string diagnosedSource = draft.Text;
         string correctedSource = diagnosedSource.Replace("#Unknown", "#Known");
@@ -795,16 +980,20 @@ public static class TiaEngineerAcceptance
         await Task.Delay(140);
         await Click(button("输入工程需求"));
         await Click(prompt);
-        Check(prompt.Focused && prompt.Bounds.Height >= 60, "Narrow layout still hit-tests the prompt and gives it keyboard focus");
+        Check(prompt.Focused && prompt.Bounds.Height >= 60 && !assistantPane.Visible,
+            "Narrow layout keeps the prompt usable and frees code space from the desktop assistant");
         await Capture(form, evidence, "tia-workbench-1024.png");
         draft.Focus();
         await Task.Delay(120);
-        Check(draft.Focused && draft.Height >= 100, "The narrow programming page scrolls to a usable SCL editor");
+        Console.WriteLine("Narrow editor " + draft.Size + ", focused=" + draft.Focused);
+        Check(draft.Focused && draft.Height >= 100, "The narrow programming page keeps a usable SCL editor above the fixed composer");
         await Capture(form, evidence, "tia-editor-narrow.png");
     }
-    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null, bool planOnly = false, bool disconnect = false)
+    private static string ServePlan(TcpListener listener, ManualResetEventSlim requestReceived, ManualResetEventSlim canReply, string name = "FB_ReviewedScale", string source = null, bool planOnly = false, bool disconnect = false, bool answerOnly = false)
     {
-        using (var client = listener.AcceptTcpClient())
+        var pending = listener.AcceptTcpClientAsync();
+        if (!pending.Wait(8000)) throw new TimeoutException("The test model did not receive an engineering request for " + name);
+        using (var client = pending.Result)
         using (var stream = client.GetStream())
         {
             stream.ReadTimeout = 5000;
@@ -833,7 +1022,7 @@ public static class TiaEngineerAcceptance
             requestReceived.Set();
             if (!canReply.Wait(TimeSpan.FromSeconds(4))) throw new TimeoutException("Waiting for editor input");
             if (disconnect) return Encoding.UTF8.GetString(body);
-            var plan = planOnly ? new PlcDraft { Kind = "PLAN", Purpose = "待确认设备数据。", MissingParameters = new[] { "请确认量程。" } } :
+            var plan = answerOnly ? new PlcDraft { Kind = "ANSWER", Purpose = "输入为原始值，输出为缩放结果。" } : planOnly ? new PlcDraft { Kind = "PLAN", Purpose = "待确认设备数据。", MissingParameters = new[] { "请确认量程。" } } :
                 new PlcDraft { Kind = "FB", Name = name, Purpose = "审查草稿", Scl = source ?? PlcEngineering.AnalogScale(name), Tests = new[] { "复核静态诊断及预期行为" } };
             var reply = Encoding.UTF8.GetBytes(Json.ToJson(new { choices = new[] { new { message = new { content = Json.ToJson(plan) } } } }));
             var header = Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + reply.Length + "\r\nConnection: close\r\n\r\n");
