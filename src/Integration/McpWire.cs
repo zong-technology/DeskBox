@@ -253,7 +253,11 @@ namespace DeskBox.Integration
             {
                 token.ThrowIfCancellationRequested();
                 var line = ReadBounded(process.StandardOutput, true);
-                if (line == null) throw new McpFault("disconnected", "MCP 进程在返回完整响应前退出。");
+                if (line == null)
+                {
+                    string detail = process.WaitForExit(200) ? "（退出码 " + process.ExitCode + "）" : "";
+                    throw new McpFault("disconnected", "MCP 进程在返回完整响应前关闭输出。" + detail);
+                }
                 var result = Decode(line, id.Value);
                 if (result != null) return result;
             }

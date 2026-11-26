@@ -256,6 +256,11 @@ internal static class V5RuntimeAccept
         stdio.Enabled = true;
         gateway.SaveServer("A", stdio);
         result = gateway.Discover("A", stdio.Id, "", None);
+        if (result.Receipt.State != "succeeded")
+        {
+            Console.Error.WriteLine("stdio fixture: " + result.Receipt.ErrorKind + " / " + result.Error);
+            if (File.Exists(diagnosticPath)) Console.Error.WriteLine(File.ReadAllText(diagnosticPath));
+        }
         Check(result.Receipt.State == "succeeded" && result.Catalog.Tools.Single().Name == "echo" &&
             result.Catalog.ProtocolVersion == "2024-11-05", "separate native stdio subprocess handshake and real discovery");
         gateway.SetToolGrant("A", result.Catalog, "echo", true);
