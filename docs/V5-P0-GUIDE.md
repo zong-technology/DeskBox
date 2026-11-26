@@ -25,7 +25,7 @@ V5 第一阶段保留 .NET Framework 4.8、WinForms、原生 TIA 反射工作进
 | --- | --- |
 | `engineering-workspaces.json` | 新字段按需写入，原任务、项目、验证阶段和 ID 保留。空路径由用户配置。历史任务中仅唯一匹配的项目名称可以进入项目页面，重名任务保留供全局处理。 |
 | `engineering-current.json` | 支持显式未绑定。保存先写同目录临时文件，再原子替换。项目配置和选中状态保留上一可读取版本，发现损坏时保留原文件并显示恢复提示。 |
-| `chats.json`、`chats-local.json` | 沿用既有环境文件，新会话附带项目 ID。旧记录未标项目时继续在未绑定工程范围保存。 |
+| `chats.json`、`chats-local.json` | 保留旧版文件和未绑定对话。V5 项目会话按环境写入 `chats-projects.json`、`chats-projects-local.json`，旧版回滚后仍可读取原未绑定历史。早期 V5 开发包写入的带项目 ID 记录在下次保存时转入独立文件。 |
 | `project-tia-<项目 ID>/` | 新建项目内 TIA 草稿、作业、回执和恢复副本按项目存放。早期无项目封装的数据仍可从全局范围查看。 |
 | `tia-mcp-policy.json` | 保存本机服务与离线工程策略。只有当前审批作业的工具通过 MCP 暴露。配置损坏时自动关闭该入口，重新保存策略后可恢复。 |
 

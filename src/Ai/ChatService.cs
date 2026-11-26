@@ -106,7 +106,8 @@ namespace DeskBox.Ai
         public string Status { get; private set; }
 
         private string environment = AiEnvironment.Mode;
-        private string SessionsFile { get { return Path.Combine(AppPaths.DataDir, environment == "local" ? "chats-local.json" : "chats.json"); } }
+        private string SessionsFile { get { return AppPaths.File(environment == "local" ? "chats-local.json" : "chats.json"); } }
+        private string ProjectSessionsFile { get { return AppPaths.File(environment == "local" ? "chats-projects-local.json" : "chats-projects.json"); } }
         public void ChangeEnvironment()
         {
             if(Busy)throw new InvalidOperationException("请先停止当前对话，再切换 AI 环境。");
@@ -732,7 +733,11 @@ namespace DeskBox.Ai
                     {
                         if (s.Messages.Count > 200) s.Messages = s.Messages.Skip(s.Messages.Count - 200).ToList();
                     }
-                    Json.SaveAtomic(SessionsFile, trimmed);
+                    // The files read by earlier DeskBox releases contain unbound sessions only.
+                    var scoped = trimmed.Where(session => !string.IsNullOrEmpty(session.ProjectId)).ToList();
+                    if (scoped.Count != 0 || File.Exists(ProjectSessionsFile))
+                        Json.SaveAtomic(ProjectSessionsFile, scoped, true);
+                    Json.SaveAtomic(SessionsFile, trimmed.Where(session => string.IsNullOrEmpty(session.ProjectId)).ToList());
                 }
             }
             catch (Exception ex) { AppLog.Write("error", "ai", "保存对话失败: " + ex.Message); }
@@ -742,8 +747,13 @@ namespace DeskBox.Ai
         {
             try
             {
-                var list = Json.Load<List<ChatSession>>(SessionsFile, null);
-                if (list == null) return;
+                var legacy = Json.Load(SessionsFile, new List<ChatSession>());
+                var scoped = Json.Load<List<ChatSession>>(ProjectSessionsFile, null)
+                    ?? Json.Load(ProjectSessionsFile + ".bak", new List<ChatSession>());
+                var list = scoped.Concat(legacy)
+                    .Where(session => session != null && !string.IsNullOrEmpty(session.Id) && session.Messages != null)
+                    .GroupBy(session => Tuple.Create(session.ProjectId ?? "", session.Id))
+                    .Select(group => group.OrderByDescending(session => session.UpdatedAt).First()).ToList();
                 foreach(var session in list.Where(s=>s!=null && s.Messages!=null))
                     foreach(var message in session.Messages.Where(m=>m.Streaming)){
                         message.Streaming=false;message.Interrupted=message.Role=="assistant";

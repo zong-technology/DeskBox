@@ -147,6 +147,12 @@ public static class V5ContextAcceptance
         string answer = chat.Current.Messages.Last().Content;
         Check(answer.Contains("本地文件名检索") && answer.Contains(aFile) && !answer.Contains(bFile), "actual local search fallback and source path");
         string aSession = chat.Current.Id;
+        var oldReader = Json.Load(AppPaths.File("chats.json"), new List<ChatSession>());
+        Check(oldReader.Any(session => session.Id == globalId) && oldReader.All(session => string.IsNullOrEmpty(session.ProjectId)),
+            "older release history file contains only unbound conversations");
+        var scopedOnDisk = Json.Load(AppPaths.File("chats-projects.json"), new List<ChatSession>());
+        Check(scopedOnDisk.Any(session => session.Id == aSession && session.ProjectId == a.Id),
+            "project conversation is isolated on disk");
         projects.SetCurrent(b.Id);
         chat.SetProjectContext(projects.Context);
         Check(chat.AllowedFiles.Count == 0 && chat.Sessions.All(session => session.ProjectId == b.Id), "switch clears temporary grants and shows only B sessions");
