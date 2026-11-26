@@ -73,8 +73,8 @@ namespace DeskBox.UI
             layout.Controls.Add(credential, 0, 2);
 
             var toolActions = Toolbar();
-            grant = AddButton(toolActions, "授权只读工具", "mcp-allow-tool", () => ChangeGrant(true));
-            revoke = AddButton(toolActions, "撤销授权", "mcp-revoke-tool", () => ChangeGrant(false));
+            grant = AddButton(toolActions, "授权只读工具", "mcp-allow-tool", GrantTool);
+            revoke = AddButton(toolActions, "撤销授权", "mcp-revoke-tool", RevokeGrant);
             invoke = AddButton(toolActions, "人工调用", "mcp-invoke", () => Run(true));
             layout.Controls.Add(toolActions, 0, 3);
 
@@ -203,19 +203,42 @@ namespace DeskBox.UI
             }
         }
 
-        private void ChangeGrant(bool allow)
+        private void GrantTool()
         {
             var tool = SelectedTool;
             if (!InScope || tool == null || catalog == null) return;
-            if (allow && MessageBox.Show(this, "已核对 " + tool.Name + " 的文档和 Schema，确认授权此版本的只读工具？",
+            if (MessageBox.Show(this, "已核对 " + tool.Name + " 的文档和 Schema，确认授权此版本的只读工具？",
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             try
             {
-                var server = gateway.SetToolGrant(scope, catalog, tool.Name, allow);
+                var server = gateway.SetToolGrant(scope, catalog, tool.Name, true);
                 LoadServers(server.Id);
-                status.Text = allow ? "授权已保存。每次调用仍需确认。" : "已撤销工具授权。";
+                status.Text = "授权已保存。每次调用仍需确认。";
             }
             catch (Exception error) { status.Text = error.Message; }
+        }
+
+        private void RevokeGrant()
+        {
+            var server = SelectedServer;
+            if (!InScope || server == null || server.Grants.Count == 0) return;
+            var menu = new ContextMenuStrip();
+            foreach (var permission in server.Grants)
+            {
+                var name = permission.Tool;
+                menu.Items.Add(name.Replace("&", "&&"), null, delegate
+                {
+                    try
+                    {
+                        gateway.RevokeTool(scope, server.Id, name);
+                        LoadServers(server.Id);
+                        status.Text = "已撤销工具授权 · " + name;
+                    }
+                    catch (Exception error) { status.Text = error.Message; }
+                });
+            }
+            menu.Closed += delegate { BeginInvoke(new Action(menu.Dispose)); };
+            menu.Show(revoke, new Point(0, revoke.Height));
         }
 
         internal void ScopeChanged()
@@ -283,7 +306,7 @@ namespace DeskBox.UI
             discover.Enabled = available;
             token.Enabled = available && server.Transport == "http";
             grant.Enabled = available && tool != null && !tool.ProhibitedByHints;
-            revoke.Enabled = available && authorized;
+            revoke.Enabled = registered && server.Grants.Count > 0;
             invoke.Enabled = available && authorized && !tool.ProhibitedByHints;
             cancel.Enabled = operation != null;
         }

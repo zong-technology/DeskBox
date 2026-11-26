@@ -71,7 +71,8 @@ namespace DeskBox.AppServices
                 throw new UnauthorizedAccessException("工具目录超出当前工程范围。");
             var tool = catalog.Tools.SingleOrDefault(item => item.Name == name);
             if (tool == null) throw new ArgumentException("工具必须来自当前服务的真实发现结果。");
-            if (approved && tool.ProhibitedByHints)
+            if (!approved) return RevokeTool(projectId, catalog.ServerId, name);
+            if (tool.ProhibitedByHints)
                 throw new UnauthorizedAccessException("服务声明该工具具有写入或破坏能力，无法在通用网关授权。");
             lock (Gate)
             {
@@ -82,7 +83,22 @@ namespace DeskBox.AppServices
                 if (!server.Enabled || catalog.Profile != McpProtocol.Profile(server))
                     throw new InvalidOperationException("服务配置或状态已变更，请重新发现工具。");
                 server.Grants.RemoveAll(grant => grant.Tool == name);
-                if (approved) server.Grants.Add(new McpGrant { Tool = name, Fingerprint = Fingerprint(catalog, tool) });
+                server.Grants.Add(new McpGrant { Tool = name, Fingerprint = Fingerprint(catalog, tool) });
+                server.Revision++;
+                store.Save(settings, recovered);
+                return server;
+            }
+        }
+
+        public McpServer RevokeTool(string projectId, string serverId, string name)
+        {
+            lock (Gate)
+            {
+                bool recovered;
+                var settings = store.Load(out recovered);
+                var server = Find(settings, Scope(projectId), serverId);
+                RequireIdle(server.Id);
+                if (server.Grants.RemoveAll(grant => grant.Tool == name) == 0) return server;
                 server.Revision++;
                 store.Save(settings, recovered);
                 return server;

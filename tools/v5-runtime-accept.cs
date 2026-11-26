@@ -272,7 +272,13 @@ internal static class V5RuntimeAccept
         Check(gateway.Discover("A", stdio.Id, "", None).Receipt.State == "denied", "local environment does not spawn third-party executables");
         AiEnvironment.Select("network");
 
-        gateway.SetToolGrant("A", result.Catalog, "echo", false);
+        stdio = gateway.Servers("A", out recovered).Single(item => item.Id == stdio.Id);
+        stdio.Enabled = false;
+        stdio = gateway.SaveServer("A", stdio);
+        stdio = gateway.RevokeTool("A", stdio.Id, "echo");
+        Check(stdio.Grants.Count == 0, "grants can be revoked on an inactive and disconnected service");
+        stdio.Enabled = true;
+        gateway.SaveServer("A", stdio);
         Check(gateway.Invoke("A", stdio.Id, "echo", "{}", true, "", None).Receipt.State == "denied", "revoked permission is enforced");
         var config = Path.Combine(root, "mcp-gateway", "servers.json");
         File.WriteAllText(config, "corrupted");

@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using DeskBox.Ai;
 using DeskBox.AppServices;
@@ -461,7 +462,8 @@ namespace DeskBox.UI.Views
             AddButton(bar, "保存", bx, 2, 70, delegate { SaveEditing(); }); bx += 76;
             AddButton(bar, "删除", bx, 2, 70, delegate { DeleteProvider(); }); bx += 76;
             AddButton(bar, "设为默认", bx, 2, 84, delegate { SetDefaultProvider(); }); bx += 90;
-            var btnTest = AddButton(bar, "测试连接", bx, 2, 84, delegate { TestConnection(); });
+            AddButton(bar, "测试连接", bx, 2, 84, delegate { TestProvider(false); }); bx += 90;
+            AddButton(bar, "检测文本流", bx, 2, 100, delegate { TestProvider(true); }).Name = "ai-stream-probe";
             p.Controls.Add(bar);
             _y += 42;
 
@@ -663,64 +665,46 @@ namespace DeskBox.UI.Views
             Toast("已设为默认");
         }
 
-        private void TestConnection()
+        private async void TestProvider(bool streaming)
         {
             if (_providers == null || _testing) return;
             var row = _provList.SelectedRow;
-            var pr = row == null ? null : _providers.Get((string)row.Tag);
-            if (pr == null) { Toast("先选中一个服务商", false); return; }
-            if (string.IsNullOrWhiteSpace(pr.BaseUrl)) { Toast("请先填写 Base URL", false); return; }
+            var provider = row == null ? null : _providers.Get((string)row.Tag);
+            if (provider == null) { Toast("先选中一个服务商", false); return; }
+            if (string.IsNullOrWhiteSpace(provider.BaseUrl)) { Toast("请先填写 Base URL", false); return; }
 
             _testing = true;
             _testResult.ForeColor = Palette.TextDim;
-            _testResult.Text = "测试中…（真实发送请求）";
-            var provider = pr;
+            _testResult.Text = streaming ? "正在检测模型文本流…" : "正在测试连接…";
             var snapshot = provider.Clone();
             var environment = AiEnvironment.Mode;
-            var worker = new Thread(delegate()
+            var label = streaming ? "文本流与结束帧验证" : "连接测试";
+            try
             {
-                ModelProbe r;
-                try
+                var result = await Task.Run(delegate
                 {
                     using (var timeout = new CancellationTokenSource(15000))
-                        r = AgentRuntime.ProbeModel(snapshot, timeout.Token);
-                }
-                catch (Exception ex)
-                {
-                    r = new ModelProbe { Error = ex.Message, ErrorKind = "unknown" };
-                }
-                try
-                {
-                    if (IsDisposed) return;
-                    BeginInvoke(new Action(delegate
                     {
-                        _testing = false;
-                        if (environment != AiEnvironment.Mode || !ReferenceEquals(_providers.Get(provider.Id), provider) ||
-                            provider.UpdatedAt != snapshot.UpdatedAt)
-                        {
-                            _testResult.Text = "测试期间服务商或运行环境已切换。";
-                            return;
-                        }
-                        if (r.Ok)
-                        {
-                            _testResult.ForeColor = Color.FromArgb(110, 231, 183);
-                            _testResult.Text = "✓ 文本流与结束帧已验证（" + r.ElapsedMs + " ms，HTTP " + r.HttpStatus + "）";
-                        }
-                        else
-                        {
-                            _testResult.ForeColor = Color.FromArgb(248, 150, 150);
-                            _testResult.Text = "✗ " + KindText(r.ErrorKind) + "：" + r.Error;
-                        }
-                        provider.LastStatus = r.Ok ? ("ok: " + r.ElapsedMs + "ms") : ("err: " + r.ErrorKind);
-                        _providers.Save();
-                        ReloadProviderList();
-                        _store.Log(r.Ok ? "info" : "warn", "ai", "连接测试 " + provider.Name + " · " + (r.Ok ? "成功" : "失败[" + r.ErrorKind + "]"));
-                    }));
-                }
-                catch { }
-            });
-            worker.IsBackground = true;
-            worker.Start();
+                        if (streaming) return AgentRuntime.ProbeModel(snapshot, timeout.Token);
+                        var reply = new AiClient(snapshot).TestConnection(timeout.Token);
+                        return new ModelProbe { Ok = reply.Ok, HttpStatus = reply.HttpStatus, ElapsedMs = reply.ElapsedMs,
+                            Error = reply.Error, ErrorKind = reply.ErrorKind };
+                    }
+                });
+                if (IsDisposed || environment != AiEnvironment.Mode || !ReferenceEquals(_providers.Get(provider.Id), provider) ||
+                    provider.UpdatedAt != snapshot.UpdatedAt || !ReferenceEquals(_editing, provider)) return;
+                provider.LastStatus = label + (result.Ok ? (" · " + result.ElapsedMs + " ms") : (" · " + result.ErrorKind));
+                _providers.Save();
+                ReloadProviderList();
+                _testResult.ForeColor = result.Ok ? Color.FromArgb(110, 231, 183) : Color.FromArgb(248, 150, 150);
+                _testResult.Text = result.Ok
+                    ? label + "通过（" + result.ElapsedMs + " ms，HTTP " + result.HttpStatus + "）"
+                    : label + "失败 · " + KindText(result.ErrorKind) + " · " + result.Error;
+                _store.Log(result.Ok ? "info" : "warn", "ai", label + " " + provider.Name + " · " +
+                    (result.Ok ? "成功" : "失败[" + result.ErrorKind + "]"));
+            }
+            catch (Exception error) { if (!IsDisposed) _testResult.Text = label + "失败 · " + error.Message; }
+            finally { _testing = false; }
         }
 
         private static string KindText(string kind)
