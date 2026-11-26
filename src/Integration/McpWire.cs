@@ -213,6 +213,7 @@ namespace DeskBox.Integration
 
     internal sealed class StdioMcpWire : McpWire
     {
+        private static readonly object StartGate = new object();
         private readonly Process process;
         private readonly StreamWriter writer;
         private readonly CancellationTokenRegistration abort;
@@ -233,7 +234,7 @@ namespace DeskBox.Integration
                 var value = Environment.GetEnvironmentVariable(name);
                 if (value != null) start.EnvironmentVariables[name] = value;
             }
-            process = Process.Start(start);
+            process = StartWithoutPreamble(start);
             try
             {
                 abort = token.Register(Kill);
@@ -242,6 +243,21 @@ namespace DeskBox.Integration
                     System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
             }
             catch { Dispose(); throw; }
+        }
+
+        private static Process StartWithoutPreamble(ProcessStartInfo start)
+        {
+            if (Environment.OSVersion.Platform != PlatformID.Win32NT) return Process.Start(start);
+            lock (StartGate)
+            {
+                var original = Console.InputEncoding;
+                if (original.GetPreamble().Length == 0) return Process.Start(start);
+                // The Framework Process creates and AutoFlushes its writer before returning.
+                // Keep the console code page and suppress its preamble while opening the pipe.
+                Console.InputEncoding = new UTF8Encoding(false);
+                try { return Process.Start(start); }
+                finally { Console.InputEncoding = original; }
+            }
         }
 
         internal override Dictionary<string, object> Exchange(string json, int? id, CancellationToken token)
