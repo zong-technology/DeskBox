@@ -234,6 +234,7 @@ public static class V5ContextAcceptance
             var preview = (RichTextBox)Find(workspace, "dcs-export-preview");
             WaitFor(() => preview.Text.Contains("MODULE_INSTANCE") || preview.Text.Contains("读取失败"), "DCS text preview", true);
             Check(preview.Text.Contains("MODULE_INSTANCE"), "actual FHX text visible: " + (preview.Text.Contains("MODULE_INSTANCE") ? "loaded" : preview.Text));
+            CaptureWindow(form, Path.Combine(output, "dcs-preview-dpi" + dpi + ".png"));
             form.SwitchView("tia");
             var tia = (TiaEngineerView)Find(workspace, "page-tia");
             tia.LoadExports(new[] { bFile });
@@ -252,6 +253,7 @@ public static class V5ContextAcceptance
             var receipt = Find(workspace, "mcp-actual-receipt");
             WaitFor(() => receipt.Text.Contains("probe_succeeded") || receipt.Text.Contains("检测失败"), "MCP handshake", true);
             Check(receipt.Text.Contains("probe_succeeded"), "actual stdio MCP initialize and tool discovery");
+            CaptureWindow(form, Path.Combine(output, "mcp-probe-dpi" + dpi + ".png"));
 
             foreach (var size in new[] { new Size(1366, 768), new Size(1600, 900), new Size(1920, 1080),
                 new Size(2560, 1440), new Size(3840, 2160) })

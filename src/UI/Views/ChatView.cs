@@ -273,7 +273,27 @@ namespace DeskBox.UI.Views
             var attach = new DarkButton("附件") { Left = 0, Top = 3, Width = 66, Height = 28, Palette = Palette };
             attach.Click += delegate { AttachDocument(); };
             _composerFooter.Controls.Add(attach);
-            _ctxInfo.Left = 75;
+            var model = new DarkButton("模型") { Left = 72, Top = 3, Width = 64, Height = 28,
+                Palette = Palette, AccessibleName = "选择会话模型" };
+            model.Click += delegate
+            {
+                var menu = MenuBuilder.Create(Palette);
+                if (_providers != null)
+                {
+                    foreach (var service in _providers.Providers.Where(provider => provider.Enabled))
+                    {
+                        var selected = service;
+                        menu.Items.Add(MenuBuilder.Item(service.Name + " · " + service.Model,
+                            () => { if (_chat != null) _chat.SetProvider(selected.Id, selected.Model); }));
+                    }
+                }
+                menu.Items.Add(MenuBuilder.Item("AI 服务商设置", delegate
+                { if (SettingsRequested != null) SettingsRequested(this, EventArgs.Empty); }));
+                menu.Closed += delegate { BeginInvoke(new Action(menu.Dispose)); };
+                menu.Show(model, new Point(0, -2), ToolStripDropDownDirection.AboveRight);
+            };
+            _composerFooter.Controls.Add(model);
+            _ctxInfo.Left = 146;
 
             _referenceRight = new ReferenceCard(Palette) { Dock = DockStyle.Right, Width = 265, Padding = new Padding(10) };
             var contextTitle = new Label { Dock = DockStyle.Top, Height = 29, Text = "工程上下文",

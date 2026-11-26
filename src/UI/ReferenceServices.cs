@@ -32,18 +32,27 @@ namespace DeskBox.UI
                 toolbar.WrapContents = true;
                 toolbar.AutoSize = true;
                 toolbar.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-                if(_providers!=null)foreach(var provider in _providers.Providers.Where(x=>x.Enabled)){var p=provider;toolbar.Controls.Add(Button(p.Name,()=>{if(_chat!=null)_chat.SetProvider(p.Id,p.Model);},_chat!=null&&_chat.Current!=null&&_chat.Current.ProviderId==p.Id,130));}
-                toolbar.Controls.Add(Button("博图 AI 工程师",()=>Navigate("tia"),false,140));
-                toolbar.Controls.Add(Button("新对话",()=>_chat.NewSession(),false,90));toolbar.Controls.Add(Button("停止",()=>_chat.Cancel(),false,70));toolbar.Controls.Add(Button("参数设置",()=>{var chat=view as Views.ChatView;if(chat!=null)chat.ToggleReferenceOptions();},false,120));toolbar.Controls.Add(Button("服务商设置",()=>ShowLegacy("settings"),false,120));
-
-                toolbar.Controls.Add(Button("4–20 mA 换算", () => Navigate("calculator"), false, 126));
-                toolbar.Controls.Add(Button("PLC / Modbus", () =>
+                toolbar.Controls.Add(Button("新对话", () => _chat.NewSession(), true, 100));
+                var chat = view as Views.ChatView;
+                if (chat != null) toolbar.Controls.Add(Button("会话参数", chat.ToggleReferenceOptions, false, 112));
+                DarkButton tools = null;
+                tools = Button("工程工具", delegate
                 {
-                    Navigate("engineering");
-                    var mode = _pages["engineering"].Controls.Find("engineering-tool-mode", true).FirstOrDefault() as DarkSelect;
-                    if (mode != null) mode.SelectedIndex = 1;
-                }, false, 126));
-                toolbar.Controls.Add(Button("麦克风检查",()=>{using(var dialog=new VoiceInputCheckForm())dialog.ShowDialog(FindForm());},false,120));
+                    var menu = MenuBuilder.Create(_p);
+                    menu.Items.Add(MenuBuilder.Item("PLC Studio", () => Navigate("tia")));
+                    menu.Items.Add(MenuBuilder.Item("4–20 mA 换算", () => Navigate("calculator")));
+                    menu.Items.Add(MenuBuilder.Item("PLC / Modbus", delegate
+                    {
+                        Navigate("engineering");
+                        var mode = _pages["engineering"].Controls.Find("engineering-tool-mode", true).FirstOrDefault() as DarkSelect;
+                        if (mode != null) mode.SelectedIndex = 1;
+                    }));
+                    menu.Items.Add(MenuBuilder.Item("麦克风检查", delegate
+                    { using (var dialog = new VoiceInputCheckForm()) dialog.ShowDialog(FindForm()); }));
+                    menu.Closed += delegate { BeginInvoke(new Action(menu.Dispose)); };
+                    menu.Show(tools, new Point(0, tools.Height));
+                }, false, 112);
+                toolbar.Controls.Add(tools);
             }
             else if(id=="automation"){toolbar.Controls.Add(Button("工作流列表",()=>view.Activate(),true,120));toolbar.Controls.Add(Button("运行记录",()=>view.Activate(),false,110));}
             else
@@ -145,11 +154,11 @@ namespace DeskBox.UI
             var page=Page("移动同步","账号自动同步与局域网服务分别显示，沿用现有设备授权");var toolbar=Toolbar();toolbar.Controls.Add(Button("同步概览",()=>RefreshStatus(),true,110));toolbar.Controls.Add(Button("设备 / 配对设置",()=>ShowLegacy("mobile"),false,160));toolbar.Controls.Add(Button("立即云同步",async()=>await _cloud.SyncNow(),false,140));
             var body=new Panel{Dock=DockStyle.Fill};var upper=new TableLayoutPanel{Dock=DockStyle.Top,Height=320,ColumnCount=2,RowCount=1};upper.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,62));upper.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,38));
             var state=Card("本机同步服务");state.Dock=DockStyle.Fill;var info=TextLabel("",11);info.SetBounds(20,65,660,175);state.Controls.Add(info);var local=Button("启动 / 停止局域网",()=>{if(_sync.Running)_sync.Stop();else _sync.Start();_store.Settings.LocalSyncEnabled=_sync.Running;_store.SaveSettingsOnly();Action refreshOne;if(_reload.TryGetValue("mobile",out refreshOne))refreshOne();},false,185);local.SetBounds(20,260,185,34);state.Controls.Add(local);
-            var qrCard=Card("手机扫码登录云账号");qrCard.Dock=DockStyle.Fill;var qr=new PictureBox{Name="CloudLoginQr",Left=20,Top=62,Size=new Size(148,148),SizeMode=PictureBoxSizeMode.Zoom,BackColor=Color.White};qrCard.Controls.Add(qr);var qrText=TextLabel("",9,false,_p.TextDim);qrText.SetBounds(184,75,240,100);qrCard.Controls.Add(qrText);var copy=Button("复制云登录地址",()=>{if(!string.IsNullOrEmpty(_cloud.AccountUrl))Clipboard.SetText(_cloud.AccountUrl);},false,154);copy.SetBounds(184,190,154,34);qrCard.Controls.Add(copy);qrCard.Resize+=delegate{qrText.Width=Math.Max(100,qrCard.Width-200);};
+            var qrCard=Card("手机扫码登录云账号");qrCard.Dock=DockStyle.Fill;var qr=new PictureBox{Name="CloudLoginQr",Left=20,Top=62,Size=new Size(148,148),SizeMode=PictureBoxSizeMode.Zoom,BackColor=Color.White,Visible=false};qrCard.Controls.Add(qr);var qrText=TextLabel("",9,false,_p.TextDim);qrText.SetBounds(184,75,240,100);qrCard.Controls.Add(qrText);var copy=Button("复制云登录地址",()=>{if(!string.IsNullOrEmpty(_cloud.AccountUrl))Clipboard.SetText(_cloud.AccountUrl);},false,154);copy.SetBounds(184,190,154,34);qrCard.Controls.Add(copy);qrCard.Resize+=delegate{qrText.Width=Math.Max(100,qrCard.Width-200);};
             var devices=List(new[]{"设备名称","平台","信任状态","最近活动","有效期"},new[]{300,150,180,230,230});devices.RowActivated+=delegate{ShowLegacy("mobile");};
             var caption=TextLabel("信任设备 · 局域网列表，云端设备在账号网页管理",10,true);caption.Dock=DockStyle.Top;caption.Height=44;
             body.Controls.Add(devices);body.Controls.Add(caption);body.Controls.Add(upper);upper.Controls.Add(state,0,0);upper.Controls.Add(qrCard,1,0);
-            string generated="";Action reload=delegate{info.Text="LAN   "+(_sync.Running?"ONLINE · TLS "+_sync.Port:"OFFLINE")+"\r\n\r\nCLOUD   "+_cloud.Status+"\r\n最近云同步  "+(_cloud.LastSyncedAt.HasValue?_cloud.LastSyncedAt.Value.ToString("yyyy-MM-dd HH:mm:ss"):"尚未完成")+"   待上传 "+_cloud.PendingUploads+"\r\n手机 AI  "+(_providers.DefaultProvider!=null&&_providers.DefaultProvider.Enabled?"已准备，需电脑保持运行":"请先配置电脑AI服务商")+"\r\n\r\n现场事件 "+_sync.Incidents.Count+"    未处理冲突 "+_sync.Sync.Conflicts.Count(c=>c.Status=="open");devices.SetRows(_sync.Devices.Devices.Select(d=>new ListRow{Cells=new[]{d.Name,d.Platform,d.Revoked?"已撤销":"已信任",TimeText(d.LastSeenAt),TimeText(d.ExpiresAt)},Tag=d.Id}).ToList());qrText.Text=_cloud.AccountUrl.Length==0?"先在设备设置填写云服务地址。也可继续使用局域网完整链接配对。":"使用iPhone相机扫码，登录同一私人云账号并授权手机。\r\n\r\n"+_cloud.AccountUrl;if(generated!=_cloud.AccountUrl&&_cloud.AccountUrl.Length>0){generated=_cloud.AccountUrl;Task.Run(()=>DocumentSkills.Run(new Dictionary<string,string>{{"op","qrcode"},{"content",generated}})).ContinueWith(task=>{if(qr.IsDisposed||!qr.IsHandleCreated)return;qr.BeginInvoke(new Action(delegate{if(task.IsFaulted||!task.Result.Ok){qrText.Text+="\r\n二维码组件未就绪，可复制地址登录。";return;}try{using(var memory=new MemoryStream(Convert.FromBase64String(task.Result.Text)))using(var image=Image.FromStream(memory)){var old=qr.Image;qr.Image=new Bitmap(image);if(old!=null)old.Dispose();}}catch{qrText.Text+="\r\n二维码未能生成，请复制地址。";}}));});}};
+            string generated="";Action reload=delegate{info.Text="LAN   "+(_sync.Running?"ONLINE · TLS "+_sync.Port:"OFFLINE")+"\r\n\r\nCLOUD   "+_cloud.Status+"\r\n最近云同步  "+(_cloud.LastSyncedAt.HasValue?_cloud.LastSyncedAt.Value.ToString("yyyy-MM-dd HH:mm:ss"):"尚未完成")+"   待上传 "+_cloud.PendingUploads+"\r\n手机 AI  "+(_providers.DefaultProvider!=null&&_providers.DefaultProvider.Enabled?"已准备，需电脑保持运行":"请先配置电脑AI服务商")+"\r\n\r\n现场事件 "+_sync.Incidents.Count+"    未处理冲突 "+_sync.Sync.Conflicts.Count(c=>c.Status=="open");devices.SetRows(_sync.Devices.Devices.Select(d=>new ListRow{Cells=new[]{d.Name,d.Platform,d.Revoked?"已撤销":"已信任",TimeText(d.LastSeenAt),TimeText(d.ExpiresAt)},Tag=d.Id}).ToList());qr.Visible=qr.Image!=null&&_cloud.AccountUrl.Length!=0;qrText.Text=_cloud.AccountUrl.Length==0?"先在设备设置填写云服务地址。也可继续使用局域网完整链接配对。":"使用iPhone相机扫码，登录同一私人云账号并授权手机。\r\n\r\n"+_cloud.AccountUrl;if(generated!=_cloud.AccountUrl&&_cloud.AccountUrl.Length>0){generated=_cloud.AccountUrl;Task.Run(()=>DocumentSkills.Run(new Dictionary<string,string>{{"op","qrcode"},{"content",generated}})).ContinueWith(task=>{if(qr.IsDisposed||!qr.IsHandleCreated)return;qr.BeginInvoke(new Action(delegate{if(task.IsFaulted||!task.Result.Ok){qrText.Text+="\r\n二维码组件未就绪，可复制地址登录。";return;}try{using(var memory=new MemoryStream(Convert.FromBase64String(task.Result.Text)))using(var image=Image.FromStream(memory)){var old=qr.Image;qr.Image=new Bitmap(image);qr.Visible=true;if(old!=null)old.Dispose();}}catch{qrText.Text+="\r\n二维码未能生成，请复制地址。";}}));});}};
             _reload["mobile"]=reload;AddMain(page,body,toolbar);return page;
         }
         private static string TimeText(long value){return value<=0?"—":DateTimeOffset.FromUnixTimeMilliseconds(value).LocalDateTime.ToString("yyyy-MM-dd HH:mm");}

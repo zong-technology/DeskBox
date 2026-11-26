@@ -176,6 +176,10 @@ internal static class SilverwingAccept
                     Check(Changed(a,b)==0,"Reduced motion freezes the full light field");
                 }
             }
+            // The shell navigation checks need the real window, but no model connection.
+            // The earlier call tests use the injectable transport and audio fixtures.
+            storage.Save(new RealtimeVoiceSettings());
+            Console.WriteLine("Checking the main shell with voice credentials disabled");
             var store=new Store();store.Init();store.Settings.TakeoverIcons=false;store.Settings.AutoStart=false;store.Settings.ReferenceUi=true;
             store.Settings.DesktopDir=Path.Combine(profileDir,"desktop");Directory.CreateDirectory(store.Settings.DesktopDir);
             using(var main=new MainForm(store)){
@@ -192,6 +196,7 @@ internal static class SilverwingAccept
                 Check(view.Bounds==main.ClientRectangle,"Classic software mode also becomes fully immersive");
                 Key(view,Keys.Escape);Pump(()=>typeof(MainForm).GetField("_liveVoice",Hidden).GetValue(main)==null);main.Close();
             }
+            storage.Save(settings);
             using(var settingsView=new SettingsCenterView(store,new ProviderStore())){
                 var page=(Control)typeof(SettingsCenterView).GetMethod("PageVoice",Hidden).Invoke(settingsView,null);
                 var key=(DarkInput)page.Controls.Find("hologram-key",false)[0];

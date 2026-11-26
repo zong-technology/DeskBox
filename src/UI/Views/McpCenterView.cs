@@ -25,8 +25,8 @@ namespace DeskBox.UI.Views
         {
             currentProject = context;
             var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
-            enabled = new CheckBox { Text = "启用本机服务", AutoSize = true, Padding = new Padding(6, 8, 8, 6) };
-            offline = new CheckBox { Text = "允许经审批的离线编译与新增", AutoSize = true, Padding = new Padding(6, 8, 8, 6) };
+            enabled = new CheckBox { Text = "启用本机服务", ForeColor = Palette.Text, AutoSize = true, Padding = new Padding(6, 8, 8, 6) };
+            offline = new CheckBox { Text = "允许经审批的离线编译与新增", ForeColor = Palette.Text, AutoSize = true, Padding = new Padding(6, 8, 8, 6) };
             var save = new DarkButton("保存策略") { Width = 105, Height = 34, Palette = Palette };
             save.Click += delegate
             {

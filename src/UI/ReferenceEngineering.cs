@@ -300,7 +300,7 @@ namespace DeskBox.UI
             var documentList = List(new[] { "导出资料", "修改时间" }, new[] { 240, 160 });
             documentList.Name = "dcs-project-files";
             var preview = new RichTextBox { Dock = DockStyle.Fill, BackColor = _p.CardBg, ForeColor = _p.Text,
-                ReadOnly = true, DetectUrls = false, WordWrap = false, Font = FontOf(10), Name = "dcs-export-preview" };
+                ReadOnly = true, DetectUrls = false, WordWrap = false, BorderStyle = BorderStyle.None, Font = FontOf(10), Name = "dcs-export-preview" };
             Label listHint, previewHint;
             grid.Controls.Add(OperationsPanel("项目导出文件", "", documentList, out listHint), 0, 0);
             grid.Controls.Add(OperationsPanel("原文预览", "", preview, out previewHint), 1, 0);

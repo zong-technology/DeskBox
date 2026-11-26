@@ -51,7 +51,9 @@ namespace DeskBox.Engineering.Tia
         private const string SnapshotFolder = "snapshot", CopyFolder = "work";
         private static readonly Encoding Utf8 = new UTF8Encoding(false);
 
-        public static TiaResult Run(TiaJob job, CancellationToken token, ProjectContext project = null)
+        public static TiaResult Run(TiaJob job, CancellationToken token) { return Run(job, token, null); }
+
+        public static TiaResult Run(TiaJob job, CancellationToken token, ProjectContext project)
         {
             ValidateJob(job);
             token.ThrowIfCancellationRequested();
@@ -280,7 +282,9 @@ namespace DeskBox.Engineering.Tia
             }
         }
 
-        public static TiaResult ReadRecoveryReceipt(string path, ProjectContext project = null)
+        public static TiaResult ReadRecoveryReceipt(string path) { return ReadRecoveryReceipt(path, null); }
+
+        public static TiaResult ReadRecoveryReceipt(string path, ProjectContext project)
         {
             var receipt = PlcEngineering.FullLocalPath(path);
             var directory = Path.GetDirectoryName(receipt);
@@ -312,7 +316,9 @@ namespace DeskBox.Engineering.Tia
                 string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase);
         }
 
-        public static string RestoreSnapshot(TiaResult job, CancellationToken token, ProjectContext projectContext = null)
+        public static string RestoreSnapshot(TiaResult job, CancellationToken token) { return RestoreSnapshot(job, token, null); }
+
+        public static string RestoreSnapshot(TiaResult job, CancellationToken token, ProjectContext projectContext)
         {
             if (!CanRestore(job) || string.IsNullOrWhiteSpace(job.Copy) || string.IsNullOrWhiteSpace(job.SourceHash))
                 throw new InvalidOperationException("找不到可恢复的 TIA 作业快照。");
