@@ -12,7 +12,7 @@ $lines = @(
     ('PASS: ' + $report.Count + ' setup, launch, upgrade, rollback and uninstall checks.'),
     'PASS: archive/build/installed/running executable SHA-256 identity.',
     ('Payload SHA-256: ' + $report.SourceSHA256.ToLowerInvariant()),
-    ('PASS: ' + $report.NativeChecks + ' immersive hologram checks against the installed payload.'),
+    ('PASS: ' + $report.NativeChecks + ' immersive hologram checks for the byte-verified installed payload.'),
     ('Windows: ' + $report.Windows + ' build ' + $report.WindowsBuild),
     ('PASS: 12-page keyboard navigation at 1600x900, 1280x800 and 1024x768 (' + $report.UIExpectedDpi + ' DPI).'),
     'PASS: three workspace layouts captured at each window size.',

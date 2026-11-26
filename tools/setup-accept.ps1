@@ -3,7 +3,8 @@ param(
     [string]$SourceExe = 'dist\DeskBox.exe',
     [string]$OutputDir = 'dist\installer-qa',
     [ValidateSet(96,120,144)][int]$ExpectedDpi = 96,
-    [string]$TiaFixtureDir = ''
+    [string]$TiaFixtureDir = '',
+    [string]$BuiltNativeLog = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -496,12 +497,24 @@ Check ((Get-FileHash -LiteralPath (Join-Path $target 'DeskBox.before-rollback.ex
 foreach ($path in $markers.Keys) { Check ((Get-FileHash -LiteralPath $path).Hash -eq $markers[$path]) ('Rollback preserves ' + [IO.Path]::GetFileName($path)) }
 Run-Setup 're-upgrade'
 
-# Re-run the existing native style acceptance host against the installed bytes.
-$hologramHost = Join-Path $root 'dist\silverwing-accept.exe'
-& $hologramHost $installed (Join-Path $output 'installed-hologram') | Tee-Object -FilePath (Join-Path $output 'installed-hologram.log')
-Check ($LASTEXITCODE -eq 0) 'Installed immersive hologram checks pass'
-$nativeResult = [regex]::Match([IO.File]::ReadAllText((Join-Path $output 'installed-hologram.log')), 'PASS (\d+) native checks')
-if (-not $nativeResult.Success) { throw 'Native check count was not recorded.' }
+# This host links DeskBox.exe from its own build directory. With a hash-bound CI
+# log, reuse that execution after independently checking the installed bytes.
+$nativeLog = Join-Path $output 'installed-hologram.log'
+if ($BuiltNativeLog) {
+    $testedHash = (Get-Content -LiteralPath ($BuiltNativeLog + '.sha256') -Raw).Trim()
+    if ($testedHash -ne $expected -or (Get-FileHash -LiteralPath $installed).Hash -ne $testedHash) {
+        throw 'Native regression log does not match the installed candidate bytes.'
+    }
+    Copy-Item -LiteralPath $BuiltNativeLog -Destination $nativeLog
+} else {
+    $hologramHost = Join-Path $root 'dist\silverwing-accept.exe'
+    $arguments = @(('"' + $installed + '"'), ('"' + (Join-Path $output 'installed-hologram') + '"'))
+    $process = Start-Process -FilePath $hologramHost -ArgumentList $arguments -PassThru -RedirectStandardOutput $nativeLog -RedirectStandardError (Join-Path $output 'installed-hologram-error.log')
+    if (-not $process.WaitForExit(90000)) { $process.Kill(); throw 'Native hologram host timed out.' }
+    Check ($process.ExitCode -eq 0) 'Native hologram checks pass'
+}
+$nativeResult = [regex]::Match([IO.File]::ReadAllText($nativeLog), 'PASS (\d+) native checks')
+Check $nativeResult.Success 'Native hologram regression passed for the installed payload hash'
 
 # UI matrix uses an identical copy of the installed payload, with synthetic fixtures only.
 if ($env:GITHUB_ACTIONS -eq 'true') { & (Join-Path $root 'tools\prepare-ci-display.ps1') }

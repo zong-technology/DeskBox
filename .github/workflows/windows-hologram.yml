@@ -44,8 +44,10 @@ jobs:
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
           & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\silverwing-accept.exe tools\silverwing-accept.cs
           if ($LASTEXITCODE -ne 0) { throw 'Acceptance host compile failed' }
-          & .\dist\silverwing-accept.exe .\dist\DeskBox.exe .\dist\hologram-qa
+          New-Item -ItemType Directory -Force dist\hologram-qa | Out-Null
+          & .\dist\silverwing-accept.exe .\dist\DeskBox.exe .\dist\hologram-qa | Tee-Object .\dist\hologram-qa\native-build-checks.log
           if ($LASTEXITCODE -ne 0) { throw 'Native hologram checks failed' }
+          (Get-FileHash .\dist\DeskBox.exe -Algorithm SHA256).Hash | Set-Content -Encoding ascii .\dist\hologram-qa\native-build-checks.log.sha256
           Get-FileHash .\dist\DeskBox.exe -Algorithm SHA256 | Format-List | Out-File .\dist\SHA256.txt
       - name: Verify real application operations through the phone job channel
         shell: powershell
@@ -112,6 +114,10 @@ jobs:
           & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\v5-context-accept.exe tools\v5-context-accept.cs
           if ($LASTEXITCODE -ne 0) { throw 'Engineering OS acceptance compile failed' }
           New-Item -ItemType Directory -Force dist\v5-qa | Out-Null
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\v5-stream-accept.exe tools\v5-stream-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Project streaming acceptance compile failed' }
+          & .\dist\v5-stream-accept.exe | Tee-Object dist\v5-qa\stream-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Project streaming acceptance failed' }
           $display = @([DeskBoxCIDisplay]::GetSystemMetrics(0),[DeskBoxCIDisplay]::GetSystemMetrics(1))
           foreach ($resolution in @(@(3840,2160),@(2560,1440))) {
             $result = [DeskBoxCIDisplay]::SetSize($resolution[0],$resolution[1])
@@ -164,6 +170,7 @@ jobs:
         shell: powershell
         run: .\tools\package-windows.ps1
       - name: Build the TIA acceptance tool and export its labeled fixtures
+        id: tia_fixture
         shell: powershell
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -174,8 +181,9 @@ jobs:
       - name: Verify installation, upgrade, rollback and installed UI
         timeout-minutes: 8
         shell: powershell
-        run: .\tools\setup-accept.ps1 -SetupPath ('.\dist\installer\DeskBox-${{ steps.version.outputs.version }}-Setup.exe') -TiaFixtureDir .\dist\installer-fixtures
+        run: .\tools\setup-accept.ps1 -SetupPath ('.\dist\installer\DeskBox-${{ steps.version.outputs.version }}-Setup.exe') -TiaFixtureDir .\dist\installer-fixtures -BuiltNativeLog .\dist\hologram-qa\native-build-checks.log
       - name: Validate the TIA workbench with offline export fixtures and capture native UI
+        if: ${{ !cancelled() && steps.tia_fixture.outcome == 'success' }}
         shell: powershell
         timeout-minutes: 3
         run: |
