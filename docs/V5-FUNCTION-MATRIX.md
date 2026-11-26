@@ -60,3 +60,19 @@
 | 验证中心 | PARTIAL | 项目阶段、加权进度、资料入口和已有模板接入。证据库、追溯、偏差与签核仍为 MISSING。 |
 
 [操作、技术架构、数据兼容和回退](V5-P0-GUIDE.md) · [综合验收](V5-P0-VERIFICATION.md)
+
+## V5.0-alpha.2 功能优先增量
+
+| 功能 | 状态 | 已实现与验收边界 |
+| --- | --- | --- |
+| 桌面 Agent Runtime 与六层架构 | VERIFIED | 真模型协议、分步执行、真实工程计算、有限重试、项目／环境隔离、读写回执与崩溃恢复路径均有直接服务测试。保留 WinForms 及旧业务入口。 |
+| 多模型协议及能力探测 | VERIFIED | 实测本地 Chat Completions 和 Responses 的 SSE，记录有据的文本增量、终止帧和供应商上报的 Tokens。实际商业供应商、价格及高级模型原生 function calling 留待专项。 |
+| 本地确定性降级 | VERIFIED | 当前项目索引搜索、无可访问根时的拒绝、用量程确定性计算已有验收。明确本地命令支持在已配置模型时绕过模型。 |
+| 通用 MCP 注册与协议 | VERIFIED | 项目注册、HTTP＋SSE、独立 stdio、JSON-RPC、分页、结构化参数/响应、权限、诊断和取消有实际传输证据。可同时保留内置 TIA MCP。 |
+| 第三方 MCP 凭据、配置交换 | PARTIAL | 临时 Bearer 可用于 HTTP。OAuth、旧 SSE 传输和配置交换待评估。当前数据目录参与应用备份。 |
+| 桌面模型调用第三方 MCP | MISSING | 本期第三方工具提供逐工具授权和单次人工执行。桌面 Agent 使用已有受控工具注册表。 |
+| TIA 项目结构、DeltaV、统一 Tag | PARTIAL | 沿用 alpha.1 已验收的工程范围和离线导出读取。持证 V20 工程实机及 DeltaV FHX 兼容、统一 Tag 待 alpha.3。 |
+| 验证追踪矩阵、证据与审核 | MISSING | alpha.4 按用户确定的需求、用例、证据和偏差模型推进。 |
+| UI 设计交接 | IMPLEMENTED | 维护 14 份表现层交接文档和接口，先交付普通功能入口。最终视觉、布局和交互统一后置。 |
+
+[alpha.2 服务、数据与操作](V5-ALPHA2-GUIDE.md) · [验收证据](V5-ALPHA2-VERIFICATION.md) · [设计交接](UI-HANDOFF/PRODUCT-OVERVIEW.md)
