@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using DeskBox.Core;
+using DeskBox.Engineering;
 
 namespace DeskBox.Ai
 {
@@ -31,6 +32,7 @@ namespace DeskBox.Ai
         public long CreatedAt = 0;
         public long UpdatedAt = 0;
         public string ProviderId = "";
+        public string ProjectId = "";
         public string Model = "";
         public string DomainMode = "automation";   // automation|plc|dcs|validation|troubleshoot|general
         public double Temperature = 0.3;
@@ -62,6 +64,36 @@ namespace DeskBox.Ai
         private ChatSession _current;
         private CancellationTokenSource _cts;
         private readonly object _lock = new object();
+        private ProjectContext _project;
+        public ProjectContext Project { get { return _project; } }
+        private string ProjectId { get { return _project == null ? "" : _project.Id; } }
+
+        public void SetProjectContext(ProjectContext project)
+        {
+            bool same = _project == null ? project == null : _project.SameScope(project);
+            _project = project;
+            if (same) return;
+            Cancel();
+            AllowedFiles.Clear();
+            AllowedRoots.Clear();
+            Status = "";
+            SelectProjectSession();
+        }
+
+        private void SelectProjectSession()
+        {
+            _current = Sessions.OrderByDescending(session => session.UpdatedAt).FirstOrDefault();
+            if (_current == null) NewSession();
+            else Raise();
+        }
+
+        public bool AttachPath(string path)
+        {
+            if (_project != null && !_project.CanAccessPath(path)) return false;
+            var paths = Directory.Exists(path) ? AllowedRoots : AllowedFiles;
+            if (!paths.Contains(path, StringComparer.OrdinalIgnoreCase)) paths.Add(path);
+            return true;
+        }
 
         public event Action Changed;
         public event Action<ChatMessage> MessageDelta;
@@ -69,7 +101,7 @@ namespace DeskBox.Ai
 
         public bool Busy { get; private set; }
         public string ActiveSessionId { get; private set; }
-        public List<ChatSession> Sessions { get { lock (_lock) return _sessions.ToList(); } }
+        public List<ChatSession> Sessions { get { lock (_lock) return _sessions.Where(session => (session.ProjectId ?? "") == ProjectId).ToList(); } }
         public ChatSession Current { get { return _current; } }
         public string Status { get; private set; }
 
@@ -80,7 +112,7 @@ namespace DeskBox.Ai
             if(Busy)throw new InvalidOperationException("请先停止当前对话，再切换 AI 环境。");
             if(environment==AiEnvironment.Mode)return;
             Save();environment=AiEnvironment.Mode;AllowedFiles.Clear();AllowedRoots.Clear();
-            lock(_lock)_sessions.Clear();Load();_current=Sessions.FirstOrDefault();if(_current==null)NewSession();Raise();
+            lock(_lock)_sessions.Clear();Load();SelectProjectSession();
         }
 
         public ChatService(Store store, ProviderStore providers)
@@ -97,7 +129,7 @@ namespace DeskBox.Ai
         internal ChatSession BeginVoiceSession(RealtimeVoiceSettings profile)
         {
             var now=DateTimeOffset.Now.ToUnixTimeMilliseconds();
-            var value=new ChatSession {Id="v_"+Guid.NewGuid().ToString("N"),CreatedAt=now,UpdatedAt=now,
+            var value=new ChatSession {Id="v_"+Guid.NewGuid().ToString("N"),ProjectId=ProjectId,CreatedAt=now,UpdatedAt=now,
                 Title="全息 · "+profile.AssistantName+" · "+DateTime.Now.ToString("MM-dd HH:mm"),
                 Channel="hologram",AssistantName=profile.AssistantName,Persona=profile.Persona,VoiceModel=profile.Model,DomainMode="general"};
             var provider=_providers==null ? null : _providers.DefaultProvider;
@@ -126,7 +158,8 @@ namespace DeskBox.Ai
         {
             var s = new ChatSession
             {
-                Id = "c_" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                Id = "c_" + Guid.NewGuid().ToString("N"),
+                ProjectId = ProjectId,
                 CreatedAt = DateTimeOffset.Now.ToUnixTimeMilliseconds(),
                 UpdatedAt = DateTimeOffset.Now.ToUnixTimeMilliseconds()
             };
@@ -141,7 +174,7 @@ namespace DeskBox.Ai
 
         public void SwitchSession(string id)
         {
-            var s = _sessions.FirstOrDefault(x => x.Id == id);
+            var s = Sessions.FirstOrDefault(x => x.Id == id);
             if (s == null) return;
             _current = s;
             Raise();
@@ -149,16 +182,17 @@ namespace DeskBox.Ai
 
         public void DeleteSession(string id)
         {
-            lock (_lock) _sessions.RemoveAll(x => x.Id == id);
+            if (Busy && ActiveSessionId == id) return;
+            lock (_lock) _sessions.RemoveAll(x => x.Id == id && (x.ProjectId ?? "") == ProjectId);
             if (_current != null && _current.Id == id)
-                _current = _sessions.FirstOrDefault() ?? NewSession();
+                _current = Sessions.FirstOrDefault() ?? NewSession();
             Save();
             Raise();
         }
 
         public void RenameSession(string id, string title)
         {
-            var s = _sessions.FirstOrDefault(x => x.Id == id);
+            var s = Sessions.FirstOrDefault(x => x.Id == id);
             if (s == null || string.IsNullOrWhiteSpace(title)) return;
             s.Title = title.Trim();
             Save();
@@ -185,7 +219,7 @@ namespace DeskBox.Ai
 
         public void ClearCurrent()
         {
-            if (_current == null) return;
+            if (_current == null || Busy) return;
             _current.Messages.Clear();
             _current.Title = "新对话";
             Save();
@@ -263,11 +297,16 @@ namespace DeskBox.Ai
             }
             _savedRoots = roots.ToList(); _lastFileAccess = enabled; _permissionsLoaded = true;
         }
-        private static bool Under(string path, string root)
+        private static bool Under(string path, string root) { return ProjectContext.Under(path, root); }
+
+        private List<string> EffectiveRoots(ProjectContext project)
         {
-            try { var full = Path.GetFullPath(path).TrimEnd('\\'); var prefix = Path.GetFullPath(root).TrimEnd('\\'); return full.Equals(prefix, StringComparison.OrdinalIgnoreCase) || full.StartsWith(prefix + "\\", StringComparison.OrdinalIgnoreCase); } catch { return false; }
+            RefreshPermissions();
+            var roots = _savedRoots.Concat(AllowedRoots ?? new List<string>()).Distinct(StringComparer.OrdinalIgnoreCase);
+            if (project == null) return roots.ToList();
+            return roots.Select(root => Under(project.Root, root) ? project.Root : root)
+                .Where(project.CanAccessPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
-        private List<string> EffectiveRoots() { RefreshPermissions(); return _savedRoots.Concat(AllowedRoots ?? new List<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList(); }
         /// <summary>自动化引擎（供 workflow.run 工具使用）。</summary>
         public DeskBox.Automation.WorkflowEngine Workflows;
         public Engineering.WorkspaceStore Projects;
@@ -294,6 +333,7 @@ namespace DeskBox.Ai
             };
             session.Messages.Add(assistant);
             _activeAssistant = assistant;
+            Save();
             Raise();
             return assistant;
         }
@@ -302,10 +342,12 @@ namespace DeskBox.Ai
         {
             RefreshPermissions();
             var session = _current;
+            var project = _project;
             var provider = ResolveProvider(session);
-            if (provider == null)
+            if (provider == null || (project != null && !project.PermitsModel(provider)))
             {
-                AppendError(session, "未配置 AI 服务商，请到「设置 → AI」添加。");
+                if (project == null) AppendError(session, "未配置 AI 服务商，请到「设置 → AI」添加。");
+                else StartLocalSearch(session, project, provider == null);
                 return;
             }
 
@@ -315,7 +357,7 @@ namespace DeskBox.Ai
 
             ActiveSessionId = session.Id;
             Busy = true;
-            SetStatus("请求已发送 · 等待服务商响应");
+            SetStatus("正在连接模型服务");
             Raise();
 
             // Only idle network activity times out; a healthy long stream must not be cancelled.
@@ -323,6 +365,10 @@ namespace DeskBox.Ai
             int idleTimeout = Math.Max(120000, provider.TimeoutMs);
             bool idleExpired = false;
             bool executingTool = false;
+            Action<string> publishStatus = status =>
+            {
+                if (ReferenceEquals(session, _current)) SetStatusSafe(status);
+            };
             var watchdog = new System.Threading.Timer(delegate
             {
                 try
@@ -333,7 +379,7 @@ namespace DeskBox.Ai
                     idleExpired = true;
                     AppLog.Write("warn", "ai.chat", "网络响应长时间无活动，取消当前请求");
                     requestCts.Cancel();
-                    SetStatusSafe("等待响应超时 · 正在结束当前请求");
+                    publishStatus("等待响应超时 · 正在结束当前请求");
                 }
                 catch { }
             }, null, 1000, 1000);
@@ -348,7 +394,8 @@ namespace DeskBox.Ai
                         if (ct.IsCancellationRequested) break;
 
                         var assistant = NewAssistant(session);
-                        var msgs = BuildContext(session);
+                        var msgs = BuildContext(session, project);
+                        ct.ThrowIfCancellationRequested();
                         var req = new AiChatRequest { Messages = msgs, Model = model, Temperature = session.Temperature, MaxTokens = session.MaxTokens };
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         var answer = new System.Text.StringBuilder();
@@ -358,7 +405,7 @@ namespace DeskBox.Ai
                         client.ChatStream(req, ct, delegate(AiStreamChunk chunk)
                         {
                             Interlocked.Exchange(ref lastActivity, (long)Environment.TickCount);
-                            if (!string.IsNullOrEmpty(chunk.Stage) && Status != chunk.Stage) SetStatusSafe(chunk.Stage);
+                            if (!string.IsNullOrEmpty(chunk.Stage) && Status != chunk.Stage) publishStatus(chunk.Stage);
                             // 错误优先：服务端可能在同一块里同时带 Done 与 Error
                             if (!string.IsNullOrEmpty(chunk.Error))
                             {
@@ -368,7 +415,7 @@ namespace DeskBox.Ai
                             }
                             if (!string.IsNullOrEmpty(chunk.Delta))
                             {
-                                if (answer.Length == 0) SetStatusSafe("正在接收回复 · 流式输出");
+                                if (answer.Length == 0) publishStatus("正在接收回复 · 流式输出");
                                 answer.Append(chunk.Delta);
                                 if (assistant.Content.Length == 0 || unchecked((uint)(Environment.TickCount - lastPublish)) >= 50)
                                 {
@@ -383,24 +430,25 @@ namespace DeskBox.Ai
                         assistant.Streaming = false;
                         AppLog.Write("info", "ai.chat", "阶段=ChatStream返回 round=" + round + " content=" + assistant.Content.Length + " err=" + (assistant.Error ?? ""));
 
-                        if (ct.IsCancellationRequested) { assistant.Error = idleExpired ? "等待响应超时，已保留收到的内容" : "已取消，已保留收到的内容"; assistant.ErrorKind = idleExpired ? "timeout" : "cancelled"; SetStatusSafe(assistant.Error); break; }
-                        if (!string.IsNullOrEmpty(assistant.Error)) { RecordFailure(provider, model, assistant, sw.ElapsedMilliseconds); break; }
+                        if (ct.IsCancellationRequested) { assistant.Error = idleExpired ? "等待响应超时，已保留收到的内容" : "已取消，已保留收到的内容"; assistant.ErrorKind = idleExpired ? "timeout" : "cancelled"; publishStatus(assistant.Error); break; }
+                        if (!string.IsNullOrEmpty(assistant.Error)) { RecordFailure(assistant, publishStatus); break; }
                         if (string.IsNullOrEmpty(assistant.Content))
                         {
                             assistant.Error = "接口未返回内容（协议可能不兼容）";
                             assistant.ErrorKind = "protocol";
-                            RecordFailure(provider, model, assistant, sw.ElapsedMilliseconds);
+                            RecordFailure(assistant, publishStatus);
                             break;
                         }
 
-                        SafeLog("info", "对话完成 · " + provider.Name + " / " + model + " · " + sw.ElapsedMilliseconds + "ms");
-                        SetStatusSafe("完成 · " + sw.ElapsedMilliseconds + " ms");
                         Save();
                         Raise();
-
                         // ---- 工具调用：解析 → 白名单 → 确认 → 执行 → 结果回灌 ----
                         var calls = ToolCallParser.Parse(assistant.Content);
-                        if (calls.Count == 0) break;
+                        if (calls.Count == 0)
+                        {
+                            publishStatus("完成 · " + sw.ElapsedMilliseconds + " ms");
+                            break;
+                        }
                         if (round == MaxToolRounds)
                         {
                             assistant.ToolName = "round-limit";
@@ -409,7 +457,7 @@ namespace DeskBox.Ai
                         }
                         executingTool = true;
                         bool any;
-                        try { any = ExecuteToolCalls(session, calls, ct); }
+                        try { any = ExecuteToolCalls(session, calls, ct, project, publishStatus); }
                         finally { Interlocked.Exchange(ref lastActivity, (long)Environment.TickCount); executingTool = false; }
                         if (!any) break;
                     }
@@ -423,7 +471,7 @@ namespace DeskBox.Ai
                         cur.Error = Shorten(ex.Message, 300);
                         cur.ErrorKind = "unknown";
                     }
-                    SetStatusSafe("失败：" + Shorten(ex.Message, 120));
+                    publishStatus("失败：" + Shorten(ex.Message, 120));
                     SafeLog("error", "对话异常：" + Shorten(ex.Message, 200));
                 }
                 finally
@@ -442,9 +490,56 @@ namespace DeskBox.Ai
             worker.Start();
         }
 
-        private void RecordFailure(AiProvider provider, string model, ChatMessage assistant, long ms)
+        private void StartLocalSearch(ChatSession session, ProjectContext project, bool noProvider)
         {
-            SetStatusSafe("失败：" + assistant.Error);
+            var last = session.Messages.LastOrDefault(item => item.Role == "user");
+            var keyword = (last == null ? "" : last.Content).Trim();
+            if (keyword.StartsWith("查找：", StringComparison.Ordinal) || keyword.StartsWith("查找:", StringComparison.Ordinal))
+                keyword = keyword.Substring(3).Trim();
+            if (keyword.Length == 0) { AppendError(session, "请输入文件名关键词。"); return; }
+
+            var request = new CancellationTokenSource();
+            _cts = request;
+            ActiveSessionId = session.Id;
+            Busy = true;
+            SetStatus(noProvider ? "未配置模型 · 正在本地文件名检索" : "项目未授权外部模型 · 正在本地文件名检索");
+            var message = NewAssistant(session);
+            var worker = new Thread(delegate()
+            {
+                try
+                {
+                    var index = Fs.FileIndex.Instance;
+                    var query = new SearchQuery { Text = keyword, Kind = "file", Limit = 20, PathFilter = project.IncludesPath };
+                    var result = index.Search(query);
+                    request.Token.ThrowIfCancellationRequested();
+                    var sources = result.Hits.Select(hit => hit.Entry.Path)
+                        .Where(path => project.CanAccessPath(path) && File.Exists(path)).ToArray();
+                    message.Content = "本地文件名检索 · " + (noProvider ? "未配置模型" : "项目未授权外部模型")
+                        + "\r\n" + (sources.Length == 0 ? "当前项目索引中没有匹配文件。" : string.Join("\r\n", sources))
+                        + (string.IsNullOrEmpty(result.Message) ? "" : "\r\n" + result.Message);
+                    if (ReferenceEquals(session, _current)) SetStatusSafe("本地检索完成");
+                }
+                catch (OperationCanceledException) { message.Error = "本地检索已取消"; message.ErrorKind = "cancelled"; }
+                catch (Exception error) { message.Error = Shorten(error.Message, 300); message.ErrorKind = "local"; }
+                finally
+                {
+                    message.Streaming = false;
+                    _activeAssistant = null;
+                    session.Touch();
+                    Save();
+                    _cts = null;
+                    request.Dispose();
+                    Busy = false;
+                    Raise();
+                }
+            });
+            worker.IsBackground = true;
+            worker.Start();
+        }
+
+        private void RecordFailure(ChatMessage assistant, Action<string> publishStatus)
+        {
+            publishStatus("失败：" + assistant.Error);
             SafeLog("warn", "对话失败[" + assistant.ErrorKind + "]：" + Shorten(assistant.Error, 120));
         }
 
@@ -452,14 +547,15 @@ namespace DeskBox.Ai
         private void SafeLog(string level, string message) { try { _store.Log(level, "ai", message); } catch { } }
 
         /// <summary>执行工具调用，把结果作为 tool 消息回灌上下文。</summary>
-        private bool ExecuteToolCalls(ChatSession session, List<ToolCall> calls, CancellationToken ct)
+        private bool ExecuteToolCalls(ChatSession session, List<ToolCall> calls, CancellationToken ct, ProjectContext project, Action<string> publishStatus)
         {
             if (calls == null || calls.Count == 0) return false;
             var ctx = new ToolContext
             {
                 Store = _store,
-                AllowedRoots = EffectiveRoots(),
-                AllowedFiles = AllowedFiles ?? new List<string>(),
+                Project = project,
+                AllowedRoots = EffectiveRoots(project),
+                AllowedFiles = AllowedFiles.Where(path => project == null || project.CanAccessPath(path)).ToList(),
                 Cancellation = ct,
                 FileAccessEnabled = FileAccessEnabled,
                 Ai = AiService.Instance,
@@ -467,13 +563,18 @@ namespace DeskBox.Ai
                 Projects=Projects,Sync=Sync,Cloud=Cloud,Files=Files,Navigate=Navigate,TiaRead=TiaRead,RefreshApp=RefreshApp,UiInvoke=UiInvoke,
                 Confirm = delegate(string text) { return true; }   // 高危操作的确认在下面单独处理
             };
-            ctx.RefreshAuthorization = delegate { ctx.AllowedRoots = EffectiveRoots(); ctx.AllowedFiles = AllowedFiles.ToList(); };
+            ctx.RefreshAuthorization = delegate
+            {
+                ct.ThrowIfCancellationRequested();
+                ctx.AllowedRoots = EffectiveRoots(project);
+                ctx.AllowedFiles = AllowedFiles.Where(path => project == null || project.CanAccessPath(path)).ToList();
+            };
             bool producedResult = false;
             foreach (var call in calls)
             {
                 if (ct.IsCancellationRequested) break;
                 var tool = ToolRegistry.Instance.Get(call.Name);
-                SetStatusSafe("正在执行工具 · " + call.Name);
+                publishStatus("正在执行工具 · " + call.Name);
                 ToolResult result;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -528,9 +629,10 @@ namespace DeskBox.Ai
             return _providers.DefaultProvider;
         }
 
-        private List<AiMessage> BuildContext(ChatSession session)
+        private List<AiMessage> BuildContext(ChatSession session, ProjectContext project)
         {
-            var allowedRoots = EffectiveRoots();
+            var allowedRoots = EffectiveRoots(project);
+            var allowedFiles = AllowedFiles.Where(path => project == null || project.CanAccessPath(path)).ToArray();
             var list = new List<AiMessage>();
             var sys = "你是 DeskBox 的桌面助手 AI&SI，也是制药设备行业的自动化与计算机化系统工程助手。回答简洁、准确、可执行。"
                     + "用户主要从事自动化、DCS、Siemens PLC、系统工程和制药设备验证。"
@@ -539,12 +641,13 @@ namespace DeskBox.Ai
                     + "涉及 PLC/DCS 在线修改、联锁、报警、配方或生产数据时，先提示备份、差异审查、变更控制、测试与回退方案；不要把未验证代码描述为可直接投产。"
                     + "当需要读写文件或执行操作时，只使用用户授权的目录，并在高风险操作前明确说明。\r\n"
                     + "你不能直接执行系统命令或任意代码；需要操作文件、任务或工作流时，只能通过下面注册的工具。\r\n"
-                    + ToolRegistry.Instance.DescribeForPrompt();
+                    + ToolRegistry.Instance.DescribeForPrompt(project);
             sys += "\r\n" + DocumentSkills.Instructions;
+            if (project != null) sys += "\r\n当前工程：" + project.Name + " · " + project.Id + "。项目数据查询固定在该项目。";
             if(session!=null && session.Channel=="hologram")sys+="\r\n继续全息会话。助手名称："+session.AssistantName+"；角色设定："+session.Persona;
             sys += "\r\n你已连接DeskBox真实应用数据。查询任务先用task.list，项目用project.list，现场事件用incident.list，应用状态用app.context；不要未经调用就声称无法获取软件数据。修改前先读取当前ID和版本校验值，使用对应工具并报告真实执行结果。不要把文件权限开关与软件内部任务/项目读取混为一谈。";
             sys += "\r\n授权以本轮系统消息为准；历史对话中的旧授权状态不代表当前权限。可调用工具验证当前授权，不要未经工具就声称权限未更新。";
-            if (AllowedFiles != null && AllowedFiles.Count > 0) sys += "\r\n用户本次明确选择可读取的文件（不授权其同目录其他文件）：\r\n" + string.Join("\r\n", AllowedFiles.ToArray());
+            if (allowedFiles.Length > 0) sys += "\r\n用户本次明确选择可读取的文件（不授权其同目录其他文件）：\r\n" + string.Join("\r\n", allowedFiles);
             if (FileAccessEnabled != null && !FileAccessEnabled())
             {
                 sys += "\r\n当前 AI 文件访问开关已关闭，所有文件工具都会拒绝访问。请按最新权限说明回答，不要依据旧对话里的授权信息。";
@@ -554,7 +657,7 @@ namespace DeskBox.Ai
                 sys += "\r\n当前已授权目录（只能在这些目录内操作）：";
                 foreach (var r in allowedRoots) sys += "\r\n- " + r;
             }
-            else if (AllowedFiles != null && AllowedFiles.Count > 0)
+            else if (allowedFiles.Length > 0)
             {
                 sys += "\r\n当前仅有上述单文件授权：可用 doc.read 读取所选文件，或把 doc.search 的 root 设置为该文件以搜索正文；未授权任何目录，不能搜索同目录其他文件或创建新路径。";
             }
@@ -624,12 +727,12 @@ namespace DeskBox.Ai
             {
                 lock (_lock)
                 {
-                    var trimmed = _sessions.OrderByDescending(s => s.UpdatedAt).Take(50).ToList();
+                    var trimmed = _sessions.GroupBy(s => s.ProjectId ?? "").SelectMany(group => group.OrderByDescending(s => s.UpdatedAt).Take(50)).ToList();
                     foreach (var s in trimmed)
                     {
                         if (s.Messages.Count > 200) s.Messages = s.Messages.Skip(s.Messages.Count - 200).ToList();
                     }
-                    Json.Save(SessionsFile, trimmed);
+                    Json.SaveAtomic(SessionsFile, trimmed);
                 }
             }
             catch (Exception ex) { AppLog.Write("error", "ai", "保存对话失败: " + ex.Message); }
@@ -641,14 +744,15 @@ namespace DeskBox.Ai
             {
                 var list = Json.Load<List<ChatSession>>(SessionsFile, null);
                 if (list == null) return;
-                foreach(var session in list.Where(s=>s!=null && s.Channel=="hologram"))
+                foreach(var session in list.Where(s=>s!=null && s.Messages!=null))
                     foreach(var message in session.Messages.Where(m=>m.Streaming)){
                         message.Streaming=false;message.Interrupted=message.Role=="assistant";
+                        if (message.Interrupted && string.IsNullOrEmpty(message.Error)) message.Error = "上次运行中断，已保留可恢复的消息。";
                     }
                 lock (_lock)
                 {
                     _sessions.Clear();
-                    _sessions.AddRange(list.Where(s => s != null && !string.IsNullOrEmpty(s.Id)));
+                    _sessions.AddRange(list.Where(s => s != null && !string.IsNullOrEmpty(s.Id) && s.Messages != null));
                 }
             }
             catch (Exception ex) { AppLog.Write("warn", "ai", "读取对话失败: " + ex.Message); }

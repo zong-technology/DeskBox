@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 using DeskBox.Core;
+using DeskBox.Engineering;
 using DeskBox.Fs;
 
 namespace DeskBox.UI.Views
@@ -21,6 +22,17 @@ namespace DeskBox.UI.Views
         private Label _status;
         private SearchOutcome _last;
         private string _projectRoot;
+        private ProjectContext _project;
+        private Timer _indexTimer;
+        public void SetProjectContext(ProjectContext project)
+        {
+            bool same = _project == null ? project == null : _project.SameScope(project);
+            _project = project;
+            if (same) return;
+            _query.Text = "";
+            SetProjectScope(project == null ? null : project.Root, project == null ? null : project.Name);
+        }
+
         public string FolderScope { get { return _projectRoot; } }
         public event Action<string> FolderScopeChanged;
         private DarkButton _clearProjectScope;
@@ -37,8 +49,13 @@ namespace DeskBox.UI.Views
         }
         public void SetProjectScope(string root, string name)
         {
+            if (_project != null && !_project.CanAccessPath(root))
+            {
+                root = _project.Root;
+                name = _project.Name;
+            }
             _projectRoot = string.IsNullOrWhiteSpace(root) ? null : Path.GetFullPath(root);
-            if (_clearProjectScope != null) _clearProjectScope.Visible = _projectRoot != null;
+            if (_clearProjectScope != null) _clearProjectScope.Visible = _project == null && _projectRoot != null;
             HintLabel.Text = _projectRoot == null ? "搜索全部已索引文件" : "搜索范围：" + name + " · " + _projectRoot;
             if (FolderScopeChanged != null) FolderScopeChanged(_projectRoot);
             DoSearch();
@@ -57,10 +74,10 @@ namespace DeskBox.UI.Views
             _history = history;
             Build();
             UpdateStatus();
-            var tick = new Timer { Interval = 1500 };
-            tick.Tick += delegate { UpdateStatus(); if (_index != null && !_index.IsIndexing && _index.Count > 0) { tick.Stop(); tick.Dispose(); DoSearch(); } };
-            tick.Start();
-            if (_index != null) _index.Changed += delegate { SafeUi(delegate { UpdateStatus(); DoSearch(); }); };
+            _indexTimer = new Timer { Interval = 1500 };
+            _indexTimer.Tick += delegate { UpdateStatus(); if (_index != null && !_index.IsIndexing) { _indexTimer.Stop(); DoSearch(); } };
+            _indexTimer.Start();
+            if (_index != null) _index.Changed += IndexChanged;
         }
 
         private void SafeUi(Action a)
@@ -229,12 +246,26 @@ namespace DeskBox.UI.Views
             return q;
         }
 
+        private void IndexChanged() { SafeUi(delegate { if (!IsDisposed) { UpdateStatus(); DoSearch(); } }); }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (_index != null) _index.Changed -= IndexChanged;
+                if (_indexTimer != null) { _indexTimer.Dispose(); _indexTimer = null; }
+            }
+            base.Dispose(disposing);
+        }
+
         public void DoSearch() { DoSearch(null); }
 
         public void DoSearch(SearchQuery forced)
         {
             var q = forced ?? BuildQuery();
             if (_projectRoot != null) q.Roots = new List<string> { _projectRoot };
+            var project = _project;
+            q.PathFilter = project == null ? (Func<string, bool>)null : project.IncludesPath;
             if (_index == null)
             {
                 _status.Text = "索引服务未就绪";
@@ -248,6 +279,7 @@ namespace DeskBox.UI.Views
             foreach (var hit in _last.Hits)
             {
                 var e = hit.Entry;
+                if (project != null && !project.CanAccessPath(e.Path)) continue;
                 _current.Add(e);
                 rows.Add(new ListRow
                 {
@@ -261,7 +293,11 @@ namespace DeskBox.UI.Views
             _status.Text = "命中 " + _last.TotalMatched + " 条，显示 " + rows.Count + " 条 · 用时 " + sw.ElapsedMilliseconds + " ms"
                 + (_index.IsIndexing ? " · 正在索引，结果尚不完整" : "")
                 + (string.IsNullOrEmpty(_last.Message) ? "" : " · " + _last.Message);
-            if (Searched != null) Searched(_last);
+            if (Searched != null)
+            {
+                if (project != null) _last.Hits.RemoveAll(hit => !_current.Contains(hit.Entry));
+                Searched(_last);
+            }
             try { if (_history != null) _history.Record(new FileOpRecord { Id = "q" + DateTime.Now.Ticks, Ts = DateTimeOffset.Now.ToUnixTimeMilliseconds(), Op = "search", Source = q.Text, Ok = true, Detail = "命中 " + _last.TotalMatched }); } catch { }
         }
 

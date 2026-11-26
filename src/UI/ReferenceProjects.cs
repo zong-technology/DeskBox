@@ -20,10 +20,10 @@ namespace DeskBox.UI
         }
         private void AddProject()
         {
-            using(var chooser=new FolderBrowserDialog{Description="关联真实工程项目目录"})if(chooser.ShowDialog(this)==DialogResult.OK){var name=Prompt.Input(this,"新建工程项目","项目名称",Path.GetFileName(chooser.SelectedPath),_p);if(!string.IsNullOrWhiteSpace(name)){var p=_projects.Add(name,chooser.SelectedPath,"PLC");_projects.SetCurrent(p.Id);_selectedProject=p.Id;DataChanged();}}
+            using(var chooser=new FolderBrowserDialog{Description="关联真实工程项目目录"})if(chooser.ShowDialog(this)==DialogResult.OK){var name=Prompt.Input(this,"新建工程项目","项目名称",Path.GetFileName(chooser.SelectedPath),_p);if(!string.IsNullOrWhiteSpace(name)){var p=_projects.Add(name,chooser.SelectedPath,"PLC");_projects.SetCurrent(p.Id);DataChanged();}}
         }
         private DarkList _projectFiles;
-        private void RefreshProjectFiles(){var p=CurrentProject();var rows=new List<ListRow>();if(p!=null)try{rows=Directory.EnumerateFileSystemEntries(p.Root).Take(300).Select(path=>new{Path=path,Info=new FileInfo(path),Dir=Directory.Exists(path)}).Select(x=>new ListRow{Cells=new[]{Path.GetFileName(x.Path),x.Dir?"文件夹":x.Info.Extension.ToUpperInvariant(),x.Dir?"—":(x.Info.Length/1024d).ToString("0.#")+" KB",File.GetLastWriteTime(x.Path).ToString("yyyy-MM-dd HH:mm")},Tag=x.Path}).ToList();}catch(Exception ex){_status.Text="读取项目目录失败："+ex.Message;}if(_projectFiles!=null)_projectFiles.SetRows(rows);}
+        private void RefreshProjectFiles(){var p=CurrentProject();var rows=new List<ListRow>();if(p!=null)try{rows=Directory.EnumerateFileSystemEntries(p.Root).Where(_projects.Context.CanAccessPath).Take(300).Select(path=>new{Path=path,Info=new FileInfo(path),Dir=Directory.Exists(path)}).Select(x=>new ListRow{Cells=new[]{Path.GetFileName(x.Path),x.Dir?"文件夹":x.Info.Extension.ToUpperInvariant(),x.Dir?"—":(x.Info.Length/1024d).ToString("0.#")+" KB",File.GetLastWriteTime(x.Path).ToString("yyyy-MM-dd HH:mm")},Tag=x.Path}).ToList();}catch(Exception ex){_status.Text="读取项目目录失败："+ex.Message;}if(_projectFiles!=null)_projectFiles.SetRows(rows);}
         private Control BuildCalculator()
         {
             var page=Page("4–20mA / 仪表计算","确定性本地计算 · 支持正/反量程");var toolbar=Toolbar();toolbar.Controls.Add(Button("返回工具矩阵",()=>Navigate("engineering")));toolbar.Controls.Add(Button("压力 / 温度 / PLC",()=>Navigate("tool-workspace"),false,180));

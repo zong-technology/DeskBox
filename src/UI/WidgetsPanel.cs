@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -281,6 +281,7 @@ namespace DeskBox
         private TaskCard _tasks;
         private LogCard _logs;
         private StatsCard _stats;
+        internal Func<DeskBox.Engineering.ProjectContext> CurrentProject;
         private ContextCard _context;
 
         private readonly List<DesktopItem> _items = new List<DesktopItem>();
@@ -486,6 +487,8 @@ namespace DeskBox
             t.Priority = "normal";
             t.Due = "";
             t.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var scope = CurrentProject == null ? null : CurrentProject();
+            if (scope != null) t.Project = scope.Id;
             if (_store.Tasks == null) _store.Tasks = new List<TaskItem>();
             _store.Tasks.Add(t);
             try { _store.SaveTasksOnly(); } catch (Exception) { }
@@ -1341,7 +1344,8 @@ namespace DeskBox
 
             public void Reload()
             {
-                List<TaskItem> all = Host.StoreNow.Tasks;
+                var project = Host.CurrentProject == null ? null : Host.CurrentProject();
+                List<TaskItem> all = project == null ? Host.StoreNow.Tasks : Host.StoreNow.Tasks.Where(project.IncludesTask).ToList();
                 if (all == null) all = new List<TaskItem>();
                 List<TaskItem> shown = new List<TaskItem>();
                 _pending = 0;

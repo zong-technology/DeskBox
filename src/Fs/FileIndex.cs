@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -203,6 +203,8 @@ namespace DeskBox.Fs
                     }
                     if (!all) continue;
                 }
+
+                if (q.PathFilter != null && !q.PathFilter(e.Path)) continue;
 
                 int score;
                 string highlight;

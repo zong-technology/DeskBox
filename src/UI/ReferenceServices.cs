@@ -15,7 +15,7 @@ namespace DeskBox.UI
         private Control BuildServicePage(string id)
         {
             if(id=="automation")return BuildWorkflowStudio();
-            var names=new Dictionary<string,string>{{"ai","AI 助手"},{"automation","自动化工作流"},{"search","工程文件中心"}};
+            var names=new Dictionary<string,string>{{"ai","AI 工程中心"},{"automation","自动化工作流"},{"search","工程知识库"}};
             var page=Page(names[id],id=="ai"?"结合工程文件和当前项目上下文分析问题":id=="automation"?"预演、执行与工作流状态":"文件名、格式、时间、大小与项目范围检索");
             var view=_legacyFactory(id) as Views.ViewBase;
             if(view==null)return page;view.ApplyPalette(_p);view.UseReferenceLayout();
@@ -91,13 +91,36 @@ namespace DeskBox.UI
                 search.EntrySelected += file => { preview.ShowPreview(file.Path); tiaFile = !file.IsDir && new[] { ".aml", ".xml", ".scl", ".udt", ".db", ".csv" }.Contains(Path.GetExtension(file.Path).ToLowerInvariant()) ? file.Path : null; tia.Enabled = tiaFile != null; };preview.OpenRequested+=OpenPath;preview.RevealRequested+=path=>DeskBox.Native.Win32.RevealPath(path);preview.FavoriteRequested+=path=>_library.AddFavorite(path,"");preview.AiRequested += path => { var handler = FileAiRequested; if (handler != null) handler(path); };
                 shell.Controls.Add(view);shell.Controls.Add(preview);shell.Controls.Add(folders);view.BringToFront();workspace=shell;
             }
-            AddMain(page,workspace,toolbar);_reload[id]=()=>{view.Activate();var search=view as Views.SearchView;if(search!=null){tree.RefreshRoots(DeskBox.Fs.FileIndex.Instance.Roots);tree.ShowScope(search.FolderScope);search.DoSearch();}};return page;
+            AddMain(page, workspace, toolbar);
+            _reload[id] = delegate
+            {
+                view.Activate();
+                var search = view as Views.SearchView;
+                if (search == null) return;
+                var scope = _projects.Context;
+                allFiles.Visible = scope == null;
+                currentProject.Visible = scope != null;
+                search.SetProjectContext(scope);
+                tree.RefreshRoots(scope == null ? DeskBox.Fs.FileIndex.Instance.Roots : new List<string> { scope.Root }, scope);
+                tree.ShowScope(search.FolderScope);
+                search.DoSearch();
+            };
+            return page;
         }
-        private Control BuildTasks(){return BuildBusinessPage("tasks","任务与提醒","任务概览、截止日期与完成状态");}
+        private Control BuildTasks(){return BuildBusinessPage("tasks","项目任务","任务概览、截止日期与完成状态");}
         private Control BuildIncidents(){return BuildBusinessPage("incidents","现场事件","项目、设备位号、调查和处理措施");}
         private Control BuildBusinessPage(string id,string title,string subtitle)
         {
-            var page=Page(title,subtitle);var view=_legacyFactory(id) as Views.ViewBase;if(view==null)return page;view.ApplyPalette(_p);view.UseReferenceLayout();AddMain(page,view);_reload[id]=()=>view.Activate();return page;
+            var page=Page(title,subtitle);var view=_legacyFactory(id) as Views.ViewBase;if(view==null)return page;view.ApplyPalette(_p);view.UseReferenceLayout();AddMain(page,view);
+            _reload[id] = delegate
+            {
+                var tasks = view as Views.TasksView;
+                var incidents = view as Views.IncidentsView;
+                if (tasks != null) tasks.SetProjectContext(_projects.Context);
+                else if (incidents != null) incidents.SetProjectContext(_projects.Context);
+                else view.Activate();
+            };
+            return page;
         }
         private WeatherSnapshot _weather;
         private bool _weatherBusy;

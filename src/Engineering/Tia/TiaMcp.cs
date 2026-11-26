@@ -28,6 +28,12 @@ namespace DeskBox.Engineering.Tia
             { "catalog", "tia_read_hardware_catalog" }
         };
 
+        internal static IEnumerable<KeyValuePair<string, string>> Capabilities { get { return Tools.ToArray(); } }
+        internal static bool RequiresOfflineApproval(string operation)
+        {
+            return operation == "compile" || operation == "scale" || operation == "scl";
+        }
+
         private static object InputSchema()
         {
             return new { type = "object", properties = new { jobId = new { type = "string", pattern = "^[0-9a-f]{32}$" } },
@@ -82,6 +88,14 @@ namespace DeskBox.Engineering.Tia
                         Json.ToJson(Get(match, "outputSchema")) != Json.ToJson(OutputSchema()))
                         throw new InvalidDataException("TIA MCP 工具参数或回执结构不兼容：" + tool);
 
+                    if (job.ProbeOnly)
+                    {
+                        process.StandardInput.Close();
+                        if (!process.WaitForExit(5000) || process.ExitCode != 0)
+                            throw new IOException("TIA MCP 探测进程未正常结束。");
+                        status = "probe_succeeded";
+                        return true;
+                    }
                     step = "tools/call";
                     var response = Request(process, stderr, 3, step, new { name = tool, arguments = new { jobId = id } }, token,
                         job.Operation == "discover" || job.Operation == "read-open" ? 60000 : 300000);
@@ -170,7 +184,7 @@ namespace DeskBox.Engineering.Tia
                     Send(output, new { jsonrpc = "2.0", id, result = new { tools = new[] { new { name = tool,
                         description = "Executes the locally staged " + job.Operation + " job on Siemens Openness.",
                         inputSchema = InputSchema(), outputSchema = OutputSchema() } } } });
-                else if (ready && method == "tools/call")
+                else if (ready && method == "tools/call" && !job.ProbeOnly)
                 {
                     var arguments = Get(args, "arguments") as Message;
                     if (!Equals(Get(args, "name"), tool) || arguments == null || arguments.Count != 1 || !Equals(Get(arguments, "jobId"), jobId))

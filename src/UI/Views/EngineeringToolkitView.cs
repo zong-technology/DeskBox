@@ -16,6 +16,7 @@ namespace DeskBox.UI.Views
     public partial class EngineeringToolkitView : ViewBase
     {
         private DarkSelect _mode;
+        public Func<ProjectContext> CurrentProject;
         private Panel _page;
         private Label _status;
         private bool _referenceLayout,_building;
@@ -274,8 +275,14 @@ namespace DeskBox.UI.Views
             {
                 var titles = ValidationTemplates.TaskTitles(type.Inner.Text, system.Text);
                 if (!Prompt.Confirm(this, "创建验证任务", "将创建 " + titles.Count + " 条任务，用于跟踪「" + type.Inner.Text + "」。继续？", Palette)) return;
-                foreach (var title in titles) Store.Tasks.Add(new TaskItem { Id = "t_" + Guid.NewGuid().ToString("N").Substring(0, 10), Title = title, Priority = "high", Project = system.Text, CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
-                Store.SaveTasksOnly(); Store.Log("info", "validation", "创建验证任务 " + titles.Count + " 条：" + system.Text); _status.Text = "已创建 " + titles.Count + " 条验证任务";
+                var scope = CurrentProject == null ? null : CurrentProject();
+                var newTasks = new List<TaskItem>();
+                foreach (var title in titles)
+                    newTasks.Add(new TaskItem { Id = "t_" + Guid.NewGuid().ToString("N").Substring(0, 10), Title = title,
+                        Priority = "high", Project = scope == null ? system.Text : scope.Id, CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+                Store.Tasks.AddRange(newTasks);
+                try { Store.SaveTasksOnly(); }
+                catch (Exception error) { foreach (var task in newTasks) Store.Tasks.Remove(task); _status.Text = error.Message; return; } Store.Log("info", "validation", "创建验证任务 " + titles.Count + " 条：" + system.Text); _status.Text = "已创建 " + titles.Count + " 条验证任务";
             };
         }
 

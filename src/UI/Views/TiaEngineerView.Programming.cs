@@ -33,7 +33,7 @@ namespace DeskBox.UI.Views
             Tuple.Create("硬件建议", TiaProgrammingScope.Hardware)
         };
 
-        private TiaProgrammingStore ProgrammingStore() { return new TiaProgrammingStore(AppPaths.File("tia-programming" + AiEnvironment.Suffix)); }
+        private TiaProgrammingStore ProgrammingStore() { return new TiaProgrammingStore(Path.Combine(WorkbenchDataRoot, "tia-programming" + AiEnvironment.Suffix)); }
 
         private static Tuple<PlcSnapshot, TiaProgrammingSource> ReadProgrammingExports(string[] inputs, CancellationToken token)
         {
@@ -389,6 +389,11 @@ namespace DeskBox.UI.Views
             if (provider == null || !provider.Enabled)
             {
                 StopBeforeGeneration(store, task, "当前环境未配置默认 AI 服务商。", "配置模型后重生成，也可在本机载入缩放模板。");
+                return;
+            }
+            if (projectScope != null && !projectScope.PermitsModel(provider))
+            {
+                StopBeforeGeneration(store, task, "当前工程只允许本机模型。", "选择本机模型或核对项目的外部模型权限。");
                 return;
             }
             string authorization = useContext ? "已绑定 PLC 的对象、来源与可用代码。此操作只生成草稿。" : "";

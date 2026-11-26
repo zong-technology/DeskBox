@@ -9,8 +9,8 @@ using DeskBox.UI;
 public static class Smoke
 {
     private static readonly string[] Routes = {
-        "home", "desktop", "projects", "engineering", "ai", "search",
-        "tasks", "history", "automation", "incidents", "weather", "mobile"
+        "home", "desktop", "projects", "tia", "dcs", "validation",
+        "incidents", "ai", "search", "automation", "mobile", "settings"
     };
 
     [DllImport("user32.dll")]

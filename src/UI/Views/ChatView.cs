@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -32,6 +32,7 @@ namespace DeskBox.UI.Views
         private Panel _referenceCore, _referenceRight;
         private DarkList _referenceFiles;
         private string _displayedSessionId;
+        private string _displayedProjectId;
         private DarkButton _coreStop;
         private string _coreTitle = "待命", _coreDetail = "";
         private Color _coreColor;
@@ -405,10 +406,10 @@ namespace DeskBox.UI.Views
         private void RefreshEngineeringContext()
         {
             if (_referenceContext == null) return;
-            var project = _chat == null || _chat.Projects == null ? null : _chat.Projects.Current;
+            var project = _chat == null ? null : _chat.Project;
             var files = _chat == null ? new List<string>() : _chat.AllowedFiles;
             _referenceContext.Text = (project == null ? "未选择工程项目" :
-                project.Name + " · " + DeskBox.Engineering.ValidationProgress.Display(project)) + "\r\n\r\n" +
+                project.Name + " · " + (project.AllowExternalAi ? "可使用外部模型" : "仅本机模型")) + "\r\n\r\n" +
                 (Store.Settings.AiFileAccess ? "当前已选文件 " + files.Count + " 个" : "AI 文件访问已关闭");
             _referenceFiles.SetRows(files.Select(path => new ListRow { Cells = new[] { System.IO.Path.GetFileName(path) }, Tag = path }).ToList());
             _referenceFiles.Visible = files.Count != 0;
@@ -434,7 +435,9 @@ namespace DeskBox.UI.Views
             using (var dialog = new OpenFileDialog { Title = "选择提供给 AI&SI 的文档（仅授权所选文件）", Multiselect = true, Filter = "支持文档|*.pdf;*.docx;*.xlsx;*.xlsm;*.vsdx;*.txt;*.md;*.markdown;*.csv;*.tsv|所有文件|*.*" })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                foreach (var path in dialog.FileNames) if (!_chat.AllowedFiles.Contains(path, StringComparer.OrdinalIgnoreCase)) _chat.AllowedFiles.Add(path);
+                if (dialog.FileNames.Any(path => _chat.Project != null && !_chat.Project.CanAccessPath(path)))
+                { _execution.Text = "请选择当前项目目录内的文件。"; return; }
+                foreach (var path in dialog.FileNames) _chat.AttachPath(path);
                 _input.Text = "请使用 doc.read 读取以下文档的真实内容，必要时分段继续读取；回答时引用页码、段落或工作表/行：\r\n" + string.Join("\r\n", dialog.FileNames);
                 RefreshEngineeringContext();
                 _execution.Text = Store.Settings.AiFileAccess ? "已选择 " + dialog.FileNames.Length + " 个文档，点击发送后开始读取。仅授权所选文件。" : "已选中文档；AI 文件访问总开关仍关闭，请在设置 → 文件与隐私中启用。"; FocusInput();
@@ -523,6 +526,12 @@ namespace DeskBox.UI.Views
         {
             if (_chat == null || _chat.Current == null) { _board.SetMessages(new List<ChatMessage>()); return; }
             bool switched = _displayedSessionId != _chat.Current.Id;
+            if (_displayedProjectId != (_chat.Current.ProjectId ?? ""))
+            {
+                _displayedProjectId = _chat.Current.ProjectId ?? "";
+                _input.Text = "";
+                if (_sessionSearch != null) _sessionSearch.Text = "";
+            }
             _displayedSessionId = _chat.Current.Id;
             _board.SetMessages(_chat.Current.Messages);
             if (switched) _board.ScrollToEnd();

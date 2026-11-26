@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 using DeskBox.Core;
+using DeskBox.Engineering;
 
 namespace DeskBox.UI.Views
 {
@@ -12,6 +13,35 @@ namespace DeskBox.UI.Views
     public class TasksView : ViewBase
     {
         private readonly Store _store;
+        private ProjectContext _project;
+        private IEnumerable<TaskItem> ScopedTasks { get { return _store.Tasks.Where(task => _project == null || _project.IncludesTask(task)); } }
+
+        public void SetProjectContext(ProjectContext project)
+        {
+            bool changed = _project == null ? project != null : !_project.SameScope(project);
+            _project = project;
+            ApplyCalendarScope();
+            if (changed)
+            {
+                _quick.Text = "";
+                ClearDetails();
+            }
+            ReloadData();
+        }
+
+        private void ApplyCalendarScope()
+        {
+            if (_calendar != null) _calendar.TaskScope = _project == null ? (Func<TaskItem, bool>)null : _project.IncludesTask;
+        }
+
+        private void ClearDetails()
+        {
+            if (_details == null) return;
+            _detailId = _detailOriginal = "";
+            _detailTitle.Text = _detailDue.Text = _detailReminder.Text = _detailProject.Text = _detailNotes.Text = "";
+            _detailPriority.SelectedIndex = 0;
+            _detailStatus.Text = "选择任务查看详情";
+        }
         private DarkList _list;
         private DarkInput _quick;
         private DarkSelect _filter, _sort;
@@ -26,10 +56,10 @@ namespace DeskBox.UI.Views
         private void BuildCalendar()
         {
             if(_calendarHost!=null)return;_calendarHost=new Panel{Dock=DockStyle.Fill,Visible=false};_calendar=new TaskMonthCalendar(_store,Palette){Dock=DockStyle.Fill};_dayTasks=new DarkList{Dock=DockStyle.Bottom,Height=150,Palette=Palette,AutoFitColumns=true,CardSurface=true,RowHeight=38};_dayTasks.SetColumns(new[]{"当天任务","状态","优先级"},new[]{420,100,90});_calendarHost.Controls.Add(_calendar);_calendarHost.Controls.Add(_dayTasks);Body.Controls.Add(_calendarHost);_calendarHost.BringToFront();_list.BringToFront();
-            _calendar.DateSelected+=date=>ReloadDayTasks();_dayTasks.RowActivated+=delegate{if(_dayTasks.SelectedRow==null)return;string id=(string)_dayTasks.SelectedRow.Tag;_filter.SelectedIndex=0;ReloadData();int index=_list.Rows.FindIndex(row=>(string)row.Tag==id);if(index>=0)_list.SelectIndex(index);};
+            ApplyCalendarScope();_calendar.DateSelected+=date=>ReloadDayTasks();_dayTasks.RowActivated+=delegate{if(_dayTasks.SelectedRow==null)return;string id=(string)_dayTasks.SelectedRow.Tag;_filter.SelectedIndex=0;ReloadData();int index=_list.Rows.FindIndex(row=>(string)row.Tag==id);if(index>=0)_list.SelectIndex(index);};
             var toggle=new DarkButton("月历 / 列表"){Palette=Palette,Width=115,Height=34,Margin=new Padding(0,0,8,10)};toggle.Click+=delegate{_calendarHost.Visible=!_calendarHost.Visible;_list.Visible=!_calendarHost.Visible;if(_calendarHost.Visible){_calendarHost.BringToFront();ReloadDayTasks();}else _list.BringToFront();};_referenceFilters.SetFlowBreak(_sort,false);_referenceFilters.Controls.Add(toggle);_referenceFilters.Controls.SetChildIndex(_stat,_referenceFilters.Controls.Count-1);_referenceFilters.SetFlowBreak(toggle,true);
         }
-        private void ReloadDayTasks(){if(_calendar==null)return;_calendar.Invalidate();_dayTasks.SetRows(_store.Tasks.Where(t=>t.Due==_calendar.SelectedDate.ToString("yyyy-MM-dd")).Select(t=>new ListRow{Cells=new[]{t.Title,t.Done?"已完成":"待办",PriorityText(t.Priority)},Tag=t.Id}).ToList());}
+        private void ReloadDayTasks(){if(_calendar==null)return;_calendar.Invalidate();_dayTasks.SetRows(ScopedTasks.Where(t=>t.Due==_calendar.SelectedDate.ToString("yyyy-MM-dd")).Select(t=>new ListRow{Cells=new[]{t.Title,t.Done?"已完成":"待办",PriorityText(t.Priority)},Tag=t.Id}).ToList());}
         private FlowLayoutPanel _referenceFilters;
         private void BuildReferenceToolbar()
         {
@@ -52,9 +82,9 @@ namespace DeskBox.UI.Views
             _detailPriority=new DarkSelect(new[]{"普通","高","低"}){Palette=Palette};
             string[] names={"标题","优先级","截止日期","提醒时间","关联项目","备注"};Control[] inputs={_detailTitle,_detailPriority,_detailDue,_detailReminder,_detailProject,_detailNotes};
             for(int i=0;i<inputs.Length;i++){fields.RowStyles.Add(new RowStyle(SizeType.Absolute,25));fields.RowStyles.Add(new RowStyle(SizeType.Absolute,i==5?110:42));fields.Controls.Add(new Label{Text=names[i],ForeColor=Palette.TextDim,Dock=DockStyle.Fill},0,i*2);inputs[i].Dock=DockStyle.Fill;inputs[i].Margin=new Padding(0,0,0,8);fields.Controls.Add(inputs[i],0,i*2+1);}
-            var save=new DarkButton("保存详情"){Palette=Palette,Primary=true,Dock=DockStyle.Bottom,Height=38};save.Click+=delegate{try{var item=_store.Tasks.FirstOrDefault(t=>t.Id==_detailId);if(item==null)throw new InvalidOperationException("先选择任务");if(Json.ToJson(item)!=_detailOriginal)throw new InvalidOperationException("任务已在另一端更新，请重新选择后编辑");DateTime due,remind;if(_detailDue.Text.Length>0&&!DateTime.TryParseExact(_detailDue.Text,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out due))throw new ArgumentException("截止日期应为 yyyy-MM-dd");if(_detailReminder.Text.Length>0&&!DateTime.TryParseExact(_detailReminder.Text,"yyyy-MM-dd HH:mm",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out remind))throw new ArgumentException("提醒应为 yyyy-MM-dd HH:mm");if(string.IsNullOrWhiteSpace(_detailTitle.Text))throw new ArgumentException("标题不能为空");item.Title=_detailTitle.Text.Trim();item.Due=_detailDue.Text;item.RemindAt=_detailReminder.Text;item.Reminded=false;item.Priority=_detailPriority.SelectedIndex==1?"high":_detailPriority.SelectedIndex==2?"low":"normal";item.Project=_detailProject.Text.Trim();item.Notes=_detailNotes.Text;_store.SaveTasksOnly();_detailOriginal=Json.ToJson(item);_store.Log("info","task","更新任务详情："+item.Title);ReloadData();_detailStatus.Text="已保存，等待云同步";}catch(Exception ex){_detailStatus.Text=ex.Message;}};
+            var save=new DarkButton("保存详情"){Palette=Palette,Primary=true,Dock=DockStyle.Bottom,Height=38};save.Click+=delegate{try{var item=ScopedTasks.FirstOrDefault(t=>t.Id==_detailId);if(item==null)throw new InvalidOperationException("先选择任务");if(Json.ToJson(item)!=_detailOriginal)throw new InvalidOperationException("任务已在另一端更新，请重新选择后编辑");DateTime due,remind;if(_detailDue.Text.Length>0&&!DateTime.TryParseExact(_detailDue.Text,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out due))throw new ArgumentException("截止日期应为 yyyy-MM-dd");if(_detailReminder.Text.Length>0&&!DateTime.TryParseExact(_detailReminder.Text,"yyyy-MM-dd HH:mm",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out remind))throw new ArgumentException("提醒应为 yyyy-MM-dd HH:mm");if(string.IsNullOrWhiteSpace(_detailTitle.Text))throw new ArgumentException("标题不能为空");item.Title=_detailTitle.Text.Trim();item.Due=_detailDue.Text;item.RemindAt=_detailReminder.Text;item.Reminded=false;item.Priority=_detailPriority.SelectedIndex==1?"high":_detailPriority.SelectedIndex==2?"low":"normal";item.Project=_project==null?_detailProject.Text.Trim():_project.Id;item.Notes=_detailNotes.Text;_store.SaveTasksOnly();_detailOriginal=Json.ToJson(item);_store.Log("info","task","更新任务详情："+item.Title);ReloadData();_detailStatus.Text="已保存，等待云同步";}catch(Exception ex){_detailStatus.Text=ex.Message;}};
             _detailStatus=new Label{Dock=DockStyle.Bottom,Height=48,ForeColor=Palette.TextDim,Text="选择任务查看详情；保存前检查同步版本"};_details.Controls.Add(fields);_details.Controls.Add(save);_details.Controls.Add(_detailStatus);_details.Controls.Add(heading);fields.BringToFront();Body.Controls.Add(_details);_list.BringToFront();
-            _list.SelectionChanged+=delegate{var item=Selected();if(item==null)return;_detailId=item.Id;_detailOriginal=Json.ToJson(item);_detailTitle.Text=item.Title;_detailDue.Text=item.Due;_detailReminder.Text=item.RemindAt;_detailProject.Text=item.Project;_detailNotes.Text=item.Notes;_detailPriority.SelectedIndex=item.Priority=="high"?1:item.Priority=="low"?2:0;_detailStatus.Text=item.Done?"已完成":"待办 · 支持编辑提醒与备注";};
+            _list.SelectionChanged+=delegate{var item=Selected();if(item==null){ClearDetails();return;}_detailProject.Inner.ReadOnly=_project!=null;_detailId=item.Id;_detailOriginal=Json.ToJson(item);_detailTitle.Text=item.Title;_detailDue.Text=item.Due;_detailReminder.Text=item.RemindAt;_detailProject.Text=_project==null?item.Project:_project.Name;_detailNotes.Text=item.Notes;_detailPriority.SelectedIndex=item.Priority=="high"?1:item.Priority=="low"?2:0;_detailStatus.Text=item.Done?"已完成":"待办 · 支持编辑提醒与备注";};
         }
         private string _currentFilter = "all";   // all | todo | done | overdue
 
@@ -140,7 +170,7 @@ namespace DeskBox.UI.Views
         {
             if (_list == null || _store == null) return;
             _overview.Invalidate();
-            var all = _store.Tasks ?? new List<TaskItem>();
+            var all = ScopedTasks.ToList();
             IEnumerable<TaskItem> q = all;
             switch (_currentFilter)
             {
@@ -182,7 +212,7 @@ namespace DeskBox.UI.Views
         private void PaintOverview(object sender, PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            var tasks = _store.Tasks ?? new List<TaskItem>();
+            var tasks = ScopedTasks.ToList();
             if(_referenceStyle)
             {
                 int[] counts={tasks.Count(t=>!t.Done),tasks.Count(t=>!t.Done&&IsOverdue(t)),tasks.Count(t=>!t.Done&&t.Priority=="high"),tasks.Count(t=>t.Done)};string[] captions={"进行中","已逾期","高优先级","已完成"};int width=Math.Max(1,(_overview.Width-36)/4);
@@ -243,7 +273,7 @@ namespace DeskBox.UI.Views
         {
             var row = _list.SelectedRow;
             if (row == null) return null;
-            return _store.Tasks.FirstOrDefault(t => t.Id == (string)row.Tag);
+            return ScopedTasks.FirstOrDefault(t => t.Id == (string)row.Tag);
         }
 
         // ---------------- 操作 ----------------
@@ -258,10 +288,12 @@ namespace DeskBox.UI.Views
                 Title = title,
                 Priority = DetectPriority(title),
                 Due = DetectDue(title),
+                Project = _project == null ? "" : _project.Id,
                 CreatedAt = DateTimeOffset.Now.ToUnixTimeMilliseconds()
             };
             _store.Tasks.Add(t);
-            _store.SaveTasksOnly();
+            try { _store.SaveTasksOnly(); }
+            catch (Exception error) { _store.Tasks.Remove(t); _stat.Text = "保存任务失败：" + error.Message; return; }
             _store.Log("info", "task", "新建任务：" + t.Title);
             _quick.Text = "";
             ReloadData();

@@ -165,11 +165,16 @@ def search(request):
         raise ValueError('内容搜索需要 keyword')
     limit = max(1, min(30, int(request.get('limit', 10))))
     scanned, hits, errors = 0, [], []
+    excluded = {os.path.normcase(os.path.abspath(path)) for path in json.loads(request.get("excluded_roots", "[]"))}
     if root.is_file() and root.suffix.lower() not in READ_EXTS:
         raise ValueError('该文件格式不支持内容搜索')
     sources = [(str(root.parent), [], [root.name])] if root.is_file() else os.walk(root, followlinks=False)
     for directory, dirs, files in sources:
-        dirs[:] = [d for d in dirs if not os.path.islink(Path(directory) / d) and not os.path.isjunction(Path(directory) / d)]
+        dirs[:] = [
+            d for d in dirs if not os.path.islink(Path(directory) / d)
+            and not getattr(os.path, 'isjunction', lambda _: False)(Path(directory) / d)
+            and os.path.normcase(os.path.abspath(Path(directory) / d)) not in excluded
+        ]
         for name in files:
             if name.startswith('.DeskBox-'):
                 continue

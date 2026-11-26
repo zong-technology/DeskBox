@@ -1,0 +1,314 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Threading;
+using System.Windows.Forms;
+using DeskBox;
+using DeskBox.Ai;
+using DeskBox.Core;
+using DeskBox.Engineering;
+using DeskBox.Engineering.Tia;
+using DeskBox.Fs;
+using DeskBox.Sync;
+using DeskBox.UI;
+using DeskBox.UI.Views;
+
+public static class V5ContextAcceptance
+{
+    private const BindingFlags Private = BindingFlags.NonPublic | BindingFlags.Instance;
+    private static int passed;
+    private static string root;
+    private static string aFile, bFile, dcsFile;
+    private static Store store;
+    private static WorkspaceStore projects;
+    private static EngineerWorkspace a, b;
+
+    [STAThread]
+    public static int Main(string[] args)
+    {
+        root = Path.Combine(Path.GetTempPath(), "DeskBoxV5-Accept-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            SetUp();
+            CheckCore();
+            if (args.Length > 0) CheckUi(Path.GetFullPath(args[0]));
+            Console.WriteLine("V5 context: PASS " + passed + " / FAIL 0");
+            return 0;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(error);
+            Console.WriteLine("V5 context: PASS " + passed + " / FAIL 1");
+            return 1;
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private static void SetUp()
+    {
+        Store.DataDir = AppPaths.DataDir = Path.Combine(root, "data");
+        Directory.CreateDirectory(AppPaths.DataDir);
+        var first = Path.Combine(root, "Export A");
+        var second = Path.Combine(first, "Separate project B");
+        Directory.CreateDirectory(second);
+        aFile = Path.Combine(first, "A_Review.scl");
+        bFile = Path.Combine(second, "B_Review.scl");
+        dcsFile = Path.Combine(second, "DCS_Export.fhx");
+        File.WriteAllText(aFile, "FUNCTION_BLOCK A_Review\r\nBEGIN\r\nEND_FUNCTION_BLOCK\r\n");
+        File.WriteAllText(bFile, "FUNCTION_BLOCK B_Review\r\nBEGIN\r\nEND_FUNCTION_BLOCK\r\n");
+        File.WriteAllText(dcsFile, "/* Authorized export text format fixture */\r\nMODULE_INSTANCE NAME=\"B_Review\"\r\n{\r\n}\r\n");
+        store = new Store();
+        store.Init();
+        store.Settings.ReferenceUi = true;
+        store.Settings.TakeoverIcons = false;
+        store.Settings.DesktopDir = first;
+        store.Settings.LocalSyncEnabled = false;
+        projects = new WorkspaceStore();
+        a = projects.Add("Name collision", first, "PLC");
+        b = projects.Add("Name collision", second, "DCS");
+        projects.SetCurrent(a.Id);
+        string due = DateTime.Today.ToString("yyyy-MM-dd");
+        store.Tasks.Add(new TaskItem { Id = "task-a", Project = a.Id, Title = "Review PLC A", Due = due, Priority = "high" });
+        store.Tasks.Add(new TaskItem { Id = "task-b", Project = b.Id, Title = "Review DCS B", Due = due });
+        store.Tasks.Add(new TaskItem { Id = "legacy", Project = "Name collision", Title = "Legacy name task", Due = due });
+        store.Save();
+        var index = FileIndex.Instance;
+        index.Configure(new List<string> { first }, new List<string>());
+        index.Rebuild();
+        WaitFor(() => !index.IsIndexing, "file index", false);
+        Check(index.Count >= 3, "real fixture files indexed");
+    }
+
+    private static void CheckCore()
+    {
+        var first = projects.Context;
+        Check(first.CanAccessPath(aFile) && !first.CanAccessPath(bFile), "nested workspace stays isolated");
+        Check(!first.IncludesPath(a.Root + "-sibling" + Path.DirectorySeparatorChar + "file.txt"), "path prefix is component bounded");
+        Check(!first.IncludesTask(store.Tasks.Single(task => task.Id == "legacy")), "ambiguous historical task is excluded");
+        projects.Update(b.Id, "DCS engineering B", "DCS", "B customer", "DCS", "");
+        first = projects.Context;
+        Check(first.IncludesTask(store.Tasks.Single(task => task.Id == "legacy")), "unique historical task still resolves");
+        ExpectFailure(() => projects.SaveContext(a.Id, "FAT", bFile, "", "", "1", "", false), "cannot configure foreign PLC file");
+        projects.SaveContext(a.Id, "FAT", aFile, "", a.Root, "R03", "task-a", false);
+        projects.SaveContext(b.Id, "OQ", bFile, dcsFile, b.Root, "R08", "task-b", false);
+        first = projects.Context;
+        Check(first.PlcPath == aFile && first.Version == "R03" && !first.AllowExternalAi, "version and external AI policy persisted");
+        Check(!first.PermitsModel(new AiProvider { BaseUrl = "https://example.invalid/v1" }) &&
+            first.PermitsModel(new AiProvider { BaseUrl = "http://127.0.0.1:8080/v1" }), "project model rule defaults to numeric loopback");
+        var validation = ValidationProgress.Create();
+        validation[0].Percent = 100;
+        projects.SaveValidation(a.Id, validation, "", "", "Evidence for A", a.Root);
+        validation[0].Percent = 10;
+        projects.SaveValidation(b.Id, validation, "", "", "Evidence for B", b.Root);
+
+        using (var sync = new LocalSyncCoordinator(store, projects))
+        {
+            sync.SaveIncident(new IncidentDto { Id = "incident-a", ProjectId = a.Id, Description = "Issue A" }, 0);
+            sync.SaveIncident(new IncidentDto { Id = "incident-b", ProjectId = b.Id, Description = "Issue B" }, 0);
+            var registry = ToolRegistry.Instance;
+            var context = new ToolContext { Store = store, Projects = projects, Project = first, Sync = sync,
+                AllowedRoots = new List<string> { a.Root }, FileAccessEnabled = () => true, Confirm = detail => true };
+            var tasks = registry.Invoke("task.list", new Dictionary<string, string> { { "project_id", a.Id } }, context);
+            Check(tasks.Ok && tasks.Output.Contains("task-a") && tasks.Output.Contains("legacy") && !tasks.Output.Contains("task-b"), "AI task results follow project ID");
+            var write = registry.Invoke("task.update", new Dictionary<string, string> { { "id", "task-b" },
+                { "title", "Foreign change" }, { "expected", ApplicationTool.TaskStamp(store.Tasks.Single(item => item.Id == "task-b")) } }, context);
+            Check(!write.Ok && store.Tasks.Any(item => item.Title == "Review DCS B"), "AI cannot change a different project's task");
+            Check(!registry.Invoke("incident.list", null, context).Output.Contains("Issue B"), "AI incident results stay in scope");
+            Check(!registry.Invoke("project.list", null, context).Output.Contains(b.Id), "AI project listing stays in scope");
+            Check(!registry.Invoke("workflow.run", null, context).Ok, "project AI rejects unscoped workflow execution");
+            var hit = registry.Invoke("fs.search", new Dictionary<string, string> { { "root", a.Root }, { "keyword", "Review" } }, context);
+            Check(hit.Ok && hit.Output.Contains("A_Review.scl") && !hit.Output.Contains("B_Review.scl"), "AI file search excludes the nested project");
+            Check(!registry.Invoke("fs.read", new Dictionary<string, string> { { "path", bFile } }, context).Ok, "AI file read rejects an outside attachment");
+        }
+
+        var providers = new ProviderStore();
+        var chat = new ChatService(store, providers);
+        var globalId = chat.Current.Id;
+        chat.SetProjectContext(first);
+        Check(chat.Current.Id != globalId && chat.Current.ProjectId == a.Id, "existing unbound session remains separate");
+        Check(chat.AttachPath(aFile) && !chat.AttachPath(bFile), "attachment authorizations checked");
+        chat.Send("查找：Review");
+        WaitFor(() => !chat.Busy, "AI local fallback", false);
+        string answer = chat.Current.Messages.Last().Content;
+        Check(answer.Contains("本地文件名检索") && answer.Contains(aFile) && !answer.Contains(bFile), "actual local search fallback and source path");
+        string aSession = chat.Current.Id;
+        projects.SetCurrent(b.Id);
+        chat.SetProjectContext(projects.Context);
+        Check(chat.AllowedFiles.Count == 0 && chat.Sessions.All(session => session.ProjectId == b.Id), "switch clears temporary grants and shows only B sessions");
+        chat.SwitchSession(aSession);
+        Check(chat.Current.ProjectId == b.Id, "cannot force a different project's session ID");
+        chat.Send("Review");
+        WaitFor(() => !chat.Busy, "B local fallback", false);
+        Check(chat.Current.Messages.Last().Content.Contains(bFile) && !chat.Current.Messages.Last().Content.Contains(aFile), "B search has its own scope");
+        var restored = new WorkspaceStore();
+        chat = new ChatService(store, providers);
+        chat.SetProjectContext(restored.Context);
+        Check(restored.Current.Id == b.Id && restored.Current.ValidationSteps[0].Percent == 10 && chat.Current.ProjectId == b.Id, "project, validation and session survive reload");
+        projects.SetCurrent(a.Id);
+        chat.SetProjectContext(projects.Context);
+        Check(chat.Current.Id == aSession && chat.Current.Messages.Last().Content.Contains(aFile), "A history restored without B messages");
+        projects.SetCurrent("");
+        Check(new WorkspaceStore().Current == null, "explicit global mode survives reload");
+        projects.SetCurrent(a.Id);
+
+        var statePath = AppPaths.File("engineering-current.json");
+        var shadow = statePath + ".fixture";
+        File.Move(statePath, shadow);
+        Directory.CreateDirectory(statePath);
+        try
+        {
+            ExpectFailure(() => projects.SetCurrent(b.Id), "failed write reports actual storage error");
+            Check(projects.Current.Id == a.Id, "failed write preserves in-memory selection");
+        }
+        finally { Directory.Delete(statePath); File.Move(shadow, statePath); }
+        projects.SetCurrent(b.Id);
+        File.WriteAllText(statePath, "{corrupt");
+        projects = new WorkspaceStore();
+        Check(projects.Current.Id == a.Id && Directory.GetFiles(AppPaths.DataDir, "engineering-current.json.bad-*").Length == 1,
+            "corrupt selection recovered from previous commit and input preserved");
+        projects.SetCurrent(a.Id);
+
+        new TiaMcpPolicy { Enabled = false, OfflineEngineeringEnabled = false }.Save();
+        ExpectFailure(() => TiaOpenness.Run(new TiaJob { Operation = "discover", ProjectId = a.Id }, CancellationToken.None, projects.Context), "MCP disable enforced before starting child");
+        new TiaMcpPolicy { Enabled = true, OfflineEngineeringEnabled = false }.Save();
+        ExpectFailure(() => TiaOpenness.Run(new TiaJob { Operation = "read-open", ProjectFile = bFile, ProjectId = a.Id, PortalProcessId = 123 }, CancellationToken.None, projects.Context), "foreign engineering file rejected by TIA job boundary");
+        Check(!TiaMcpPolicy.Load().OfflineEngineeringEnabled, "MCP capability policy reloads");
+    }
+
+    private static void CheckUi(string output)
+    {
+        Directory.CreateDirectory(output);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        using (var form = new MainForm(store))
+        {
+            form.TopMost = true;
+            form.Show();
+            form.Activate();
+            Pump();
+            var workspace = form.Controls.OfType<ReferenceWorkspace>().Single();
+            var picker = (DarkSelect)Find(workspace, "active-project");
+            var scopes = (WorkspaceStore)Field(form, "_workspaces");
+            form.SwitchView("tasks");
+            var taskView = Find(workspace, "page-tasks").Controls.OfType<TasksView>().Single();
+            var tasks = (DarkList)Field(taskView, "_list");
+            Check(tasks.Rows.Any(row => (string)row.Tag == "task-a") && tasks.Rows.All(row => (string)row.Tag != "task-b"), "task page initially shows A");
+            picker.SelectedIndex = picker.Inner.FindStringExact("DCS engineering B");
+            Check(scopes.Current.Id == b.Id && tasks.Rows.Count == 1 && (string)tasks.Rows[0].Tag == "task-b", "header selector updates the visible task page");
+            form.SwitchView("incidents");
+            var issues = Descendants(Find(workspace, "page-incidents")).OfType<DarkList>().Single(list => list.Rows.Any(row => row.Tag is SyncRecord));
+            Check(issues.Rows.Count == 1 && ((SyncRecord)issues.Rows[0].Tag).Id == "incident-b", "incident page follows selected project");
+            form.SwitchView("search");
+            var search = Descendants(Find(workspace, "page-search")).OfType<SearchView>().Single();
+            search.SetProjectScope(a.Root, "foreign folder");
+            Check(search.FolderScope == b.Root && ((DarkList)Field(search, "_list")).Rows.All(row => ((FileEntry)row.Tag).Path != aFile), "search cannot keep scope from A");
+            form.SwitchView("dcs");
+            var docs = (DarkList)Find(workspace, "dcs-project-files");
+            Check(docs.RowCount == 1 && (string)docs.Rows[0].Tag == dcsFile, "DCS list uses configured real source");
+            docs.SelectIndex(0);
+            Press(docs, Keys.Enter);
+            var preview = (RichTextBox)Find(workspace, "dcs-export-preview");
+            WaitFor(() => preview.Text.Contains("MODULE_INSTANCE"), "DCS text preview", true);
+            form.SwitchView("tia");
+            var tia = (TiaEngineerView)Find(workspace, "page-tia");
+            tia.LoadExports(new[] { bFile });
+            WaitFor(() => Field(tia, "snapshot") != null, "offline TIA export", true);
+            picker.SelectedIndex = picker.Inner.FindStringExact("Name collision");
+            var newTia = (TiaEngineerView)Find(workspace, "page-tia");
+            Check(tia.IsDisposed && newTia != tia && Field(newTia, "snapshot") == null, "PLC switch discards previous workbench");
+            newTia.LoadExports(new[] { aFile });
+            WaitFor(() => Field(newTia, "snapshot") != null, "A export after scope switch", true);
+            form.SwitchView("ai");
+            Check(((ChatService)Field(form, "_chat")).Current.ProjectId == a.Id, "AI page and header share project");
+            form.SwitchView("mcp");
+            var mcp = Find(workspace, "page-mcp");
+            var probe = Descendants(mcp).OfType<DarkButton>().Single(button => button.Text == "检测 MCP 协议");
+            Press(probe, Keys.Enter);
+            var receipt = Find(workspace, "mcp-actual-receipt");
+            WaitFor(() => receipt.Text.Contains("probe_succeeded") || receipt.Text.Contains("检测失败"), "MCP handshake", true);
+            Check(receipt.Text.Contains("probe_succeeded"), "actual stdio MCP initialize and tool discovery");
+
+            foreach (var size in new[] { new Size(1366, 768), new Size(1600, 900), new Size(1920, 1080) })
+            {
+                if (Screen.PrimaryScreen.Bounds.Width < size.Width || Screen.PrimaryScreen.Bounds.Height < size.Height)
+                { Console.WriteLine("BLOCKED capture " + size + " display " + Screen.PrimaryScreen.Bounds.Size); continue; }
+                form.Bounds = new Rectangle(Point.Empty, size);
+                Pump();
+                var header = Find(workspace, "engineering-header");
+                var visible = header.Controls.Cast<Control>().Where(control => control.Visible).ToArray();
+                Check(visible.All(control => header.ClientRectangle.Contains(control.Bounds)) &&
+                    visible.SelectMany((left, index) => visible.Skip(index + 1).Select(right => !left.Bounds.IntersectsWith(right.Bounds))).All(ok => ok),
+                    "header contained and no overlaps at " + size);
+                foreach (var route in ReferenceWorkspace.ReferencePages)
+                {
+                    var nav = Find(workspace, "nav-" + route);
+                    Press(nav, Keys.Enter);
+                    Pump();
+                    var page = Find(workspace, "page-" + route);
+                    Check(workspace.CurrentPage == route && page.Visible && page.Width > 0 && page.Height > 0, "keyboard route " + route + " at " + size);
+                    string name = Path.Combine(output, size.Width + "x" + size.Height + "-dpi" + Dpi.D(form, 96) + "-" + route + ".png");
+                    using (var image = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
+                    {
+                        using (var graphics = Graphics.FromImage(image))
+                            graphics.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, image.Size);
+                        image.Save(name, ImageFormat.Png);
+                    }
+                }
+            }
+            form.Close();
+        }
+    }
+
+    private static Control Find(Control rootControl, string name) { return rootControl.Controls.Find(name, true).Single(); }
+
+    private static IEnumerable<Control> Descendants(Control rootControl)
+    {
+        return rootControl.Controls.Cast<Control>().SelectMany(child => new[] { child }.Concat(Descendants(child)));
+    }
+
+    private static object Field(object item, string name)
+    {
+        return item.GetType().GetField(name, Private).GetValue(item);
+    }
+
+    private static void Press(Control control, Keys key)
+    {
+        control.GetType().GetMethod("OnKeyDown", Private).Invoke(control, new object[] { new KeyEventArgs(key) });
+    }
+
+    private static void Pump() { Application.DoEvents(); Thread.Sleep(45); Application.DoEvents(); }
+
+    private static void WaitFor(Func<bool> ready, string name, bool ui)
+    {
+        DateTime end = DateTime.UtcNow.AddSeconds(20);
+        while (!ready() && DateTime.UtcNow < end) { if (ui) Pump(); else Thread.Sleep(25); }
+        if (!ready()) throw new TimeoutException(name);
+    }
+
+    private static void ExpectFailure(Action action, string label)
+    {
+        try { action(); }
+        catch (ArgumentException) { Check(true, label); return; }
+        catch (InvalidOperationException) { Check(true, label); return; }
+        catch (IOException) { Check(true, label); return; }
+        catch (UnauthorizedAccessException) { Check(true, label); return; }
+        Check(false, label);
+    }
+
+    private static void Check(bool ok, string label)
+    {
+        if (!ok) throw new InvalidOperationException(label);
+        passed++;
+        Console.WriteLine("PASS " + label);
+    }
+}

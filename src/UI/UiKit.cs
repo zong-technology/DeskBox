@@ -208,7 +208,10 @@ namespace DeskBox.UI
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             Palette = Palette.For("midnight", "#6EE7FF");
+            SetStyle(ControlStyles.Selectable, true);
             Height = 30;
+            TabStop = true;
+            AccessibleRole = AccessibleRole.ComboBox;
             Cursor = Cursors.Hand;
             _cb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Visible = false };
             if (items != null) _cb.Items.AddRange(items);
@@ -238,9 +241,30 @@ namespace DeskBox.UI
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
-            if (e.Button != MouseButtons.Left) return;
+            if (e.Button != MouseButtons.Left || !Enabled) return;
+            Focus();
             ShowMenu();
         }
+
+        protected override bool IsInputKey(Keys keyData)
+        {
+            var key = keyData & Keys.KeyCode;
+            return key == Keys.Enter || key == Keys.Space || key == Keys.Down || key == Keys.Up || base.IsInputKey(keyData);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (Enabled && (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space || e.KeyCode == Keys.Down || e.KeyCode == Keys.Up))
+            {
+                ShowMenu();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+        protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
 
         private void ShowMenu()
         {
@@ -260,7 +284,7 @@ namespace DeskBox.UI
                 item.Click += delegate { SelectedIndex = idx; };
                 menu.Items.Add(item);
             }
-            menu.Closed += delegate { _open = false; Invalidate(); };
+            menu.Closed += delegate { _open = false; Invalidate(); if (IsHandleCreated) BeginInvoke(new Action(menu.Dispose)); };
             _open = true;
             menu.Show(this, new Point(0, Height));
         }
@@ -272,7 +296,7 @@ namespace DeskBox.UI
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             var r = new Rectangle(0, 0, Width - 1, Height - 1);
             Palette.FillRounded(g, _hover || _open ? Palette.Hover : Palette.PanelAlt, r, 8);
-            Palette.DrawRounded(g, _open ? Palette.Accent : Palette.Line, r, 8, 1f);
+            Palette.DrawRounded(g, _open || Focused ? Palette.Accent : Palette.Line, r, 8, 1f);
             TextRenderer.DrawText(g,SelectedText,UiKit.CachedFont("Microsoft YaHei UI",DesignTokens.Caption,FontStyle.Regular),new Rectangle(Dpi.D(this,8),0,Math.Max(1,Width-Dpi.D(this,32)),Height),Palette.Text,TextFormatFlags.VerticalCenter|TextFormatFlags.SingleLine|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix|TextFormatFlags.NoPadding);
             // 下拉箭头
             int cx = Width - 15, cy = Height / 2 - 1;

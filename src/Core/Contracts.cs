@@ -47,16 +47,27 @@ namespace DeskBox.Core
 
         public static void Save<T>(string path, T value)
         {
+            try { SaveAtomic(path, value); }
+            catch (Exception ex) { AppLog.Write("error", "system", "保存失败 " + path + ": " + ex.Message); }
+        }
+
+        internal static void SaveAtomic<T>(string path, T value, bool keepPrevious = false)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                var dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                var tmp = path + ".tmp";
-                File.WriteAllText(tmp, Ser.Serialize(value), new UTF8Encoding(false));
-                if (File.Exists(path)) File.Delete(path);
-                File.Move(tmp, path);
+                var bytes = new UTF8Encoding(false).GetBytes(Ser.Serialize(value));
+                using (var stream = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
+                if (File.Exists(path)) File.Replace(tmp, path, keepPrevious ? path + ".bak" : null);
+                else File.Move(tmp, path);
             }
-            catch (Exception ex) { AppLog.Write("error", "system", "保存失败 " + path + ": " + ex.Message); }
+            finally { if (File.Exists(tmp)) File.Delete(tmp); }
         }
 
         public static void AppendLine<T>(string path, T value)
@@ -127,6 +138,7 @@ namespace DeskBox.Core
         public string PathContains = "";      // 路径片段
         public List<string> Exts = new List<string>();  // 例如 [".xlsx",".csv"]
         public List<string> Roots = new List<string>(); // 限定根目录
+        internal Func<string, bool> PathFilter;
         public long MinSize = 0;
         public long MaxSize = 0;
         public long ModifiedAfter = 0;

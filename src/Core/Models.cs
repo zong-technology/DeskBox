@@ -27,6 +27,8 @@ namespace DeskBox
         public bool ShowSidebar = true;
         public bool NavExpanded = false;
         public bool ReferenceUi = false;
+        public int EngineeringMode;
+        public bool EngineeringNavExpanded;
         public string WallpaperTint = "#0B1220";
         public double TintOpacity = 0.55;
 

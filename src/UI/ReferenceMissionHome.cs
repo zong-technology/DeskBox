@@ -14,8 +14,9 @@ namespace DeskBox.UI
         private void RefreshDashboardCounts()
         {
             if(_homeMetrics==null)return;
-            _homeMetrics[0].Text=_store.Tasks.Count(t=>!t.Done).ToString();
-            _homeMetrics[1].Text=_store.Tasks.Count(t=>!t.Done&&t.Priority=="high").ToString();
+            var scope = _projects.Context;
+            _homeMetrics[0].Text=_store.Tasks.Count(t=>!t.Done&&(scope==null||scope.IncludesTask(t))).ToString();
+            _homeMetrics[1].Text=_store.Tasks.Count(t=>!t.Done&&t.Priority=="high"&&(scope==null||scope.IncludesTask(t))).ToString();
             _homeMetrics[2].Text=_sync.Incidents.Count.ToString();
             _homeMetrics[3].Text=_cloud.Connected?"在线":_cloud.LoggedIn?"连接中":"未连接";
         }
@@ -48,12 +49,13 @@ namespace DeskBox.UI
             var nextCard=Card("WORKSPACE / 项目下一步与常用入口");nextCard.Dock=DockStyle.Fill;var next=TextLabel("",10,false,_p.TextDim);next.Dock=DockStyle.Top;next.Height=62;nextCard.Controls.Add(next);var shortcuts=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true,AutoScroll=true,Padding=new Padding(0,10,0,0)};nextCard.Controls.Add(shortcuts);shortcuts.BringToFront();nextCard.Controls.SetChildIndex(next,1);
             foreach(var entry in new[]{new[]{"AI 文档分析","ai"},new[]{"工程工具","engineering"},new[]{"项目内搜索","search"},new[]{"现场事件","incidents"}}){string id=entry[1];var button=Button(entry[0],()=>{Navigate(id);if(id=="search"){var p=CurrentProject();var search=_serviceViews["search"] as Views.SearchView;if(p!=null&&search!=null)search.SetProjectScope(p.Root,p.Name);}},false,145);button.Height=36;button.Margin=new Padding(0,0,10,10);shortcuts.Controls.Add(button);}
             main.Controls.Add(healthCard,0,0);main.Controls.Add(tasksCard,1,0);main.Controls.Add(documentsCard,0,1);main.Controls.Add(nextCard,1,1);page.Controls.Add(main);page.Controls.Add(metrics);page.Controls.Add(hero);page.Controls.Add(toolbar);
-            bool loading=false;project.SelectedIndexChanged+=delegate{if(loading||project.SelectedIndex<0)return;var values=_projects.Items;if(project.SelectedIndex<values.Count){_selectedProject=values[project.SelectedIndex].Id;_projects.SetCurrent(_selectedProject);}};
-            _reload["home"]=delegate{
+            bool loading=false;project.SelectedIndexChanged+=delegate{if(loading||project.SelectedIndex<0)return;var values=_projects.Items;if(project.SelectedIndex<values.Count){_projects.SetCurrent(values[project.SelectedIndex].Id);}};
+            _reload["mission"]=delegate{
                 loading=true;var values=_projects.Items;project.Inner.Items.Clear();project.Inner.Items.AddRange(values.Select(p=>p.Name).ToArray());var current=CurrentProject();project.SelectedIndex=current==null?-1:values.FindIndex(p=>p.Id==current.Id);loading=false;
                 title.Text=current==null?"连接项目，开始今天的工程工作":current.Name;meta.Text=current==null?"Automation · DCS · Siemens PLC · 制药设备验证":string.Join("   ·   ",new[]{current.Number,current.Kind,current.Owner.Length==0?"负责人未设置":current.Owner,current.Deadline.Length==0?"交付日期未设置":"交付 "+current.Deadline}.Where(part=>!string.IsNullOrWhiteSpace(part)));
                 var step=current==null||current.ValidationSteps==null?null:current.ValidationSteps.FirstOrDefault(s=>s.Percent.HasValue&&s.Percent.Value<100);next.Text=step==null?"选择项目，查看节点与项目资料。":"待推进 · "+step.Name+"  "+step.Percent.Value.ToString("0.#")+"%\r\n"+(string.IsNullOrWhiteSpace(step.Notes)?"点击项目进度可查看完整验证流程。":step.Notes);
-                tasks.SetRows(_store.Tasks.Where(t=>!t.Done).OrderByDescending(t=>t.Priority=="high").ThenBy(t=>t.Due.Length==0?"9999":t.Due).Take(8).Select(t=>new ListRow{Cells=new[]{t.Title,t.Due,t.Priority=="high"?"高":"普通"},Tag=t}).ToList());files.SetRows(_library.Recent.Take(10).Select(f=>new ListRow{Cells=new[]{Path.GetFileName(f.Path),Path.GetDirectoryName(f.Path),TimeText(f.LastOpenAt)},Tag=f.Path}).ToList());RefreshDashboardCounts();health.Invalidate();
+                var scope = _projects.Context;
+                tasks.SetRows(_store.Tasks.Where(t=>!t.Done&&(scope==null||scope.IncludesTask(t))).OrderByDescending(t=>t.Priority=="high").ThenBy(t=>t.Due.Length==0?"9999":t.Due).Take(8).Select(t=>new ListRow{Cells=new[]{t.Title,t.Due,t.Priority=="high"?"高":"普通"},Tag=t}).ToList());files.SetRows(_library.Recent.Where(file=>scope==null||scope.CanAccessPath(file.Path)).Take(10).Select(f=>new ListRow{Cells=new[]{Path.GetFileName(f.Path),Path.GetDirectoryName(f.Path),TimeText(f.LastOpenAt)},Tag=f.Path}).ToList());RefreshDashboardCounts();health.Invalidate();
             };return page;
         }
     }

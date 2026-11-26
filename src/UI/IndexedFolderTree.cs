@@ -13,6 +13,7 @@ namespace DeskBox.UI
         private string[] _roots = new string[0];
         private bool _selecting;
         public event Action<string, string> ScopeSelected;
+        private DeskBox.Engineering.ProjectContext _project;
 
         public IndexedFolderTree(Palette palette)
         {
@@ -30,17 +31,18 @@ namespace DeskBox.UI
             };
         }
 
-        public void RefreshRoots(IEnumerable<string> roots)
+        public void RefreshRoots(IEnumerable<string> roots, DeskBox.Engineering.ProjectContext project = null)
         {
             var next = roots.Where(root => !string.IsNullOrWhiteSpace(root)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            if (Nodes.Count != 0 && next.SequenceEqual(_roots, StringComparer.OrdinalIgnoreCase)) return;
+            if (Nodes.Count != 0 && next.SequenceEqual(_roots, StringComparer.OrdinalIgnoreCase) && (_project == null ? project == null : _project.SameScope(project))) return;
+            _project = project;
             _roots = next;
             _selecting = true;
             BeginUpdate();
             try
             {
                 Nodes.Clear();
-                Nodes.Add(new TreeNode("全部已索引目录") { Tag = "" });
+                if (_project == null) Nodes.Add(new TreeNode("全部已索引目录") { Tag = "" });
                 foreach (var root in _roots) Nodes.Add(Folder(root));
             }
             finally { EndUpdate(); _selecting = false; }
@@ -80,11 +82,13 @@ namespace DeskBox.UI
             node.Nodes[0].Text = "正在读取目录…";
             var path = (string)node.Tag;
             var excludes = FileIndex.Instance.Excludes;
+            var project = _project;
             try
             {
                 var folders = await Task.Run(() => new DirectoryInfo(path).EnumerateDirectories()
                     .Where(dir => (dir.Attributes & FileAttributes.ReparsePoint) == 0 &&
-                        !FileIndex.IsExcluded(dir.FullName, dir.Name, excludes))
+                        !FileIndex.IsExcluded(dir.FullName, dir.Name, excludes) &&
+                        (project == null || project.IncludesPath(dir.FullName)))
                     .Take(401).OrderBy(dir => dir.Name, StringComparer.CurrentCultureIgnoreCase)
                     .Select(dir => dir.FullName).ToArray());
                 if (IsDisposed || node.TreeView != this) return;

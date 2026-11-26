@@ -50,6 +50,7 @@ namespace DeskBox.UI
         private DeskBox.Ai.ChatService _chat;
         private NotificationStore _notifications;
         private DeskBox.Engineering.WorkspaceStore _workspaces;
+        private ProjectContext _projectScope;
         private FolderSession _folderSession;
         private DesktopWatcher _desktopWatcher;
         private ShellFileOperationService _shellFiles;
@@ -541,6 +542,7 @@ namespace DeskBox.UI
             {
                 _workspaces = new DeskBox.Engineering.WorkspaceStore();
                 _workspaces.Changed += OnGlobalContextChanged;
+                _widgets.CurrentProject = () => _projectScope;
             }
             catch (Exception ex) { AppLog.Write("error", "system", "工程工作区初始化失败: " + ex.Message); }
             try
@@ -559,6 +561,7 @@ namespace DeskBox.UI
                 _ops = new DeskBox.Fs.FileOps(_store);
                 _index = DeskBox.Fs.FileIndex.Instance;
                 AutoConfigureIndex();
+                _index.Changed += OnIndexUpdated;
             }
             catch (Exception ex) { AppLog.Write("error", "system", "服务初始化失败: " + ex.Message); }
             try
@@ -593,9 +596,10 @@ namespace DeskBox.UI
                 _chat.Projects=_workspaces;_chat.Sync=_localSync;_chat.Cloud=_cloudSync;_chat.Files=_ops;_chat.Navigate=SwitchView;_chat.TiaRead=ReadTiaContext;
                 _chat.UiInvoke=delegate(Func<DeskBox.Ai.ToolResult> action){if(IsDisposed||_closing)return DeskBox.Ai.ToolResult.Fail("界面已关闭");return InvokeRequired?(DeskBox.Ai.ToolResult)Invoke(action):action();};
                 _chat.RefreshApp=delegate{OnGlobalContextChanged();if(_referenceActive)_reference.RefreshData();else{var view=_views.ContainsKey(_currentView)?_views[_currentView] as DeskBox.UI.Views.ViewBase:null;if(view!=null&&_currentView!="ai")view.Activate();}};
-                _cloudSync.MobileAi=new DeskBox.Ai.MobileAiRunner(_providers,CreateAssistantContext);
+                if (_cloudSync != null) _cloudSync.MobileAi=new DeskBox.Ai.MobileAiRunner(_providers,CreateAssistantContext);
             }
             catch (Exception ex) { AppLog.Write("error", "system", "AI 服务初始化失败: " + ex.Message); }
+            ApplyProjectContext();
             StartReminderLoop();
         }
 
@@ -632,6 +636,12 @@ namespace DeskBox.UI
             EnsureServices();
             _currentView = id;
             if(_referenceActive){_reference.Navigate(id);return;}
+            if (new[] { "dcs", "validation", "project-context" }.Contains(id))
+            {
+                SetReferenceWorkspace(true);
+                _reference.Navigate(id);
+                return;
+            }
 
             if (id == "desktop")
             {
@@ -924,7 +934,7 @@ namespace DeskBox.UI
             _store.Settings.ReferenceUi=enabled;
             _referenceActive=enabled;if(enabled)_currentView=_reference.CurrentPage;
             foreach(Control control in new Control[]{_topbar,_statusbar,_rail,_contentHost,_widgets,_preview})control.Visible=!enabled;
-            if(_reference!=null){_reference.Visible=enabled;if(enabled)_reference.BringToFront();}
+            if(_reference!=null){_reference.Visible=enabled;if(enabled){_reference.BringToFront();_reference.Navigate(_reference.CurrentPage);}}
             if(!enabled){_board.UseReferenceDesktop(null);_desktopShelf.Show();_contentHost.Controls.Add(_desktopHost);_preview.Dock=DockStyle.Right;Controls.Add(_preview);SwitchView("home");}else if(_referenceDesktop!=null)BuildReferenceDesktop();_store.SaveSettingsOnly();
         }
 
@@ -980,12 +990,12 @@ namespace DeskBox.UI
                 lines.Add("PROGRESS  " + ValidationProgress.Display(project));
                 lines.Add("LOGS      " + _store.ReadLogs(100).Count); logs = true;
             }
-            _widgets.SetContext(title, subtitle, lines.ToArray(), tasks, logs);
+            _widgets.SetContext(title, subtitle, lines.ToArray(), tasks, logs && _projectScope == null);
         }
 
         private int ProjectTaskCount(EngineerWorkspace project, bool overdue)
         {
-            return _store.Tasks.Count(x => !x.Done && (project == null || string.IsNullOrEmpty(x.Project) || x.Project == project.Id || string.Equals(x.Project, project.Name, StringComparison.OrdinalIgnoreCase)) && (!overdue || TaskDuePast(x.Due)));
+            return _store.Tasks.Count(x => !x.Done && (_projectScope == null || _projectScope.IncludesTask(x)) && (!overdue || TaskDuePast(x.Due)));
         }
 
         private static bool TaskDuePast(string due) { DateTime value; return !string.IsNullOrEmpty(due) && DateTime.TryParse(due, out value) && value.Date < DateTime.Today; }
@@ -1024,7 +1034,7 @@ namespace DeskBox.UI
                         var workspaceView = new DeskBox.UI.Views.WorkspaceView(_store, _workspaces);
                         workspaceView.SearchRequested += SearchProject;
                         return workspaceView;
-                    case "engineering": return new DeskBox.UI.Views.EngineeringToolkitView(_store);
+                    case "engineering": return new DeskBox.UI.Views.EngineeringToolkitView(_store) { CurrentProject = () => _projectScope };
                     case "tia": return _tiaView = new DeskBox.UI.Views.TiaEngineerView(_store, _providers, _workspaces, delegate
                     {
                         if (_referenceActive && _reference != null)
@@ -1041,7 +1051,7 @@ namespace DeskBox.UI
                             SwitchView("settings");
                             if (_settingsCenter != null) _settingsCenter.ShowAiProviders();
                         }
-                    }, ShowTiaVoice);
+                    }, ShowTiaVoice, _projectScope);
                     case "search": return BuildSearchView();
                     case "library": return BuildLibraryView();
                     case "disk": return BuildDiskView();
@@ -1053,8 +1063,15 @@ namespace DeskBox.UI
                     case "monitor": return BuildMonitorView();
                     case "mobile": return new DeskBox.UI.Views.MobileSyncView(_store, _localSync, _cloudSync);
                     case "clipboard": return BuildClipboardView();
-                    case "tasks": return new DeskBox.UI.Views.TasksView(_store, _notifications);
-                    case "incidents": return new DeskBox.UI.Views.IncidentsView(_store, _localSync, _workspaces);
+                    case "tasks":
+                        var tasks = new TasksView(_store, _notifications);
+                        tasks.SetProjectContext(_projectScope);
+                        return tasks;
+                    case "incidents":
+                        var incidents = new IncidentsView(_store, _localSync, _workspaces);
+                        incidents.SetProjectContext(_projectScope);
+                        return incidents;
+                    case "mcp": return new McpCenterView(_store, () => _projectScope);
                     case "weather": return BuildWeatherView();
                 case "settings": return BuildSettingsCenter();
                 }
@@ -1071,9 +1088,10 @@ namespace DeskBox.UI
         private void SearchProject(EngineerWorkspace project)
         {
             if (project == null || !Directory.Exists(project.Root)) return;
-            var roots = _index.Roots.ToList();
-            if (!roots.Any(x => string.Equals(x, project.Root, StringComparison.OrdinalIgnoreCase))) { roots.Add(project.Root); _index.Configure(roots, _index.Excludes.ToList()); _index.Rebuild(); }
-            SwitchView("search"); _searchView.SetProjectScope(project.Root, project.Name); _searchView.FocusQuery();
+            _workspaces.SetCurrent(project.Id);
+            AddProjectToIndex();
+            SwitchView("search");
+            if (_searchView != null) _searchView.FocusQuery();
         }
         private UserControl BuildSearchView()
         {
@@ -1088,6 +1106,7 @@ namespace DeskBox.UI
             };
             _searchView.EntryActivated += delegate(DeskBox.Core.FileEntry e) { OpenPathExternal(e.Path); };
             _searchView.Searched += delegate(DeskBox.Core.SearchOutcome o) { };
+            _searchView.SetProjectContext(_projectScope);
             return _searchView;
         }
 
@@ -1217,18 +1236,23 @@ namespace DeskBox.UI
             return v;
         }
 
-        private void ShowCommandPalette()
+        internal void ShowCommandPalette()
         {
             var commands = new List<CommandItem>
             {
                 new CommandItem { Icon="◫", Name="工程驾驶舱", Hint="系统、任务、通知与项目总览", Execute=delegate { SwitchView("home"); } },
                 new CommandItem { Icon="▦", Name="智能桌面", Hint="桌面文件、分类与快速启动", Execute=delegate { SwitchView("desktop"); } },
-                new CommandItem { Icon="◆", Name="工程项目舱", Hint="PLC / DCS / CSV 项目根目录", Execute=delegate { SwitchView("projects"); } },
-                new CommandItem { Icon="▣", Name="博图 AI 工程师", Hint="TIA 工程读取、SCL 草稿和副本验证", Execute=delegate { SwitchView("tia"); } },
+                new CommandItem { Icon="◆", Name="项目中心", Hint="PLC / DCS / CSV 项目根目录", Execute=delegate { SwitchView("projects"); } },
+                new CommandItem { Icon="▣", Name="PLC Studio · 博图 AI 工程师", Hint="TIA 工程读取、SCL 草稿和副本验证", Execute=delegate { SwitchView("tia"); } },
+                new CommandItem { Icon="▣", Name="DCS Studio", Hint="浏览项目内 DeltaV 工程导出资料", Execute=delegate { SwitchView("dcs"); } },
+                new CommandItem { Icon="☑", Name="验证中心", Hint="查看阶段、资料与验证模板", Execute=delegate { SwitchView("validation"); } },
+                new CommandItem { Icon="◈", Name="MCP 管理", Hint="本地 TIA 服务策略、连接与作业回执", Execute=delegate { SwitchView("mcp"); } },
+                new CommandItem { Icon="◆", Name="工程上下文", Hint="当前项目目录、阶段与数据权限", Execute=delegate { SwitchView("project-context"); } },
+                new CommandItem { Icon="!", Name="现场工程", Hint="现场事件及处理措施", Execute=delegate { SwitchView("incidents"); } },
                 new CommandItem { Icon="⌁", Name="工程工具矩阵", Hint="4–20mA、Pt100、S7、Modbus、网络与验证", Execute=delegate { SwitchView("engineering"); } },
                 new CommandItem { Icon="◈", Name="AI&SI 工程助手", Hint="PLC、DCS、GAMP 5、故障分析与文档审查", Execute=delegate { SwitchView("ai"); if (_chatView != null) BeginInvoke(new Action(_chatView.FocusInput)); } },
                 new CommandItem { Icon="⚡", Name="自动化工作流", Hint="预演、执行、取消与运行记录", Execute=delegate { SwitchView("automation"); } },
-                new CommandItem { Icon="⌕", Name="全局文件搜索", Hint="索引搜索、预览和筛选", Execute=delegate { SwitchView("search"); } },
+                new CommandItem { Icon="⌕", Name="工程知识库 · 文件搜索", Hint="当前工作范围、索引搜索和预览", Execute=delegate { SwitchView("search"); } },
                 new CommandItem { Icon="☑", Name="任务与验证", Hint="截止、提醒、项目与优先级", Execute=delegate { SwitchView("tasks"); } },
                 new CommandItem { Icon="📈", Name="系统监控", Hint="CPU、内存、磁盘与网络", Execute=delegate { SwitchView("monitor"); } },
                 new CommandItem { Icon="▣", Name="手机联动", Hint="Local Sync、配对码与信任设备", Execute=delegate { SwitchView("mobile"); } },
@@ -1275,11 +1299,11 @@ namespace DeskBox.UI
                 foreach (var workspace in _workspaces.Items.Where(x => (x.Name + " " + x.Customer + " " + x.System + " " + x.Root).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).Take(6))
                 {
                     var selectedWorkspace = workspace;
-                    result.Add(new CommandItem { Icon = "◆", Name = "打开项目 · " + selectedWorkspace.Name, Hint = selectedWorkspace.Kind + " · " + selectedWorkspace.Root, Execute = delegate { if (Directory.Exists(selectedWorkspace.Root)) { _workspaces.Touch(selectedWorkspace.Id); _folderSession.Navigate(selectedWorkspace.Root); SwitchView("desktop"); } } });
+                    result.Add(new CommandItem { Icon = "◆", Name = "打开项目 · " + selectedWorkspace.Name, Hint = selectedWorkspace.Kind + " · " + selectedWorkspace.Root, Execute = delegate { if (Directory.Exists(selectedWorkspace.Root)) { _workspaces.SetCurrent(selectedWorkspace.Id); _workspaces.Touch(selectedWorkspace.Id); _folderSession.Navigate(selectedWorkspace.Root); SwitchView("desktop"); } } });
                 }
             }
 
-            foreach (var task in _store.Tasks.Where(x => (x.Title + " " + x.Project + " " + x.Notes).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).Take(6))
+            foreach (var task in _store.Tasks.Where(x => (_projectScope == null || _projectScope.IncludesTask(x)) && (x.Title + " " + x.Project + " " + x.Notes).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).Take(6))
             {
                 var selectedTask = task;
                 result.Add(new CommandItem { Icon = "☑", Name = (selectedTask.Done ? "已完成 · " : "任务 · ") + selectedTask.Title, Hint = (selectedTask.Priority ?? "normal") + (string.IsNullOrEmpty(selectedTask.Due) ? "" : " · 截止 " + selectedTask.Due), Execute = delegate { SwitchView("tasks"); } });
@@ -1295,11 +1319,13 @@ namespace DeskBox.UI
                 var searchText = q.Replace("打开", " ").Replace("查找", " ").Replace("搜索", " ").Replace("最新", " ").Trim();
                 var search = NlQuery.Parse(searchText);
                 search.Limit = 12;
+                if (_projectScope != null) search.PathFilter = _projectScope.IncludesPath;
                 if (q.Contains("最新")) { search.SortBy = "mtime"; search.SortDesc = true; }
                 var outcome = _index.Search(search);
                 foreach (var hit in outcome.Hits.Take(12))
                 {
                     var entry = hit.Entry;
+                    if (_projectScope != null && !_projectScope.CanAccessPath(entry.Path)) continue;
                     result.Add(new CommandItem { Icon = entry.IsDir ? "📁" : "⌕", Name = "文件 · " + entry.Name, Hint = entry.Path + " · " + entry.SizeText, Execute = delegate { if (entry.IsDir) { _folderSession.Navigate(entry.Path); SwitchView("desktop"); } else OpenPathExternal(entry.Path); } });
                 }
             }
@@ -1315,8 +1341,16 @@ namespace DeskBox.UI
         {
             var title = Prompt.Input(this, "创建工程任务", "任务标题", command.Replace("创建", "").Trim(), Palette);
             if (string.IsNullOrWhiteSpace(title)) return;
-            var task = new TaskItem { Id = "t_" + Guid.NewGuid().ToString("N").Substring(0, 10), Title = title.Trim(), Priority = "high", CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
-            _store.Tasks.Add(task); _store.SaveTasksOnly(); _store.Log("info", "task", "Command Center 创建任务：" + task.Title);
+            var task = new TaskItem { Id = "t_" + Guid.NewGuid().ToString("N").Substring(0, 10), Title = title.Trim(), Priority = "high", Project = _projectScope == null ? "" : _projectScope.Id, CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+            _store.Tasks.Add(task);
+            try { _store.SaveTasksOnly(); }
+            catch (Exception error)
+            {
+                _store.Tasks.Remove(task);
+                MessageBox.Show(this, "保存任务失败：" + error.Message, "DeskBox", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            _store.Log("info", "task", "Command Center 创建任务：" + task.Title);
             SwitchView("tasks");
         }
 
@@ -1445,8 +1479,75 @@ namespace DeskBox.UI
         {
             if (_closing || IsDisposed) return;
             if (InvokeRequired) { try { BeginInvoke(new Action(OnGlobalContextChanged)); } catch { } return; }
+            ApplyProjectContext();
             UpdateGlobalControls();
             if (_widgets != null && _widgets.Visible) UpdateContextPanel(_currentView);
+        }
+
+        private void ApplyProjectContext()
+        {
+            var next = _workspaces == null ? null : _workspaces.Context;
+            var previous = _projectScope;
+            bool changed = _projectScope == null ? next != null : !_projectScope.SameScope(next);
+            _projectScope = next;
+            if (_chat != null) _chat.SetProjectContext(next);
+            if (!changed) return;
+            AddProjectToIndex();
+            if (previous != null && next != null && _folderSession != null && previous.IncludesPath(CurrentFolder()) &&
+                next.CanAccessPath(next.Root) && Directory.Exists(next.Root)) _folderSession.Navigate(next.Root);
+            if (_liveVoice != null) EndVoiceForProjectSwitch(_liveVoice);
+            if (_searchView != null && !_searchView.IsDisposed) _searchView.SetProjectContext(next);
+            if (_preview != null) _preview.ClosePreview();
+            foreach (var view in _views.Values)
+            {
+                var tasks = view as TasksView;
+                if (tasks != null) tasks.SetProjectContext(next);
+                var incidents = view as IncidentsView;
+                if (incidents != null) incidents.SetProjectContext(next);
+                var mcp = view as McpCenterView;
+                if (mcp != null) mcp.ProjectChanged();
+            }
+            // The reference shell also owns cached task, event and PLC views.
+            bool reopen = _reference != null && _reference.InvalidateProjectTia();
+            UserControl classicTia;
+            if (_views.TryGetValue("tia", out classicTia))
+            {
+                _views.Remove("tia");
+                classicTia.Dispose();
+                reopen |= !_referenceActive && _currentView == "tia";
+            }
+            _tiaView = null;
+            if (_reference != null) _reference.SetProjectContext(next);
+            if (reopen) SwitchView("tia");
+        }
+
+        private void AddProjectToIndex()
+        {
+            var project = _projectScope;
+            if (_index == null || project == null || !project.CanAccessPath(project.Root) || !Directory.Exists(project.Root)) return;
+            var roots = _index.Roots;
+            if (roots.Any(root => string.Equals(root, project.Root, StringComparison.OrdinalIgnoreCase))) return;
+            roots.Add(project.Root);
+            _index.Configure(roots, _index.Excludes);
+            _index.Rebuild();
+        }
+
+        private void OnIndexUpdated()
+        {
+            if (_closing || IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { try { BeginInvoke(new Action(OnIndexUpdated)); } catch (InvalidOperationException) { } return; }
+            if (_referenceActive && _reference != null &&
+                (_reference.CurrentPage == "home" || _reference.CurrentPage == "dcs")) _reference.RefreshCurrentPage();
+        }
+
+        private async void EndVoiceForProjectSwitch(HolographicCallView voice)
+        {
+            voice.CancelForShutdown();
+            var window = _tiaVoiceWindow;
+            if (window != null) { window.Close(); return; }
+            try { await voice.StopAsync(); }
+            catch (Exception error) { AppLog.Write("warn", "ai", "项目切换时结束语音失败：" + error.Message); }
+            if (!voice.IsDisposed) voice.Dispose();
         }
 
         private void UpdateGlobalControls()
@@ -1621,15 +1722,16 @@ namespace DeskBox.UI
 
         private void AskAiForPaths(IEnumerable<string> paths)
         {
-            var selectedPaths = (paths ?? Enumerable.Empty<string>()).ToArray();
+            var selectedPaths = (paths ?? Enumerable.Empty<string>()).Where(path => File.Exists(path) || Directory.Exists(path)).ToArray();
+            if (_projectScope != null && selectedPaths.Any(path => !_projectScope.CanAccessPath(path)))
+            {
+                MessageBox.Show(this, "所选资料位于当前工程目录之外。请切换项目后再选择附件。", "DeskBox");
+                return;
+            }
             var lines = string.Join("\r\n", selectedPaths.Select(x => "- " + x).ToArray());
             if (string.IsNullOrWhiteSpace(lines)) return;
             SwitchView("ai");
-            if (_chat != null) foreach (var path in selectedPaths)
-            {
-                if (File.Exists(path) && !_chat.AllowedFiles.Contains(path, StringComparer.OrdinalIgnoreCase)) _chat.AllowedFiles.Add(path);
-                if (Directory.Exists(path) && !_chat.AllowedRoots.Contains(path, StringComparer.OrdinalIgnoreCase)) _chat.AllowedRoots.Add(path);
-            }
+            if (_chat != null) foreach (var path in selectedPaths) _chat.AttachPath(path);
             if (_chatView != null)
                 _chatView.SetPrompt("请使用 doc.read 读取以下已选工程文档的真实正文；若为目录，先用 fs.search 找到文档。根据实际内容分析，引用页码、段落或工作表/行，不能只按文件名推断。内容未读完时明确说明：\r\n" + lines);
         }
@@ -2040,6 +2142,7 @@ namespace DeskBox.UI
             try { if (_board != null) _board.Thumbnails = null; } catch { }
             try { if (_thumbnails != null) { _thumbnails.Dispose(); _thumbnails = null; } } catch { }
             if (_folderSession != null) _folderSession.Changed -= OnFolderLocationChanged;
+            if (_index != null) _index.Changed -= OnIndexUpdated;
             if (_notifications != null) { _notifications.Published -= OnNotificationPublished; _notifications.Changed -= OnGlobalContextChanged; }
             if (_workspaces != null) _workspaces.Changed -= OnGlobalContextChanged;
             if (_toolTip != null) { _toolTip.Dispose(); _toolTip = null; }
@@ -2065,11 +2168,11 @@ namespace DeskBox.UI
         private DeskBox.Ai.ToolContext CreateAssistantContext()
         {
             var context=new DeskBox.Ai.ToolContext{Store=_store,Projects=_workspaces,Sync=_localSync,Cloud=_cloudSync,Workflows=_workflows,Files=_ops,
-                Ai=DeskBox.Ai.AiService.Instance,AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList(),
+                Ai=DeskBox.Ai.AiService.Instance,AllowedFiles=new List<string>(),
                 AllowedRoots=TrustedRoots.Load(),FileAccessEnabled=()=>_store.Settings.AiFileAccess,
                 UiInvoke=_chat==null?null:_chat.UiInvoke,Navigate=SwitchView,RefreshApp=_chat==null?null:_chat.RefreshApp,
                 Confirm=detail=>ToolConfirm.Ask(this,"助手操作",detail,Palette)};
-            context.RefreshAuthorization=delegate{context.AllowedRoots=TrustedRoots.Load();context.AllowedFiles=_chat==null?new List<string>():_chat.AllowedFiles.ToList();};
+            context.RefreshAuthorization=delegate{context.AllowedRoots=TrustedRoots.Load();};
             return context;
         }
 
@@ -2082,7 +2185,21 @@ namespace DeskBox.UI
         private DeskBox.Ai.ToolContext CreateVoiceAssistantContext()
         {
             var context = CreateAssistantContext();
-            context.TiaRead = ReadTiaContext;
+            var project = _projectScope;
+            context.Project = project;
+            var tia = _tiaView;
+            context.TiaRead = name =>
+            {
+                if (tia == null || tia.IsDisposed) throw new InvalidOperationException("请先打开本项目的 PLC Studio。");
+                return tia.ReadForVoice(name);
+            };
+            if (_chat != null) context.RefreshAuthorization = delegate
+            {
+                if (project == null ? _projectScope != null : !project.SameScope(_projectScope))
+                    throw new OperationCanceledException("项目权限已变化");
+                context.AllowedRoots = TrustedRoots.Load();
+                context.AllowedFiles = _chat.AllowedFiles.ToList();
+            };
             return context;
         }
 
@@ -2093,7 +2210,9 @@ namespace DeskBox.UI
                 if (_tiaVoiceWindow != null) _tiaVoiceWindow.Activate();
                 return;
             }
-            var voice = new HolographicCallView(new DeskBox.Ai.RealtimeVoiceSettingsStore().Load(),_chat,CreateVoiceAssistantContext);
+            var profile = new RealtimeVoiceSettingsStore().Load();
+            if (!CanStartProjectVoice(profile)) return;
+            var voice = new HolographicCallView(profile,_chat,CreateVoiceAssistantContext);
             _liveVoice = voice;
             if (_reference != null) _reference.Hide();
             voice.ExitRequested += async delegate {
@@ -2118,12 +2237,23 @@ namespace DeskBox.UI
             BeginInvoke(new Action(voice.Start));
         }
 
+        private bool CanStartProjectVoice(RealtimeVoiceSettings profile)
+        {
+            Uri endpoint;
+            if (_projectScope == null || _projectScope.AllowExternalAi ||
+                (string.Equals(profile.Provider, "qwen", StringComparison.OrdinalIgnoreCase) &&
+                Uri.TryCreate(profile.Endpoint, UriKind.Absolute, out endpoint) && AiEnvironment.Loopback(endpoint))) return true;
+            MessageBox.Show(this, "当前项目只允许本机模型。请核对语音服务与工程上下文权限。", "DeskBox");
+            return false;
+        }
+
         private void ShowTiaVoice()
         {
             if (_tiaVoiceWindow != null) { _tiaVoiceWindow.Activate(); return; }
             if (_liveVoice != null) return;
             var profile = new DeskBox.Ai.RealtimeVoiceSettingsStore().Load();
             profile.TiaOnly = true;
+            if (!CanStartProjectVoice(profile)) return;
             var voice = new HolographicCallView(profile, _chat, CreateVoiceAssistantContext);
             var area = Screen.FromControl(this).WorkingArea;
             var window = new Form

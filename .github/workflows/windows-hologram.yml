@@ -103,6 +103,24 @@ jobs:
             & .\dist\mobile-ai-accept.exe | Tee-Object dist\hologram-qa\mobile-ai-accept.log
             if ($LASTEXITCODE -ne 0) { throw 'Text AI operation checks failed' }
           } finally { if (-not $mock.HasExited) { Stop-Process -Id $mock.Id -Force } }
+      - name: Verify Engineering OS project isolation and capture native WinForms routes
+        timeout-minutes: 5
+        shell: powershell
+        run: |
+          .\tools\prepare-ci-display.ps1
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\v5-context-accept.exe tools\v5-context-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Engineering OS acceptance compile failed' }
+          New-Item -ItemType Directory -Force dist\v5-qa | Out-Null
+          & .\dist\v5-context-accept.exe .\dist\v5-qa | Tee-Object dist\v5-qa\context-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Engineering OS project context or UI acceptance failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBox-V5-Engineering-UI
+          path: dist/v5-qa/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Assemble the native animated preview
         shell: powershell
         run: .\tools\render-hologram-preview.ps1

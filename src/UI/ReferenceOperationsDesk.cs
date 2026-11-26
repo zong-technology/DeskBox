@@ -13,14 +13,10 @@ namespace DeskBox.UI
         private Control BuildOperationsDesk()
         {
             var page = Page("工程工作区", "当前项目的工程上下文、设备资料与常用操作");
-            var overview = Button("项目总览", () => { }, false, 116);
+            var overview = Button("项目总览", () => Navigate("home"), false, 116);
             SetSampleHeading(page, "OPERATIONS DESK", "进入工具矩阵", () => Navigate("engineering"), overview);
 
             var host = new Panel { Dock = DockStyle.Fill };
-            var dashboard = BuildMissionHome();
-            var refreshDashboard = _reload["home"];
-            dashboard.Dock = DockStyle.Fill;
-            dashboard.Visible = false;
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 19.3f));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 57.3f));
@@ -117,23 +113,13 @@ namespace DeskBox.UI
             grid.Controls.Add(launch, 0, 0);
             grid.Controls.Add(matrix, 1, 0);
             grid.Controls.Add(status, 2, 0);
-            host.Controls.Add(dashboard);
             host.Controls.Add(grid);
-            overview.Click += delegate
+            _reload["operations"] = delegate
             {
-                bool showOverview = grid.Visible;
-                grid.Visible = !showOverview;
-                dashboard.Visible = showOverview;
-                overview.Text = showOverview ? "返回工程工作区" : "项目总览";
-                if (showOverview) refreshDashboard();
-            };
-
-            _reload["home"] = delegate
-            {
-                if (dashboard.Visible) refreshDashboard();
                 var project = CurrentProject();
                 projectHint.Text = project == null ? "当前项目 · 未选择" : "当前项目 · " + project.Name;
-                int tasks = _store.Tasks.Count(t => !t.Done && (project == null || t.Project == project.Id));
+                var scope = _projects.Context;
+                int tasks = _store.Tasks.Count(t => !t.Done && (scope == null || scope.IncludesTask(t)));
                 int incidents = _sync.Incidents.Count(item => item.Status != "closed" && (project == null || item.ProjectId == project.Id));
                 facts.SetRows(new List<ListRow> {
                     OperationFact("当前项目", project == null ? "未选择项目" : project.Name, "projects"),

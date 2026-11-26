@@ -18,6 +18,9 @@ namespace DeskBox.Engineering.Tia
         public string Operation = "inspect", ProjectFile = "", Cpu = "", Block = "", ApprovedHash = "", CatalogQuery = "", ProjectId = "", ExpectedSource = "";
         public string Source = "", BlockKind = "FB";
         public bool ReadBlockContent;
+        public bool ProbeOnly;
+        public string ScopeRoot = "";
+        public string[] ScopeExclusions = new string[0];
         public int PortalProcessId;
     }
 
@@ -48,12 +51,27 @@ namespace DeskBox.Engineering.Tia
         private const string SnapshotFolder = "snapshot", CopyFolder = "work";
         private static readonly Encoding Utf8 = new UTF8Encoding(false);
 
-        public static TiaResult Run(TiaJob job, CancellationToken token)
+        public static TiaResult Run(TiaJob job, CancellationToken token, ProjectContext project = null)
         {
             ValidateJob(job);
             token.ThrowIfCancellationRequested();
+            TiaMcpPolicy.Load().Require(job.Operation);
+            if (project != null)
+            {
+                if (job.ProjectId != project.Id) throw new InvalidOperationException("TIA 作业项目与当前工程不一致。");
+                if (job.ProjectFile.Length != 0)
+                {
+                    bool copy = IsScopedCopy(job.ProjectFile, project);
+                    if (!copy && !project.CanAccessPath(job.ProjectFile))
+                        throw new InvalidOperationException("TIA 工程位于当前项目范围之外。");
+                    if (!copy && NeedsCopy(job.Operation) && project.NestedRoots.Any(path => ProjectContext.Under(path, Path.GetDirectoryName(job.ProjectFile))))
+                        throw new InvalidOperationException("离线副本的源目录包含其他项目。请选择独立的 TIA 工程目录。");
+                }
+                job.ScopeRoot = project.Root;
+                job.ScopeExclusions = project.NestedRoots;
+            }
             if (NeedsCopy(job.Operation)) RequireV20();
-            var root = PlcEngineering.FullLocalPath(Path.Combine(AppPaths.DataDir, "tia-jobs"));
+            var root = JobRoot(project);
             string id = Guid.NewGuid().ToString("N");
             var dir = Path.Combine(root, id);
             Directory.CreateDirectory(dir);
@@ -94,6 +112,33 @@ namespace DeskBox.Engineering.Tia
                     throw new IOException(ex.Message + Environment.NewLine + "恢复回执 · " + checkpoint, ex);
                 throw;
             }
+        }
+
+        internal static string JobRoot(ProjectContext project)
+        {
+            return PlcEngineering.FullLocalPath(Path.Combine(project == null ? AppPaths.DataDir : project.TiaDataRoot, "tia-jobs"));
+        }
+
+        private static bool IsScopedCopy(string path, ProjectContext project)
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (string.IsNullOrEmpty(directory)) return false;
+            var folder = Path.GetFileName(directory);
+            return (folder == CopyFolder || folder.StartsWith("restored-", StringComparison.Ordinal)) &&
+                IsJobDirectory(Path.GetDirectoryName(directory), project);
+        }
+
+        internal static string ProbeMcp(ProjectContext project, CancellationToken token)
+        {
+            TiaMcpPolicy.Load().Require("discover");
+            var root = JobRoot(project);
+            string id = Guid.NewGuid().ToString("N");
+            var directory = Path.Combine(root, id);
+            Directory.CreateDirectory(directory);
+            var job = new TiaJob { Operation = "discover", ProbeOnly = true, ProjectId = project == null ? "" : project.Id };
+            Json.SaveAtomic(Path.Combine(directory, RequestFile), job);
+            TiaMcp.Run(root, id, job, token);
+            return Path.Combine(directory, "mcp-audit.jsonl");
         }
 
         internal static int RunMcpServer(string id, string dataRoot)
@@ -230,11 +275,11 @@ namespace DeskBox.Engineering.Tia
             }
         }
 
-        public static TiaResult ReadRecoveryReceipt(string path)
+        public static TiaResult ReadRecoveryReceipt(string path, ProjectContext project = null)
         {
             var receipt = PlcEngineering.FullLocalPath(path);
             var directory = Path.GetDirectoryName(receipt);
-            if (!new[] { ResponseFile, WriteCheckpoint }.Contains(Path.GetFileName(receipt), StringComparer.OrdinalIgnoreCase) || !IsJobDirectory(directory))
+            if (!new[] { ResponseFile, WriteCheckpoint }.Contains(Path.GetFileName(receipt), StringComparer.OrdinalIgnoreCase) || !IsJobDirectory(directory, project))
                 throw new InvalidOperationException("请选择当前资料目录中 TIA 作业的 result.json 或 write-started.json。");
             var requestPath = PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile));
             var storedResult = new FileInfo(receipt);
@@ -254,22 +299,22 @@ namespace DeskBox.Engineering.Tia
 
         private static bool CanRestore(TiaResult job) { return job != null && (job.WriteStarted || job.Saved && job.Compiled && job.Error == ""); }
 
-        private static bool IsJobDirectory(string directory)
+        private static bool IsJobDirectory(string directory, ProjectContext project)
         {
-            var root = PlcEngineering.FullLocalPath(Path.Combine(AppPaths.DataDir, "tia-jobs"));
+            var root = JobRoot(project);
             Guid id;
             return !string.IsNullOrEmpty(directory) && Guid.TryParseExact(Path.GetFileName(directory), "N", out id) &&
                 string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase);
         }
 
-        public static string RestoreSnapshot(TiaResult job, CancellationToken token)
+        public static string RestoreSnapshot(TiaResult job, CancellationToken token, ProjectContext projectContext = null)
         {
             if (!CanRestore(job) || string.IsNullOrWhiteSpace(job.Copy) || string.IsNullOrWhiteSpace(job.SourceHash))
                 throw new InvalidOperationException("找不到可恢复的 TIA 作业快照。");
             var copy = PlcEngineering.FullLocalPath(job.Copy);
             var work = Path.GetDirectoryName(copy);
             var directory = work == null ? null : Path.GetDirectoryName(work);
-            if (!IsJobDirectory(directory) || Path.GetFileName(work) != CopyFolder ||
+            if (!IsJobDirectory(directory, projectContext) || Path.GetFileName(work) != CopyFolder ||
                 !string.Equals(Path.GetExtension(copy), ".ap20", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("只能恢复当前资料目录中已记录的 TIA 工程作业。");
             var snapshot = PlcEngineering.FullLocalPath(Path.Combine(directory, SnapshotFolder));
@@ -452,7 +497,7 @@ namespace DeskBox.Engineering.Tia
                 return method.Invoke(null, args);
             }
 
-            private void Discover(TiaResult result)
+            private void Discover(TiaResult result, TiaJob job)
             {
                 result.OpennessStage = "枚举正在运行的 TIA 实例";
                 var processes = CallPortal("GetProcesses", System.Type.EmptyTypes);
@@ -475,13 +520,15 @@ namespace DeskBox.Engineering.Tia
                         pid = Convert.ToInt32(Prop(process, "Id", false) ?? Prop(process, "ID"));
                         if (pid <= 0) throw new InvalidDataException("TIA 实例未提供有效 PID。");
                         var path = ProjectPath(process);
-                        if (string.Equals(Path.GetExtension(path), ".ap20", StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(Path.GetExtension(path), ".ap20", StringComparison.OrdinalIgnoreCase) &&
+                            (string.IsNullOrEmpty(job.ScopeRoot) || (ProjectContext.Under(path, job.ScopeRoot) &&
+                                !(job.ScopeExclusions ?? new string[0]).Any(root => ProjectContext.Under(path, root)))))
                             result.OpenProjects.Add(new TiaOpenProject { ProcessId = pid, Path = path, Name = Path.GetFileNameWithoutExtension(path) });
                         readProcess = true;
                     }
                     catch (TargetInvocationException error)
                     {
-                        unavailable.Add((pid == 0 ? "TIA 实例" : "PID " + pid) + " · " + (error.InnerException ?? error).Message);
+                        unavailable.Add((pid == 0 ? "TIA 实例" : "PID " + pid) + " · " + (string.IsNullOrEmpty(job.ScopeRoot) ? (error.InnerException ?? error).Message : "无法读取项目路径。"));
                     }
                     catch (InvalidDataException error)
                     {
@@ -529,7 +576,7 @@ namespace DeskBox.Engineering.Tia
 
             public void Execute(TiaJob job, string file, string directory, TiaResult result)
             {
-                if (job.Operation == "discover") { Discover(result); return; }
+                if (job.Operation == "discover") { Discover(result, job); return; }
                 if (job.Operation == "read-open") { ReadOpen(job, directory, result); return; }
                 if (job.Operation == "catalog")
                 {

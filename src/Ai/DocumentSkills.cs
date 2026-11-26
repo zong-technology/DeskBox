@@ -93,6 +93,9 @@ namespace DeskBox.Ai
             if(operation=="edit"&&(context.Confirm==null||!context.Confirm("AI将定点改写并备份原文件：\r\n"+path)))return ToolResult.Fail("文档改写未获确认");
             if(!ToolRegistry.IsAllowed(context,path,out error))return ToolResult.Fail(error);
             var request = new Dictionary<string, string>(args); request["op"] = operation;
+            request.Remove("excluded_roots");
+            if (operation == "search" && context.Project != null)
+                request["excluded_roots"] = Json.ToJson(context.Project.NestedRoots);
             if(operation=="edit")request["backup_dir"]=Path.Combine(AppPaths.BackupDir,"ai-edits");
             var result = Run(request, context.Cancellation);
             if (!result.Ok) return ToolResult.Fail(result.Error);

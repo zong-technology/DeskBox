@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -586,7 +586,7 @@ namespace DeskBox.Ai
             http.ReadWriteTimeout = timeout;
             http.KeepAlive = false;
             http.AllowAutoRedirect = false;
-            if(AiEnvironment.Local)http.Proxy=null;
+            if (AiEnvironment.Local || AiEnvironment.Loopback(http.RequestUri)) http.Proxy = null;
             ApplyHeaders(http);
             return http;
         }

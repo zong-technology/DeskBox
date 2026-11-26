@@ -11,6 +11,7 @@ namespace DeskBox.Ai
     public class ToolContext
     {
         public Store Store;
+        public ProjectContext Project;
         public List<string> AllowedRoots = new List<string>();
         public List<string> AllowedFiles = new List<string>();
         public System.Threading.CancellationToken Cancellation;
@@ -81,18 +82,27 @@ namespace DeskBox.Ai
             _tools.Add(new DocumentTool("edit"));
         }
 
-        public List<IAiTool> Tools { get { return _tools.Where(t=>AiEnvironment.ToolAllowed(t.Name)).ToList(); } }
+        public List<IAiTool> Tools { get { return ToolsForProject(null); } }
+        internal List<IAiTool> ToolsForProject(ProjectContext project)
+        {
+            return _tools.Where(tool => AiEnvironment.ToolAllowed(tool.Name) && ProjectAllowsTool(tool.Name, project)).ToList();
+        }
 
         public IAiTool Get(string name)
         {
             return _tools.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
         }
 
-        public string DescribeForPrompt()
+        private static bool ProjectAllowsTool(string name, ProjectContext project)
+        {
+            return project == null || !new[] { "workflow.run", "workflow.list", "web.read" }.Contains(name, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public string DescribeForPrompt(ProjectContext project = null)
         {
             var sb = new StringBuilder();
             sb.AppendLine("可用工具（需要时输出 ```tool 块，内容为 JSON：{\"name\":\"工具名\",\"args\":{...}}）：");
-            foreach (var t in _tools.Where(t=>AiEnvironment.ToolAllowed(t.Name))) sb.AppendLine("- " + t.Name + "：" + t.Description);
+            foreach (var t in ToolsForProject(project)) sb.AppendLine("- " + t.Name + "：" + t.Description);
             return sb.ToString();
         }
 
@@ -100,10 +110,12 @@ namespace DeskBox.Ai
         {
             var tool = Get(name);
             if (tool == null) return ToolResult.Fail("未注册的工具：" + name);
-            if(!AiEnvironment.ToolAllowed(name))return ToolResult.Fail("本地隔离环境未开放可能联网或启动外部程序的工作流。");
+            if(!AiEnvironment.ToolAllowed(tool.Name))return ToolResult.Fail("本地隔离环境未开放可能联网或启动外部程序的工作流。");
             try
             {
                 ctx=ctx??new ToolContext();args=args??new Dictionary<string,string>();
+                if (ctx.Cancellation.IsCancellationRequested) return ToolResult.Fail("操作已取消");
+                if (!ProjectAllowsTool(tool.Name, ctx.Project)) return ToolResult.Fail("当前项目未授权全局工作流或外部网页工具。");
                 if(ctx.UiInvoke!=null&&(tool is ApplicationTool||tool is CreateTaskTool))return ctx.UiInvoke(()=>tool.Invoke(ctx,args));
                 return tool.Invoke(ctx,args);
             }
@@ -124,6 +136,11 @@ namespace DeskBox.Ai
                 if (ctx != null && ctx.Cancellation.IsCancellationRequested) { error = "文件任务已取消或授权发生变化"; return false; }
                 if (ctx != null && ctx.FileAccessEnabled != null && !ctx.FileAccessEnabled()) { error = "AI 文件访问已关闭，请在设置 → 文件与隐私中启用"; return false; }
                 var full = Path.GetFullPath(path);
+                if (ctx != null && ctx.Project != null && !ctx.Project.CanAccessPath(full))
+                {
+                    error = "路径超出当前工程资料边界";
+                    return false;
+                }
                 AiEnvironment.RequireLocalPath(full);
                 var component = full;
                 while (!string.IsNullOrEmpty(component))
@@ -140,9 +157,7 @@ namespace DeskBox.Ai
                 foreach (var root in ctx.AllowedRoots)
                 {
                     if (string.IsNullOrWhiteSpace(root)) continue;
-                    var r = Path.GetFullPath(root).TrimEnd('\\') + "\\";
-                    if ((full + "\\").StartsWith(r, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(full.TrimEnd('\\'), r.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    if (ProjectContext.Under(full, root))
                         return true;
                 }
                 error = "路径不在授权目录内：" + full;
@@ -291,6 +306,7 @@ namespace DeskBox.Ai
                 a.TryGetValue("title", out title); a.TryGetValue("due", out due); a.TryGetValue("priority", out prio);
                 if (string.IsNullOrWhiteSpace(title)) return ToolResult.Fail("缺少 title");
                 string project,notes,owner;a.TryGetValue("project_id",out project);a.TryGetValue("notes",out notes);a.TryGetValue("owner",out owner);
+                if (ctx.Project != null && string.IsNullOrEmpty(project)) project = ctx.Project.Id;
                 if(!ApplicationTool.ValidProject(ctx,project))return ToolResult.Fail("项目ID无效，请先project.list确定项目");
                 DateTime date;
                 if(!string.IsNullOrEmpty(due)&&!DateTime.TryParseExact(due,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out date))return ToolResult.Fail("日期需要yyyy-MM-dd");

@@ -19,6 +19,13 @@ namespace DeskBox.Engineering
         public string Plc = "";
         public string Dcs = "";
         public string Hmi = "";
+        public string Stage = "";
+        public string PlcPath = "";
+        public string DcsPath = "";
+        public string ValidationPath = "";
+        public string EngineeringVersion = "";
+        public string CurrentTaskId = "";
+        public bool AllowExternalAi;
         public string Protocol = "";
         public string Owner = "";
         public string Start = "";
@@ -55,31 +62,123 @@ namespace DeskBox.Engineering
 
         public WorkspaceStore()
         {
-            _items = Json.Load(FilePath, new List<EngineerWorkspace>()) ?? new List<EngineerWorkspace>();
+            _items = ReadWithBackup(FilePath, new List<EngineerWorkspace>());
             _items = _items.Where(x => x != null && !string.IsNullOrWhiteSpace(x.Root)).ToList();
             foreach (var item in _items) Normalize(item);
-            _state = Json.Load(StateFile, new CurrentProjectState()) ?? new CurrentProjectState();
+            _state = ReadWithBackup(StateFile, new CurrentProjectState());
         }
 
         public List<EngineerWorkspace> Items { get { lock (_lock) return _items.OrderByDescending(x => x.Pinned).ThenByDescending(x => x.LastOpenedAt).ToList(); } }
-        public EngineerWorkspace Current { get { lock (_lock) { var x = _items.FirstOrDefault(i => i.Id == _state.CurrentId); return x ?? _items.OrderByDescending(i => i.Pinned).ThenByDescending(i => i.LastOpenedAt).FirstOrDefault(); } } }
+        public EngineerWorkspace Current { get { lock (_lock) return FindCurrent(); } }
+        public ProjectContext Context { get { lock (_lock) { var current = FindCurrent(); return current == null ? null : new ProjectContext(current, _items); } } }
+
+        private EngineerWorkspace FindCurrent()
+        {
+            if (_state.Unbound) return null;
+            return _items.FirstOrDefault(item => item.Id == _state.CurrentId)
+                ?? _items.OrderByDescending(item => item.Pinned).ThenByDescending(item => item.LastOpenedAt).FirstOrDefault();
+        }
+
+        private static T ReadWithBackup<T>(string path, T fallback) where T : class
+        {
+            var saved = Json.Load<T>(path, null);
+            if (saved != null) return saved;
+            var previous = Json.Load<T>(path + ".bak", null);
+            if (File.Exists(path))
+            {
+                AppLog.Write("warn", "project", "工程配置无法读取：" + Path.GetFileName(path) +
+                    (previous == null ? " · 无可用备份" : " · 已读取上一版"));
+                try
+                {
+                    // Keep the damaged copy before the next successful write replaces it.
+                    File.Move(path, path + ".bad-" + Guid.NewGuid().ToString("N"));
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            return previous ?? fallback;
+        }
 
         public EngineerWorkspace Add(string name, string root, string kind)
         {
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) throw new DirectoryNotFoundException("工作区目录不存在：" + root);
             var full = Path.GetFullPath(root);
+            EngineerWorkspace item;
             lock (_lock)
             {
                 var existing = _items.FirstOrDefault(x => string.Equals(Path.GetFullPath(x.Root), full, StringComparison.OrdinalIgnoreCase));
                 if (existing != null) return existing;
-                var item = new EngineerWorkspace { Id = "ws_" + Guid.NewGuid().ToString("N").Substring(0, 10), Name = string.IsNullOrWhiteSpace(name) ? Path.GetFileName(full) : name.Trim(), Root = full, Kind = string.IsNullOrWhiteSpace(kind) ? "PLC" : kind, CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+                item = new EngineerWorkspace { Id = "ws_" + Guid.NewGuid().ToString("N").Substring(0, 10), Name = string.IsNullOrWhiteSpace(name) ? Path.GetFileName(full) : name.Trim(), Root = full, Kind = string.IsNullOrWhiteSpace(kind) ? "PLC" : kind, CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
                 item.UpdatedAt = item.CreatedAt;
-                _items.Add(item); SaveLocked(); Raise(); return item;
+                _items.Add(item);
+                try { SaveLocked(); }
+                catch { _items.Remove(item); throw; }
             }
+            Raise();
+            return item;
         }
 
-        public void Remove(string id) { lock (_lock) { _items.RemoveAll(x => x.Id == id); SaveLocked(); } Raise(); }
-        public void SetCurrent(string id) { lock (_lock) { if (_items.Any(x => x.Id == id)) { _state.CurrentId = id; Json.Save(StateFile, _state); } } Raise(); }
+        public void Remove(string id)
+        {
+            lock (_lock)
+            {
+                var index = _items.FindIndex(item => item.Id == id);
+                if (index < 0) return;
+                var removed = _items[index];
+                _items.RemoveAt(index);
+                try { SaveLocked(); }
+                catch { _items.Insert(index, removed); throw; }
+            }
+            Raise();
+        }
+
+        public void SetCurrent(string id)
+        {
+            lock (_lock)
+            {
+                if (!string.IsNullOrEmpty(id) && !_items.Any(x => x.Id == id)) return;
+                var next = new CurrentProjectState { CurrentId = id ?? "", Unbound = string.IsNullOrEmpty(id) };
+                if (_state.CurrentId == next.CurrentId && _state.Unbound == next.Unbound) return;
+                Json.SaveAtomic(StateFile, next, true);
+                _state = next;
+            }
+            Raise();
+        }
+
+        public void SaveContext(string id, string stage, string plcPath, string dcsPath, string validationPath,
+            string version, string currentTaskId, bool allowExternalAi)
+        {
+            lock (_lock)
+            {
+                int index = _items.FindIndex(item => item.Id == id);
+                if (index < 0) throw new InvalidOperationException("项目已不存在。");
+                var before = _items[index];
+                var scope = new ProjectContext(before, _items);
+                var changed = Json.FromJson<EngineerWorkspace>(Json.ToJson(before));
+                changed.PlcPath = CheckProjectPath(scope, plcPath);
+                changed.DcsPath = CheckProjectPath(scope, dcsPath);
+                changed.ValidationPath = CheckProjectPath(scope, validationPath);
+                changed.Stage = (stage ?? "").Trim();
+                changed.EngineeringVersion = (version ?? "").Trim();
+                changed.CurrentTaskId = (currentTaskId ?? "").Trim();
+                changed.AllowExternalAi = allowExternalAi;
+                changed.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                _items[index] = changed;
+                try { SaveLocked(); }
+                catch { _items[index] = before; throw; }
+            }
+            Raise();
+        }
+
+        private static string CheckProjectPath(ProjectContext scope, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "";
+            var full = Path.GetFullPath(path.Trim());
+            if (!scope.CanAccessPath(full) || (!File.Exists(full) && !Directory.Exists(full)))
+                throw new ArgumentException("请选择项目目录内存在的文件或文件夹：" + full);
+            return full;
+        }
+
         public void SetStageProgress(string id, string stage, double percent)
         {
             lock (_lock)
@@ -161,7 +260,7 @@ namespace DeskBox.Engineering
         }
         public void TogglePin(string id) { lock (_lock) { var x = _items.FirstOrDefault(i => i.Id == id); if (x != null) { x.Pinned = !x.Pinned; SaveLocked(); } } Raise(); }
         public void Touch(string id) { lock (_lock) { var x = _items.FirstOrDefault(i => i.Id == id); if (x != null) { x.LastOpenedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); SaveLocked(); } } Raise(); }
-        private void SaveLocked() { Json.Save(FilePath, _items); }
+        private void SaveLocked() { Json.SaveAtomic(FilePath, _items, true); }
         private void Raise() { var h = Changed; if (h != null) h(); }
 
         private static void Normalize(EngineerWorkspace item)
@@ -173,6 +272,6 @@ namespace DeskBox.Engineering
             if (string.IsNullOrEmpty(item.Risk)) item.Risk = "medium";
         }
 
-        public class CurrentProjectState { public string CurrentId = ""; }
+        public class CurrentProjectState { public string CurrentId = ""; public bool Unbound; }
     }
 }
