@@ -138,10 +138,10 @@ namespace DeskBox.UI
             var card = new ReferenceCard(_p) { Dock = DockStyle.Fill, Padding = new Padding(16), Margin = new Padding(0, 0, 10, 0) };
             var heading = TextLabel(title, 12, true);
             heading.Dock = DockStyle.Top;
-            heading.Height = 25;
+            heading.Height = Math.Max(25, heading.Font.Height + 5);
             hint = TextLabel(subtitle, 9, false, _p.TextDim);
             hint.Dock = DockStyle.Top;
-            hint.Height = 29;
+            hint.Height = Math.Max(29, hint.Font.Height + 5);
             card.Controls.Add(body);
             card.Controls.Add(hint);
             card.Controls.Add(heading);

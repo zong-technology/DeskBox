@@ -61,16 +61,40 @@ namespace DeskBox.UI
         private Label TextLabel(string text,float size=9.5f,bool bold=false,Color? color=null){return new Label{Text=text,UseMnemonic=false,AutoEllipsis=true,ForeColor=color??_p.Text,BackColor=Color.Transparent,Font=FontOf(size,bold)};}
         private DarkButton Button(string text,Action action,bool primary=false,int width=108){var b=new DarkButton(text){Palette=_p,BackColor=_p.Bg,Primary=primary,Width=width,Height=34,Margin=new Padding(0,0,10,0)};b.Click+=delegate{try{action();}catch(Exception ex){_status.Text=ex.Message;}};return b;}
         private DarkInput Input(string hint,int width=250){return new DarkInput{Placeholder=hint,Palette=_p,Width=width,Height=34,Margin=new Padding(0,0,10,0)};}
-        private Panel Page(string title,string subtitle)
+        private int WorkbenchPixels(int logical) { return Views.TiaWorkbenchStyle.Pixels(this, logical); }
+
+        private Panel Page(string title, string subtitle)
         {
-            var page=new Panel{Dock=DockStyle.Fill,BackColor=_p.Bg,Padding=new Padding(24,18,24,18)};
-            var heading=new Panel{Dock=DockStyle.Top,Height=64};var label=TextLabel(title,18,true);label.SetBounds(0,0,0,32);label.Anchor=AnchorStyles.Left|AnchorStyles.Top;
-            var hint=TextLabel(subtitle,9,false,_p.TextDim);hint.SetBounds(0,35,0,21);hint.Anchor=label.Anchor;
-            heading.Controls.AddRange(new Control[]{label,hint});
+            var page = new Panel { Dock = DockStyle.Fill, BackColor = _p.Bg, Padding = new Padding(24, 18, 24, 18) };
+            var heading = new Panel { Dock = DockStyle.Top, Height = WorkbenchPixels(62) };
+            var label = TextLabel(title, 18, true);
+            label.Name = "engineering-page-title";
+            label.SetBounds(0, 0, 0, Math.Max(WorkbenchPixels(32), label.Font.Height + 4));
+            var hint = TextLabel(subtitle, 9.5f, false, _p.TextDim);
+            hint.SetBounds(0, label.Bottom + 2, 0, Math.Max(WorkbenchPixels(21), hint.Font.Height + 3));
+            heading.Controls.AddRange(new Control[] { label, hint });
             heading.SizeChanged += delegate { label.Width = hint.Width = heading.ClientSize.Width; };
-            page.Controls.Add(heading);return page;
+            page.Controls.Add(heading);
+            return page;
         }
-        private FlowLayoutPanel Toolbar(){return new FlowLayoutPanel{Dock=DockStyle.Top,Height=48,WrapContents=false,AutoScroll=true,BackColor=_p.Bg,Padding=new Padding(0,4,0,4)};}
+
+        private FlowLayoutPanel Toolbar()
+        {
+            var host = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top, Height = WorkbenchPixels(44), WrapContents = false,
+                AutoScroll = true, BackColor = _p.Bg, Padding = new Padding(0, 4, 0, 4)
+            };
+            host.ControlAdded += delegate(object sender, ControlEventArgs args)
+            {
+                var button = args.Control as DarkButton;
+                if (button == null) return;
+                button.Height = Math.Max(button.Height, WorkbenchPixels(34));
+                int measured = TextRenderer.MeasureText(button.Text, button.Font).Width;
+                button.Width = Math.Max(button.Width, measured + WorkbenchPixels(14));
+            };
+            return host;
+        }
         private Panel Card(string title="")
         {
             var card=new ReferenceCard(_p){Margin=new Padding(0,0,14,14),Padding=new Padding(18)};
@@ -133,7 +157,7 @@ namespace DeskBox.UI
             header.Controls.AddRange(new Control[] { expand, brand, _projectPicker, _mode, _globalSearch, commands, more });
             Action layout = delegate
             {
-                int dpi = Math.Max(96, header.DeviceDpi);
+                int dpi = Views.TiaWorkbenchStyle.LogicalDpi(header);
                 Func<int, int> px = value => value * dpi / 96;
                 header.Height = px(54);
                 int top = px(9), height = px(36), gap = px(8);
@@ -147,7 +171,7 @@ namespace DeskBox.UI
                 _mode.SetBounds(commands.Left - gap - modeWidth, top, modeWidth, height);
                 expand.SetBounds(px(10), top, px(40), height);
                 brand.Visible = !narrow;
-                brand.SetBounds(expand.Right + gap, top, px(119), height);
+                brand.SetBounds(expand.Right + gap, top, px(108), height);
                 int left = (narrow ? expand.Right : brand.Right) + gap;
                 int remaining = Math.Max(0, _mode.Left - gap - left);
                 _globalSearch.Visible = remaining >= px(415);
@@ -172,7 +196,7 @@ namespace DeskBox.UI
                 _nav[id] = button;
             }
             _subnav = Toolbar();
-            _subnav.Height = 45;
+            _subnav.Height = WorkbenchPixels(45);
             _subnav.Padding = new Padding(12, 5, 8, 0);
             _subnav.Name = "engineering-secondary-nav";
             var outer = new Panel { Dock = DockStyle.Fill, BackColor = _p.Bg };
@@ -181,8 +205,8 @@ namespace DeskBox.UI
             outer.Controls.Add(_subnav);
             _status = TextLabel("", 9, false, _p.TextDim);
             _status.Dock = DockStyle.Bottom;
-            _status.Height = 26;
-            _status.Padding = new Padding(12, 3, 0, 0);
+            _status.Height = WorkbenchPixels(26);
+            _status.Padding = new Padding(WorkbenchPixels(12), WorkbenchPixels(3), 0, 0);
             Controls.Add(outer);
             Controls.Add(_rail);
             Controls.Add(_status);
@@ -287,12 +311,12 @@ namespace DeskBox.UI
         private void UpdateNavigationRail()
         {
             bool compact = !_store.Settings.EngineeringNavExpanded;
-            _rail.Width = Dpi.D(this, compact ? 62 : 194);
+            _rail.Width = WorkbenchPixels(compact ? 62 : 194);
             int i = 0;
             foreach (var button in _nav.Values)
             {
                 button.CompactNavigation = compact;
-                button.SetBounds(Dpi.D(this, 5), Dpi.D(this, 8 + 43 * i++), Dpi.D(this, compact ? 48 : 174), Dpi.D(this, 38));
+                button.SetBounds(WorkbenchPixels(5), WorkbenchPixels(8 + 43 * i++), WorkbenchPixels(compact ? 48 : 174), WorkbenchPixels(38));
                 _railTips.SetToolTip(button, button.Text);
                 button.Invalidate();
             }

@@ -28,7 +28,7 @@ namespace DeskBox.UI
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 54));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 46));
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 138));
+            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max(138, 3 * FontOf(10).Height + 70)));
             grid.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
             grid.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
 

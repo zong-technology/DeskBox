@@ -263,6 +263,7 @@ public static class V5ContextAcceptance
                 form.Bounds = new Rectangle(Point.Empty, size);
                 Pump();
                 var header = Find(workspace, "engineering-header");
+                Check(header.Height >= (54 * dpi / 96), "header height follows measured DPI at " + size);
                 var visible = header.Controls.Cast<Control>().Where(control => control.Visible).ToArray();
                 Check(visible.All(control => header.ClientRectangle.Contains(control.Bounds)) &&
                     visible.SelectMany((left, index) => visible.Skip(index + 1).Select(right => !left.Bounds.IntersectsWith(right.Bounds))).All(ok => ok),
@@ -275,6 +276,11 @@ public static class V5ContextAcceptance
                     Pump();
                     var page = Find(workspace, "page-" + route);
                     Check(workspace.CurrentPage == route && page.Visible && page.Width > 0 && page.Height > 0, "keyboard route " + route + " at " + size);
+                    if (new[] { "home", "dcs", "validation" }.Contains(route))
+                    {
+                        var title = Find(page, "engineering-page-title");
+                        Check(title.Height >= title.Font.Height, "page title room at " + route + " " + size);
+                    }
                     string name = Path.Combine(output, size.Width + "x" + size.Height + "-dpi" + dpi + "-" + route + ".png");
                     CaptureWindow(form, name);
                 }
