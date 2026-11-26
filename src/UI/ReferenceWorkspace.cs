@@ -32,7 +32,7 @@ namespace DeskBox.UI
         private readonly Dictionary<string,DarkButton> _nav=new Dictionary<string,DarkButton>();
         private readonly List<Font> _fonts=new List<Font>();
         private Palette _p;
-        private Panel _content,_rail;
+        private Panel _content,_rail,_railBody;
         private FlowLayoutPanel _subnav;
         private Label _status;
         private DarkSelect _projectPicker, _mode;
@@ -183,6 +183,8 @@ namespace DeskBox.UI
             header.SizeChanged += delegate { layout(); };
 
             _rail = new Panel { Name = "engineering-navigation", Dock = DockStyle.Left, BackColor = _p.HeaderBg, AutoScroll = true };
+            _railBody = new Panel { Dock = DockStyle.Top, BackColor = _p.HeaderBg, Margin = Padding.Empty };
+            _rail.Controls.Add(_railBody);
             foreach (int i in Enumerable.Range(0, EngineeringNavigation.Modules.GetLength(0)))
             {
                 string id = EngineeringNavigation.Modules[i, 0];
@@ -193,10 +195,10 @@ namespace DeskBox.UI
                 button.AccessibleName = title;
                 button.Navigation = true;
                 button.Symbol = EngineeringNavigation.Modules[i, 1];
-                _rail.Controls.Add(button);
+                _railBody.Controls.Add(button);
                 _nav[id] = button;
             }
-            _rail.SizeChanged += delegate { UpdateNavigationRail(); };
+            _railBody.SizeChanged += delegate { UpdateNavigationRail(); };
             _subnav = Toolbar();
             _subnav.Height = WorkbenchPixels(45);
             _subnav.Padding = new Padding(12, 5, 8, 0);
@@ -319,17 +321,15 @@ namespace DeskBox.UI
             {
                 bool compact = !_store.Settings.EngineeringNavExpanded;
                 _rail.Width = WorkbenchPixels(compact ? 62 : 194);
-                int logicalHeight = 8 + 43 * _nav.Count;
-                int scrollSpace = _rail.Height < WorkbenchPixels(logicalHeight)
-                    ? Math.Max(SystemInformation.VerticalScrollBarWidth, WorkbenchPixels(18)) : 0;
+                _railBody.Height = WorkbenchPixels(8 + 43 * _nav.Count);
+                _rail.AutoScrollMinSize = new Size(0, _railBody.Height);
                 int left = WorkbenchPixels(5);
-                int buttonWidth = Math.Max(1, Math.Min(WorkbenchPixels(compact ? 48 : 174), _rail.Width - scrollSpace - 2 * left));
-                int scrollOffset = _rail.AutoScrollPosition.Y;
+                int buttonWidth = Math.Max(1, Math.Min(WorkbenchPixels(compact ? 48 : 174), _railBody.ClientSize.Width - 2 * left));
                 int i = 0;
                 foreach (var button in _nav.Values)
                 {
                     button.CompactNavigation = compact;
-                    button.SetBounds(left, WorkbenchPixels(8 + 43 * i++) + scrollOffset, buttonWidth, WorkbenchPixels(38));
+                    button.SetBounds(left, WorkbenchPixels(8 + 43 * i++), buttonWidth, WorkbenchPixels(38));
                     _railTips.SetToolTip(button, button.Text);
                     button.Invalidate();
                 }

@@ -106,6 +106,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Text AI operation checks failed' }
           } finally { if (-not $mock.HasExited) { Stop-Process -Id $mock.Id -Force } }
       - name: Verify Engineering OS project isolation and capture native WinForms routes
+        id: v5_ui
+        continue-on-error: true
         timeout-minutes: 5
         shell: powershell
         run: |
@@ -231,6 +233,10 @@ jobs:
             dist/installer-qa/installed-hologram/
             dist/ui-qa-*/*.log
             dist/ui-qa-*/**/*.png
+      - name: Require successful Engineering OS acceptance
+        if: always() && steps.v5_ui.outcome != 'success'
+        shell: powershell
+        run: throw 'Engineering OS acceptance did not pass; inspect the captured evidence.'
   publish:
     if: inputs.publish && inputs.comparison_release == ''
     needs: native
