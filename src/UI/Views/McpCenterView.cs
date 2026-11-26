@@ -20,6 +20,7 @@ namespace DeskBox.UI.Views
         private readonly DarkList tools;
         private readonly TextBox details;
         private CancellationTokenSource operation;
+        private McpGatewayForm gateway;
 
         public McpCenterView(Store store, Func<ProjectContext> context) : base(store, "MCP 管理", "DeskBox TIA Openness · 本机 stdio · MCP 2025-06-18")
         {
@@ -40,7 +41,18 @@ namespace DeskBox.UI.Views
             };
             probe = new DarkButton("检测 MCP 协议") { Width = 145, Height = 34, Primary = true, Palette = Palette };
             probe.Click += Probe;
-            toolbar.Controls.AddRange(new Control[] { enabled, offline, save, probe });
+            var thirdParty = new DarkButton("第三方 MCP…") { Width = 134, Height = 34, Palette = Palette,
+                Name = "mcp-gateway-open" };
+            thirdParty.Click += delegate
+            {
+                using (var panel = new McpGatewayForm(ProjectId(), ProjectId))
+                {
+                    gateway = panel;
+                    try { panel.ShowDialog(this); }
+                    finally { gateway = null; }
+                }
+            };
+            toolbar.Controls.AddRange(new Control[] { enabled, offline, save, probe, thirdParty });
 
             tools = new DarkList { Dock = DockStyle.Fill, Palette = Palette, AutoFitColumns = true, RowHeight = 40 };
             tools.SetColumns(new[] { "一作业一工具", "能力", "生效策略" }, new[] { 410, 230, 126 });
@@ -105,8 +117,15 @@ namespace DeskBox.UI.Views
             catch (Exception error) { details.Text = "无法读取 MCP 回执：" + error.Message; }
         }
 
+        private string ProjectId()
+        {
+            var project = currentProject();
+            return project == null ? "" : project.Id;
+        }
+
         internal void ProjectChanged()
         {
+            if (gateway != null) gateway.ScopeChanged();
             if (operation != null) operation.Cancel();
             RefreshReceipt();
         }

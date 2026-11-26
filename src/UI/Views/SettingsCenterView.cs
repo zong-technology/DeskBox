@@ -6,6 +6,8 @@ using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 using DeskBox.Ai;
+using DeskBox.AppServices;
+using DeskBox.Domain;
 using DeskBox.Core;
 
 namespace DeskBox.UI.Views
@@ -673,17 +675,19 @@ namespace DeskBox.UI.Views
             _testResult.ForeColor = Palette.TextDim;
             _testResult.Text = "测试中…（真实发送请求）";
             var provider = pr;
+            var snapshot = provider.Clone();
+            var environment = AiEnvironment.Mode;
             var worker = new Thread(delegate()
             {
-                AiChatResult r = null;
+                ModelProbe r;
                 try
                 {
-                    var client = new AiClient(provider);
-                    r = client.TestConnection(new CancellationTokenSource(15000).Token);
+                    using (var timeout = new CancellationTokenSource(15000))
+                        r = AgentRuntime.ProbeModel(snapshot, timeout.Token);
                 }
                 catch (Exception ex)
                 {
-                    r = new AiChatResult { Ok = false, Error = ex.Message, ErrorKind = "unknown" };
+                    r = new ModelProbe { Error = ex.Message, ErrorKind = "unknown" };
                 }
                 try
                 {
@@ -691,11 +695,16 @@ namespace DeskBox.UI.Views
                     BeginInvoke(new Action(delegate
                     {
                         _testing = false;
-                        if (r == null) { _testResult.Text = "测试失败：无结果"; return; }
+                        if (environment != AiEnvironment.Mode || !ReferenceEquals(_providers.Get(provider.Id), provider) ||
+                            provider.UpdatedAt != snapshot.UpdatedAt)
+                        {
+                            _testResult.Text = "测试期间服务商或运行环境已切换。";
+                            return;
+                        }
                         if (r.Ok)
                         {
                             _testResult.ForeColor = Color.FromArgb(110, 231, 183);
-                            _testResult.Text = "✓ 连接成功（" + r.ElapsedMs + " ms，HTTP " + r.HttpStatus + "）";
+                            _testResult.Text = "✓ 文本流与结束帧已验证（" + r.ElapsedMs + " ms，HTTP " + r.HttpStatus + "）";
                         }
                         else
                         {
@@ -726,6 +735,7 @@ namespace DeskBox.UI.Views
                 case "ratelimit": return "服务商限流";
                 case "server": return "服务端错误";
                 case "protocol": return "接口协议不兼容";
+                case "output_limit": return "服务商输出受限";
                 default: return "未知错误";
             }
         }

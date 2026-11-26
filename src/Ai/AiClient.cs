@@ -45,6 +45,9 @@ namespace DeskBox.Ai
         public string Error = "";
         public string ErrorKind = "";
         public string Stage = "";
+        public bool TextDelta, TerminalFrame;
+        public int HttpStatus, Attempts;
+        public int? InputTokens, OutputTokens;
     }
 
     /// <summary>
@@ -175,15 +178,17 @@ namespace DeskBox.Ai
             int retries = Math.Min(5, Math.Max(0, _provider.MaxRetries));
             var sw = Stopwatch.StartNew();
             StreamOutcome last = null;
+            int attempts = 0;
             for (int i = 0; i <= retries; i++)
             {
                 if (ct.IsCancellationRequested)
                 {
                     onChunk(new AiStreamChunk { Error = "已取消", ErrorKind = "timeout" });
-                    onChunk(new AiStreamChunk { Done = true });
+                    onChunk(new AiStreamChunk { Done = true, Attempts = attempts });
                     AiLog.Write("warn", "AI 流式请求已取消 [" + ProviderLabel() + "]");
                     return;
                 }
+                attempts++;
                 last = StreamOnce(req, ct, onChunk);
                 if (last.Ok) break;
                 if (last.Cancelled || last.AnyDelta || !IsRetryable(last.ErrorKind) || i >= retries) break;
@@ -204,14 +209,14 @@ namespace DeskBox.Ai
                 last.ErrorKind = "unknown";
                 last.Error = DescribeError("unknown", "");
             }
-            if (last.Ok)
+            if (!last.Ok)
+                onChunk(new AiStreamChunk { Error = last.Error, ErrorKind = last.ErrorKind });
+            onChunk(new AiStreamChunk
             {
-                onChunk(new AiStreamChunk { Done = true });
-                return;
-            }
-            // 错误帧 Done=false，再补空 Done 帧；成功只有 Done=true
-            onChunk(new AiStreamChunk { Error = last.Error, ErrorKind = last.ErrorKind });
-            onChunk(new AiStreamChunk { Done = true });
+                Done = true, TerminalFrame = last.TerminalFrame, HttpStatus = last.HttpStatus,
+                InputTokens = last.InputTokens, OutputTokens = last.OutputTokens, Attempts = attempts
+            });
+            if (last.Ok) return;
             AiLog.Write(last.Cancelled ? "warn" : "error",
                 "AI 流式请求失败 [" + ProviderLabel() + "] " + last.ErrorKind + " - " + last.Error + "（" + sw.ElapsedMilliseconds + "ms）");
         }
@@ -220,12 +225,16 @@ namespace DeskBox.Ai
         {
             var outcome = new StreamOutcome();
             HttpWebRequest http = null;
+            int timeout = TransportTimeout();
+            var idle = new CancellationTokenSource(timeout);
             try
             {
                 http = CreateRequest();
+                http.ReadWriteTimeout = Timeout.Infinite;
                 string json = BuildBody(req, true);
                 using (environmentToken.Register(delegate { TryAbort(http); }))
                 using (ct.Register(delegate { TryAbort(http); }))
+                using (idle.Token.Register(delegate { TryAbort(http); }))
                 {
                     WriteBody(http, json);
 
@@ -237,6 +246,8 @@ namespace DeskBox.Ai
                     catch (WebException we)
                     {
                         FillWebException(we, outcome, ct);
+                        if (idle.IsCancellationRequested && !ct.IsCancellationRequested && !environmentToken.IsCancellationRequested)
+                            SetIdleTimeout(outcome);
                         return outcome;
                     }
 
@@ -262,8 +273,9 @@ namespace DeskBox.Ai
                             using (var reader = new StreamReader(stream, Encoding.UTF8))
                             {
                                 string line;
-                                while ((line = reader.ReadLine()) != null)
+                                while ((line = ReadStreamLine(reader)) != null)
                                 {
+                                    idle.CancelAfter(timeout);
                                     if (ct.IsCancellationRequested)
                                     {
                                         outcome.Cancelled = true;
@@ -276,7 +288,7 @@ namespace DeskBox.Ai
                                     if (!line.StartsWith("data:", StringComparison.Ordinal)) continue; // 忽略 event:/心跳
                                     string payload = line.Substring(5).Trim();
                                     if (payload.Length == 0) continue;
-                                    if (payload == "[DONE]") { outcome.Ok = true; return outcome; }
+                                    if (payload == "[DONE]") { outcome.TerminalFrame = outcome.Ok = true; return outcome; }
 
                                     bool completed = HandlePayload(payload, outcome, onChunk);
                                     if (outcome.ErrorKind != null) return outcome;
@@ -289,11 +301,17 @@ namespace DeskBox.Ai
             }
             catch (Exception ex)
             {
-                if (ct.IsCancellationRequested)
+                if (ct.IsCancellationRequested || environmentToken.IsCancellationRequested)
                 {
                     outcome.Cancelled = true;
                     outcome.ErrorKind = "timeout";
                     outcome.Error = "已取消";
+                }
+                else if (idle.IsCancellationRequested) SetIdleTimeout(outcome);
+                else if (ex is InvalidDataException)
+                {
+                    outcome.ErrorKind = "response_limit";
+                    outcome.Error = "模型流数据帧超过长度限制。";
                 }
                 else
                 {
@@ -302,8 +320,34 @@ namespace DeskBox.Ai
                 }
                 return outcome;
             }
-            outcome.Ok = true;   // 有些服务商不发 [DONE]，正常 EOF 也视为完成
+            finally
+            {
+                if (idle.IsCancellationRequested && !ct.IsCancellationRequested && !environmentToken.IsCancellationRequested &&
+                    !outcome.TerminalFrame) SetIdleTimeout(outcome);
+                idle.Dispose();
+            }
+            if (outcome.ErrorKind == null) outcome.Ok = true; // Legacy callers still receive EOF; AgentRuntime checks evidence.
             return outcome;
+        }
+
+        private static void SetIdleTimeout(StreamOutcome outcome)
+        {
+            outcome.Cancelled = false;
+            outcome.ErrorKind = "timeout";
+            outcome.Error = "模型网络流在配置时间内没有收到数据。";
+        }
+
+        private static string ReadStreamLine(StreamReader reader)
+        {
+            var line = new StringBuilder();
+            int next;
+            while ((next = reader.Read()) >= 0)
+            {
+                if (next == '\n') return line.ToString().TrimEnd('\r');
+                if (line.Length == 1024 * 1024) throw new InvalidDataException();
+                line.Append((char)next);
+            }
+            return line.Length == 0 ? null : line.ToString();
         }
 
         /// <summary>解析一条 SSE data：返回 true 表示流已结束。</summary>
@@ -331,11 +375,23 @@ namespace DeskBox.Ai
                     if (!string.IsNullOrEmpty(delta))
                     {
                         outcome.AnyDelta = true;
-                        onChunk(new AiStreamChunk { Delta = delta });
+                        onChunk(new AiStreamChunk { Delta = delta, TextDelta = true });
                     }
                     return false;
                 }
-                if (type == "response.completed") return true;
+                if (type == "response.completed")
+                {
+                    ReadStreamUsage(GetDict(GetDict(dict, "response"), "usage"), outcome);
+                    outcome.TerminalFrame = true;
+                    return true;
+                }
+                if (type == "response.incomplete")
+                {
+                    outcome.TerminalFrame = true;
+                    outcome.ErrorKind = "output_limit";
+                    outcome.Error = "服务商报告回复未完成。";
+                    return false;
+                }
                 if (type == "response.failed" || type == "error")
                 {
                     outcome.ErrorKind = "server";
@@ -344,17 +400,30 @@ namespace DeskBox.Ai
                 return false;
             }
 
+            ReadStreamUsage(GetDict(dict, "usage"), outcome);
             var choices = GetArray(dict, "choices");
             if (choices != null && choices.Length > 0)
             {
                 var first = choices[0] as Dictionary<string, object>;
                 string text = null;
+                bool deltaText = false;
                 if (first != null)
                 {
+                    var finish = GetString(first, "finish_reason");
+                    if (!string.IsNullOrEmpty(finish) && finish != "null")
+                    {
+                        outcome.TerminalFrame = true;
+                        if (finish == "length" || finish == "content_filter")
+                        {
+                            outcome.ErrorKind = "output_limit";
+                            outcome.Error = "服务商报告回复被截断或过滤。";
+                        }
+                    }
                     var delta = GetDict(first, "delta");
                     if (delta != null)
                     {
                         text = GetString(delta, "content");
+                        deltaText = !string.IsNullOrEmpty(text);
                         if (!string.IsNullOrEmpty(GetString(delta, "reasoning_content"))) onChunk(new AiStreamChunk { Stage = "服务商正在生成回答 · 已收到推理进度" });
                     }
                     if (string.IsNullOrEmpty(text))
@@ -367,10 +436,19 @@ namespace DeskBox.Ai
                 if (!string.IsNullOrEmpty(text))
                 {
                     outcome.AnyDelta = true;
-                    onChunk(new AiStreamChunk { Delta = text });
+                    onChunk(new AiStreamChunk { Delta = text, TextDelta = deltaText });
                 }
             }
             return false;
+        }
+
+        private static void ReadStreamUsage(Dictionary<string, object> usage, StreamOutcome outcome)
+        {
+            if (usage == null) return;
+            int input = GetInt(usage, "prompt_tokens", GetInt(usage, "input_tokens", -1));
+            int output = GetInt(usage, "completion_tokens", GetInt(usage, "output_tokens", -1));
+            if (input >= 0) outcome.InputTokens = input;
+            if (output >= 0) outcome.OutputTokens = output;
         }
 
         // ---------------- 连接测试 ----------------
@@ -580,8 +658,7 @@ namespace DeskBox.Ai
             http.ContentType = "application/json; charset=utf-8";
             http.Accept = "application/json";
             http.UserAgent = "DeskBox/3.0";
-            int timeout = _provider.TimeoutMs > 0 ? _provider.TimeoutMs : 60000;
-            timeout = Math.Min(600000, Math.Max(1000, timeout));
+            int timeout = TransportTimeout();
             http.Timeout = timeout;
             http.ReadWriteTimeout = timeout;
             http.KeepAlive = false;
@@ -589,6 +666,11 @@ namespace DeskBox.Ai
             if (AiEnvironment.Local || AiEnvironment.Loopback(http.RequestUri)) http.Proxy = null;
             ApplyHeaders(http);
             return http;
+        }
+
+        private int TransportTimeout()
+        {
+            return Math.Min(600000, Math.Max(1000, _provider.TimeoutMs > 0 ? _provider.TimeoutMs : 60000));
         }
 
         private void ApplyHeaders(HttpWebRequest http)
@@ -906,6 +988,8 @@ namespace DeskBox.Ai
             public bool Ok = false;
             public bool Cancelled = false;
             public bool AnyDelta = false;
+            public bool TerminalFrame;
+            public int? InputTokens, OutputTokens;
             public string ErrorKind = null;
             public string Error = "";
             public int HttpStatus = 0;

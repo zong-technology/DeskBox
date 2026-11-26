@@ -143,7 +143,9 @@ namespace DeskBox.Fs
         }
 
         /// <summary>在内存快照中过滤、打分并排序。</summary>
-        public SearchOutcome Search(SearchQuery q)
+        public SearchOutcome Search(SearchQuery q) { return Search(q, CancellationToken.None); }
+
+        internal SearchOutcome Search(SearchQuery q, CancellationToken cancellation)
         {
             if (q == null) q = new SearchQuery();
             Stopwatch sw = Stopwatch.StartNew();
@@ -171,6 +173,7 @@ namespace DeskBox.Fs
 
             for (int i = 0; i < snapshot.Count; i++)
             {
+                cancellation.ThrowIfCancellationRequested();
                 FileEntry e = snapshot[i];
                 if (e == null || string.IsNullOrEmpty(e.Path)) continue;
 

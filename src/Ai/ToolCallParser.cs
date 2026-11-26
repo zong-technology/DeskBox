@@ -58,7 +58,7 @@ namespace DeskBox.Ai
             return list;
         }
 
-        private static ToolCall ParseOne(string json)
+        internal static ToolCall ParseOne(string json)
         {
             try
             {

@@ -116,7 +116,8 @@ namespace DeskBox.Ai
                 ctx=ctx??new ToolContext();args=args??new Dictionary<string,string>();
                 if (ctx.Cancellation.IsCancellationRequested) return ToolResult.Fail("操作已取消");
                 if (!ProjectAllowsTool(tool.Name, ctx.Project)) return ToolResult.Fail("当前项目未授权全局工作流或外部网页工具。");
-                if(ctx.UiInvoke!=null&&(tool is ApplicationTool||tool is CreateTaskTool))return ctx.UiInvoke(()=>tool.Invoke(ctx,args));
+                if (ctx.UiInvoke != null && (tool is ApplicationTool || tool is CreateTaskTool))
+                    return ctx.UiInvoke(() => ctx.Cancellation.IsCancellationRequested ? ToolResult.Fail("操作已取消") : tool.Invoke(ctx, args));
                 return tool.Invoke(ctx,args);
             }
             catch (Exception ex)

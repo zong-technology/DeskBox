@@ -2176,8 +2176,10 @@ namespace DeskBox.UI
             return context;
         }
 
-        private string ReadTiaContext(string name)
+        private string ReadTiaContext(ProjectContext project, string name)
         {
+            if (project == null ? _projectScope != null : !project.SameScope(_projectScope))
+                throw new InvalidOperationException("工程上下文已变化，请在当前项目重新请求。");
             if (_tiaView == null || _tiaView.IsDisposed) throw new InvalidOperationException("请先在博图工作台加载工程并授权会话查询。");
             return _tiaView.ReadForVoice(name);
         }

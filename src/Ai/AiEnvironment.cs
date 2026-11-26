@@ -18,6 +18,10 @@ namespace DeskBox.Ai
         public static bool Local { get { return Mode=="local"; } }
         public static string Suffix { get { return Local?"-local":""; } }
         public static CancellationToken Token { get { lock(Gate)return _lifetime.Token; } }
+        internal static CancellationToken Capture(out string mode)
+        {
+            lock (Gate) { mode = Mode; return _lifetime.Token; }
+        }
         public static void Select(string mode)
         {
             if(mode!="local"&&mode!="network")throw new ArgumentException("AI 环境无效。");

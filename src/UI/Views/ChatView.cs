@@ -129,6 +129,14 @@ namespace DeskBox.UI.Views
             _sessions.SetColumns(new[] { "标题", "时间" }, new[] { 140, 56 });
             _sessions.RowActivated += delegate { SwitchSession(); };
             _sessions.RowContextMenu += delegate(object s, MouseEventArgs e) { ShowSessionMenu(e.Location); };
+            var runs = new DarkButton("执行记录…") { Dock = DockStyle.Bottom, Height = 34, Palette = Palette,
+                Name = "agent-tasks-open" };
+            runs.Click += delegate
+            {
+                if (_chat == null) return;
+                using (var panel = new AgentTasksForm(_chat)) panel.ShowDialog(this);
+            };
+            left.Controls.Add(runs);
             left.Controls.Add(_sessionSearch);
             left.Controls.Add(_sessions);
             left.Controls.Add(lblS);

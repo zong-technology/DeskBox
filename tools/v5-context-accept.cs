@@ -10,6 +10,8 @@ using System.Threading;
 using System.Windows.Forms;
 using DeskBox;
 using DeskBox.Ai;
+using DeskBox.AppServices;
+using DeskBox.Domain;
 using DeskBox.Core;
 using DeskBox.Engineering;
 using DeskBox.Engineering.Tia;
@@ -251,7 +253,18 @@ public static class V5ContextAcceptance
             newTia.LoadExports(new[] { aFile });
             WaitFor(() => Field(newTia, "snapshot") != null, "A export after scope switch", true);
             form.SwitchView("ai");
-            Check(((ChatService)Field(form, "_chat")).Current.ProjectId == a.Id, "AI page and header share project");
+            var chat = (ChatService)Field(form, "_chat");
+            Check(chat.Current.ProjectId == a.Id, "AI page and header share project");
+            chat.Send("工具 {\"name\":\"eng.scale_4_20\",\"args\":{\"mA\":12,\"low\":0,\"high\":100}}");
+            WaitFor(() => !chat.Busy, "local Agent command via text chat", true);
+            Check(chat.Current.Messages.Last().Content.Contains("工程值=50"), "local Agent command reached the normal chat route");
+            UseDialog(Find(workspace, "agent-tasks-open"), "agent-tasks-dialog", panel =>
+            {
+                var log = Find(panel, "agent-task-receipt");
+                WaitFor(() => log.Text.Contains("local.tool"), "agent tasks read from persistent store", true);
+                Check(log.Text.Contains("engineering-calculator") && log.Text.Contains("完成"), "execution record shows real successful step");
+                CaptureWindow(panel, Path.Combine(output, "agent-task-record-dpi" + dpi + ".png"));
+            });
             form.SwitchView("mcp");
             var mcp = Find(workspace, "page-mcp");
             var probe = Descendants(mcp).OfType<DarkButton>().Single(button => button.Text == "检测 MCP 协议");
@@ -260,6 +273,9 @@ public static class V5ContextAcceptance
             WaitFor(() => receipt.Text.Contains("probe_succeeded") || receipt.Text.Contains("检测失败"), "MCP handshake", true);
             Check(receipt.Text.Contains("probe_succeeded"), "actual stdio MCP initialize and tool discovery");
             CaptureWindow(form, Path.Combine(output, "mcp-probe-dpi" + dpi + ".png"));
+            string python = Environment.GetEnvironmentVariable("DESKBOX_MCP_TEST_PYTHON");
+            if (string.IsNullOrEmpty(python)) throw new InvalidOperationException("CI must provide the Python stdio fixture executable.");
+            VerifyThirdPartyDialog(Find(mcp, "mcp-gateway-open"), output, dpi, python);
 
             foreach (var size in new[] { new Size(1366, 768), new Size(1600, 900), new Size(1920, 1080),
                 new Size(2560, 1440), new Size(3840, 2160) })
@@ -295,6 +311,64 @@ public static class V5ContextAcceptance
             }
             form.Close();
         }
+    }
+
+    private static void VerifyThirdPartyDialog(Control entry, string output, uint dpi, string python)
+    {
+        var gateway = new McpGateway();
+        string fixture = Path.GetFullPath("tools/v5-mcp-stdio-fixture.py");
+        AiEnvironment.Select("network");
+        var draft = gateway.SaveServer(a.Id, new McpServer { Name = "Acceptance stdio", Transport = "stdio",
+            Address = python, Arguments = "\"" + fixture + "\"" });
+        draft.Enabled = true;
+        gateway.SaveServer(a.Id, draft);
+        UseDialog(entry, "mcp-gateway-dialog", panel =>
+        {
+            var status = Find(panel, "mcp-operation-status");
+            var discover = (Button)Find(panel, "mcp-discover");
+            Check(discover.Visible && discover.Enabled, "third-party MCP entry and discover button are usable");
+            discover.PerformClick();
+            var tools = (ListBox)Find(panel, "mcp-discovered-tools");
+            WaitFor(() => tools.Items.Count == 1 || status.Text.Contains("failed"), "native third-party stdio discovery", true);
+            Check(tools.Items.Count == 1 && ((McpTool)tools.Items[0]).Name == "echo" && status.Text.Contains("succeeded"),
+                "third-party MCP dialog displays actual discovered tool and receipt");
+            Check(!Find(panel, "mcp-invoke").Enabled && Find(panel, "mcp-allow-tool").Enabled, "manual call UI respects stored grant");
+            CaptureWindow(panel, Path.Combine(output, "third-party-mcp-dpi" + dpi + ".png"));
+            UseDialog(Find(panel, "mcp-register"), "mcp-registration-dialog", registration =>
+            {
+                Find(registration, "mcp-name").Text = "Registered from Windows UI";
+                Find(registration, "mcp-address").Text = "https://fixture.invalid/mcp";
+                ((Button)Find(registration, "mcp-save")).PerformClick();
+            });
+            bool recovered;
+            Check(gateway.Servers(a.Id, out recovered).Any(item => item.Name == "Registered from Windows UI" && !item.Enabled),
+                "registration form persists real disabled registration with no network access");
+        });
+    }
+
+    private static void UseDialog(Control entry, string name, Action<Form> check)
+    {
+        Exception failure = null;
+        bool opened = false;
+        using (var timer = new System.Windows.Forms.Timer { Interval = 60 })
+        {
+            timer.Tick += delegate
+            {
+                var panel = Application.OpenForms.Cast<Form>().FirstOrDefault(form => form.Name == name && form.Visible);
+                if (panel == null) return;
+                timer.Stop();
+                opened = true;
+                try { Pump(); check(panel); }
+                catch (Exception error) { failure = error; }
+                finally { if (!panel.IsDisposed && panel.Visible) panel.Close(); }
+            };
+            timer.Start();
+            var standardButton = entry as Button;
+            if (standardButton == null) Press(entry, Keys.Enter);
+            else standardButton.PerformClick();
+        }
+        if (failure != null) throw failure;
+        Check(opened, "dialog opened from " + entry.Name);
     }
 
     private static Control Find(Control rootControl, string name) { return rootControl.Controls.Find(name, true).Single(); }
