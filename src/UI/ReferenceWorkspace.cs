@@ -38,6 +38,7 @@ namespace DeskBox.UI
         private DarkSelect _projectPicker, _mode;
         private string[] _projectIds = new string[0];
         private bool _updatingPicker;
+        private bool _layingOutRail;
         private readonly ToolTip _railTips = new ToolTip { ShowAlways = true };
         private DarkInput _globalSearch;
         private Image _factory;
@@ -195,6 +196,7 @@ namespace DeskBox.UI
                 _rail.Controls.Add(button);
                 _nav[id] = button;
             }
+            _rail.SizeChanged += delegate { UpdateNavigationRail(); };
             _subnav = Toolbar();
             _subnav.Height = WorkbenchPixels(45);
             _subnav.Padding = new Padding(12, 5, 8, 0);
@@ -310,15 +312,32 @@ namespace DeskBox.UI
 
         private void UpdateNavigationRail()
         {
-            bool compact = !_store.Settings.EngineeringNavExpanded;
-            _rail.Width = WorkbenchPixels(compact ? 62 : 194);
-            int i = 0;
-            foreach (var button in _nav.Values)
+            if (_layingOutRail) return;
+            _layingOutRail = true;
+            _rail.SuspendLayout();
+            try
             {
-                button.CompactNavigation = compact;
-                button.SetBounds(WorkbenchPixels(5), WorkbenchPixels(8 + 43 * i++), WorkbenchPixels(compact ? 48 : 174), WorkbenchPixels(38));
-                _railTips.SetToolTip(button, button.Text);
-                button.Invalidate();
+                bool compact = !_store.Settings.EngineeringNavExpanded;
+                _rail.Width = WorkbenchPixels(compact ? 62 : 194);
+                int logicalHeight = 8 + 43 * _nav.Count;
+                int scrollSpace = _rail.Height < WorkbenchPixels(logicalHeight)
+                    ? Math.Max(SystemInformation.VerticalScrollBarWidth, WorkbenchPixels(18)) : 0;
+                int left = WorkbenchPixels(5);
+                int buttonWidth = Math.Max(1, Math.Min(WorkbenchPixels(compact ? 48 : 174), _rail.Width - scrollSpace - 2 * left));
+                int scrollOffset = _rail.AutoScrollPosition.Y;
+                int i = 0;
+                foreach (var button in _nav.Values)
+                {
+                    button.CompactNavigation = compact;
+                    button.SetBounds(left, WorkbenchPixels(8 + 43 * i++) + scrollOffset, buttonWidth, WorkbenchPixels(38));
+                    _railTips.SetToolTip(button, button.Text);
+                    button.Invalidate();
+                }
+            }
+            finally
+            {
+                _rail.ResumeLayout();
+                _layingOutRail = false;
             }
         }
 
