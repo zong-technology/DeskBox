@@ -59,6 +59,7 @@ namespace DeskBox.Engineering
         private string FilePath { get { return Path.Combine(AppPaths.DataDir, "engineering-workspaces.json"); } }
         private string StateFile { get { return Path.Combine(AppPaths.DataDir, "engineering-current.json"); } }
         public event Action Changed;
+        public string RecoveryNotice { get; private set; }
 
         public WorkspaceStore()
         {
@@ -79,15 +80,16 @@ namespace DeskBox.Engineering
                 ?? _items.OrderByDescending(item => item.Pinned).ThenByDescending(item => item.LastOpenedAt).FirstOrDefault();
         }
 
-        private static T ReadWithBackup<T>(string path, T fallback) where T : class
+        private T ReadWithBackup<T>(string path, T fallback) where T : class
         {
             var saved = Json.Load<T>(path, null);
             if (saved != null) return saved;
             var previous = Json.Load<T>(path + ".bak", null);
             if (File.Exists(path))
             {
-                AppLog.Write("warn", "project", "工程配置无法读取：" + Path.GetFileName(path) +
-                    (previous == null ? " · 无可用备份" : " · 已读取上一版"));
+                var notice = Path.GetFileName(path) + (previous == null ? " 无法读取，无可用备份" : " 无法读取，已恢复到上一版");
+                RecoveryNotice = string.IsNullOrEmpty(RecoveryNotice) ? notice : RecoveryNotice + "；" + notice;
+                AppLog.Write("warn", "project", notice);
                 try
                 {
                     // Keep the damaged copy before the next successful write replaces it.

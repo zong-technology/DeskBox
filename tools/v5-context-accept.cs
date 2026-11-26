@@ -5,6 +5,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using DeskBox;
@@ -26,6 +27,10 @@ public static class V5ContextAcceptance
     private static Store store;
     private static WorkspaceStore projects;
     private static EngineerWorkspace a, b;
+    [DllImport("user32.dll")] private static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr window, IntPtr dc, uint flags);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr key, IntPtr data);
 
     [STAThread]
     public static int Main(string[] args)
@@ -36,7 +41,7 @@ public static class V5ContextAcceptance
         {
             SetUp();
             CheckCore();
-            if (args.Length > 0) CheckUi(Path.GetFullPath(args[0]));
+            if (args.Length > 0) CheckUi(Path.GetFullPath(args[0]), args.Length > 1 ? uint.Parse(args[1]) : 96);
             Console.WriteLine("V5 context: PASS " + passed + " / FAIL 0");
             return 0;
         }
@@ -191,9 +196,10 @@ public static class V5ContextAcceptance
         }
     }
 
-    private static void CheckUi(string output)
+    private static void CheckUi(string output, uint expectedDpi)
     {
         Directory.CreateDirectory(output);
+        SetProcessDPIAware();
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         using (var form = new MainForm(store))
@@ -202,6 +208,8 @@ public static class V5ContextAcceptance
             form.Show();
             form.Activate();
             Pump();
+            uint dpi = GetDpiForWindow(form.Handle);
+            Check(dpi == expectedDpi, "actual Windows DPI " + dpi + " (requested " + expectedDpi + ")");
             var workspace = form.Controls.OfType<ReferenceWorkspace>().Single();
             var picker = (DarkSelect)Find(workspace, "active-project");
             var scopes = (WorkspaceStore)Field(form, "_workspaces");
@@ -245,7 +253,8 @@ public static class V5ContextAcceptance
             WaitFor(() => receipt.Text.Contains("probe_succeeded") || receipt.Text.Contains("检测失败"), "MCP handshake", true);
             Check(receipt.Text.Contains("probe_succeeded"), "actual stdio MCP initialize and tool discovery");
 
-            foreach (var size in new[] { new Size(1366, 768), new Size(1600, 900), new Size(1920, 1080) })
+            foreach (var size in new[] { new Size(1366, 768), new Size(1600, 900), new Size(1920, 1080),
+                new Size(2560, 1440), new Size(3840, 2160) })
             {
                 if (Screen.PrimaryScreen.Bounds.Width < size.Width || Screen.PrimaryScreen.Bounds.Height < size.Height)
                 { Console.WriteLine("BLOCKED capture " + size + " display " + Screen.PrimaryScreen.Bounds.Size); continue; }
@@ -259,17 +268,13 @@ public static class V5ContextAcceptance
                 foreach (var route in ReferenceWorkspace.ReferencePages)
                 {
                     var nav = Find(workspace, "nav-" + route);
+                    nav.Focus();
                     Press(nav, Keys.Enter);
                     Pump();
                     var page = Find(workspace, "page-" + route);
                     Check(workspace.CurrentPage == route && page.Visible && page.Width > 0 && page.Height > 0, "keyboard route " + route + " at " + size);
-                    string name = Path.Combine(output, size.Width + "x" + size.Height + "-dpi" + Dpi.D(form, 96) + "-" + route + ".png");
-                    using (var image = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
-                    {
-                        using (var graphics = Graphics.FromImage(image))
-                            graphics.CopyFromScreen(form.PointToScreen(Point.Empty), Point.Empty, image.Size);
-                        image.Save(name, ImageFormat.Png);
-                    }
+                    string name = Path.Combine(output, size.Width + "x" + size.Height + "-dpi" + dpi + "-" + route + ".png");
+                    CaptureWindow(form, name);
                 }
             }
             form.Close();
@@ -290,7 +295,25 @@ public static class V5ContextAcceptance
 
     private static void Press(Control control, Keys key)
     {
-        control.GetType().GetMethod("OnKeyDown", Private).Invoke(control, new object[] { new KeyEventArgs(key) });
+        SendMessage(control.Handle, 0x0100, (IntPtr)key, IntPtr.Zero);
+        SendMessage(control.Handle, 0x0101, (IntPtr)key, IntPtr.Zero);
+    }
+
+    private static void CaptureWindow(Form window, string path)
+    {
+        using (var image = new Bitmap(window.ClientSize.Width, window.ClientSize.Height))
+        {
+            using (var graphics = Graphics.FromImage(image))
+            {
+                var dc = graphics.GetHdc();
+                try { if (!PrintWindow(window.Handle, dc, 2)) throw new IOException("Win32 PrintWindow failed."); }
+                finally { graphics.ReleaseHdc(dc); }
+            }
+            if (image.GetPixel(0, 0).ToArgb() == image.GetPixel(image.Width / 2, image.Height / 2).ToArgb() &&
+                image.GetPixel(0, 0).ToArgb() == image.GetPixel(image.Width - 1, image.Height - 1).ToArgb())
+                throw new InvalidDataException("Window capture appears blank: " + Path.GetFileName(path));
+            image.Save(path, ImageFormat.Png);
+        }
     }
 
     private static void Pump() { Application.DoEvents(); Thread.Sleep(45); Application.DoEvents(); }

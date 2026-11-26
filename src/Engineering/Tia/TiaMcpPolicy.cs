@@ -6,18 +6,21 @@ namespace DeskBox.Engineering.Tia
 {
     public sealed class TiaMcpPolicy
     {
-        private static string FilePath { get { return AppPaths.File("tia-mcp-policy.json"); } }
+        private const string FileName = "tia-mcp-policy.json";
         public bool Enabled = true;
         public bool OfflineEngineeringEnabled = true;
 
-        public static TiaMcpPolicy Load()
+        public static TiaMcpPolicy Load() { return LoadFrom(AppPaths.DataDir); }
+
+        internal static TiaMcpPolicy LoadFrom(string directory)
         {
-            if (!File.Exists(FilePath)) return new TiaMcpPolicy();
-            return Json.Load<TiaMcpPolicy>(FilePath, null)
+            string path = Path.Combine(directory, FileName);
+            if (!File.Exists(path)) return new TiaMcpPolicy();
+            return Json.Load<TiaMcpPolicy>(path, null)
                 ?? new TiaMcpPolicy { Enabled = false, OfflineEngineeringEnabled = false };
         }
 
-        public void Save() { Json.SaveAtomic(FilePath, this, true); }
+        public void Save() { Json.SaveAtomic(AppPaths.File(FileName), this, true); }
 
         internal void Require(string operation)
         {

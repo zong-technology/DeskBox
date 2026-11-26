@@ -329,7 +329,10 @@ namespace DeskBox.UI
             var scope = _projects.Context;
             int open = _store.Tasks.Count(task => !task.Done && (scope == null || scope.IncludesTask(task)));
             int issues = _sync.Incidents.Count(item => item.Status != "closed" && (scope == null || item.ProjectId == scope.Id));
-            _status.Text = (scope == null ? "全局工具" : scope.Name) + "   ·   " + open + " 项待办   ·   " + issues + " 项未关闭事件   ·   "
+            if (!string.IsNullOrWhiteSpace(_projects.RecoveryNotice))
+                _railTips.SetToolTip(_status, _projects.RecoveryNotice);
+            _status.Text = (_projects.RecoveryNotice == null ? "" : "工程配置恢复提示 · ") +
+                (scope == null ? "全局工具" : scope.Name) + "   ·   " + open + " 项待办   ·   " + issues + " 项未关闭事件   ·   "
                 + (_cloud.Connected ? "云同步在线" : _sync.Running ? "局域网同步在线" : "同步未连接") + "   ·   Ctrl+K";
         }
 

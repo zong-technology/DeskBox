@@ -112,8 +112,37 @@ jobs:
           & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\v5-context-accept.exe tools\v5-context-accept.cs
           if ($LASTEXITCODE -ne 0) { throw 'Engineering OS acceptance compile failed' }
           New-Item -ItemType Directory -Force dist\v5-qa | Out-Null
-          & .\dist\v5-context-accept.exe .\dist\v5-qa | Tee-Object dist\v5-qa\context-accept.log
-          if ($LASTEXITCODE -ne 0) { throw 'Engineering OS project context or UI acceptance failed' }
+          $display = @([DeskBoxCIDisplay]::GetSystemMetrics(0),[DeskBoxCIDisplay]::GetSystemMetrics(1))
+          foreach ($resolution in @(@(3840,2160),@(2560,1440))) {
+            $result = [DeskBoxCIDisplay]::SetSize($resolution[0],$resolution[1])
+            Write-Output ("Display request " + ($resolution -join 'x') + " returned " + $result)
+            if ($result -eq 0) { break }
+          }
+          try {
+            & .\dist\v5-context-accept.exe .\dist\v5-qa 96 | Tee-Object dist\v5-qa\context-accept-96.log
+            if ($LASTEXITCODE -ne 0) { throw 'Engineering OS project context or UI acceptance failed at 96 DPI' }
+            if ($env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+              $scale = $null
+              try { $scale = [DeskBoxCIDisplay]::ReadScale() } catch { Write-Output ("BLOCKED DPI matrix: " + $_.Exception.Message) }
+              if ($scale) {
+                foreach ($dpi in 120,144,192) {
+                  $relative = $scale.Minimum + ($dpi - 96) / 24
+                  if ($relative -gt $scale.Maximum) { Write-Output "BLOCKED DPI ${dpi}: display does not support this scale"; continue }
+                  $result = [DeskBoxCIDisplay]::SetScale($scale, [int]$relative)
+                  if ($result -ne 0) { Write-Output "BLOCKED DPI ${dpi}: display request returned $result"; continue }
+                  try {
+                    Start-Sleep -Milliseconds 750
+                    & .\dist\v5-context-accept.exe .\dist\v5-qa $dpi | Tee-Object ("dist\v5-qa\context-accept-" + $dpi + ".log")
+                    if ($LASTEXITCODE -ne 0) { throw ("Engineering OS project context or UI acceptance failed at " + $dpi + " DPI") }
+                  } finally {
+                    if ([DeskBoxCIDisplay]::SetScale($scale, $scale.Current) -ne 0) { throw 'Failed to restore runner scale' }
+                  }
+                }
+              }
+            }
+          } finally {
+            if ([DeskBoxCIDisplay]::SetSize($display[0],$display[1]) -ne 0) { throw 'Failed to restore runner display size' }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

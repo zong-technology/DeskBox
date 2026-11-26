@@ -148,6 +148,11 @@ namespace DeskBox.Engineering.Tia
             var directory = PlcEngineering.FullLocalPath(Path.Combine(dataRoot, id));
             var job = Json.Load<TiaJob>(PlcEngineering.FullLocalPath(Path.Combine(directory, RequestFile)), null);
             ValidateJob(job);
+            var policyDirectory = Path.GetDirectoryName(dataRoot);
+            if (!string.IsNullOrEmpty(job.ProjectId) &&
+                string.Equals(Path.GetFileName(policyDirectory), "project-tia-" + Uri.EscapeDataString(job.ProjectId), StringComparison.OrdinalIgnoreCase))
+                policyDirectory = Path.GetDirectoryName(policyDirectory);
+            TiaMcpPolicy.LoadFrom(policyDirectory).Require(job.Operation);
             using (var input = new StreamReader(Console.OpenStandardInput(), Utf8))
             using (var output = new StreamWriter(Console.OpenStandardOutput(), Utf8))
                 return TiaMcp.Serve(dataRoot, id, job, input, output);
