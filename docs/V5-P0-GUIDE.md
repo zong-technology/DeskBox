@@ -37,3 +37,5 @@ V5 第一阶段保留 .NET Framework 4.8、WinForms、原生 TIA 反射工作进
 - Windows 需要 .NET Framework 4.8。候选安装由仓库的 Inno Setup 脚本构建。核对 Windows 测试产物中的 `SHA256SUMS.txt` 后再使用相应安装包。
 - 安装器保留同一路径的上一版本；退出 DeskBox 后，从 PowerShell 运行 `tools/rollback-install.ps1 -InstallDir "<DeskBox 安装目录>"` 进行版本回退。安装目录与数据目录分别处理。
 - 如果需要恢复旧版数据，在备份中心选用升级前生成的备份并重启。保留一份 V5 数据副本，以便后续读取 V5 会话和 TIA 作业。
+
+[候选安装包和 SHA-256](https://github.com/zong-technology/DeskBox/actions/runs/45775554408/artifacts/15096656235) · [第一阶段测试与已知限制](V5-P0-VERIFICATION.md)
