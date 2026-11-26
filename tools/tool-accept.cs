@@ -117,7 +117,7 @@ public class ToolAccept
         chat.AllowedRoots = new List<string> { workDir };
         var session = chat.NewSession();
         var buildMethod = typeof(ChatService).GetMethod("BuildContext", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var msgs = (List<AiMessage>)buildMethod.Invoke(chat, new object[] { session });
+        var msgs = (List<AiMessage>)buildMethod.Invoke(chat, new object[] { session, chat.Project });
         var system = msgs.First(m => m.Role == "system").Content;
         Check("系统提示含工具清单", system.Contains("fs.search") && system.Contains("task.create"), "len=" + system.Length);
         Check("系统提示含授权目录", system.Contains(workDir), "ok");

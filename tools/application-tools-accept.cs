@@ -28,7 +28,7 @@ public class ApplicationToolsAccept
             var listed=Tool(ctx,"task.list");Check("AI读取真实任务无需文件开关",listed.Ok&&listed.Output.Contains("核查联锁")&&listed.Output.Contains("Expected"));
             Check("AI应用状态不包含密钥",Tool(ctx,"app.context").Ok&&!Tool(ctx,"app.context").Output.Contains("ApiKey"));
             var chat=new ChatService(store,new ProviderStore());chat.UiInvoke=ctx.UiInvoke;
-            typeof(ChatService).GetMethod("ExecuteToolCalls",BindingFlags.NonPublic|BindingFlags.Instance).Invoke(chat,new object[]{chat.Current,ToolCallParser.Parse("```tool\n{\"name\":\"task.list\",\"args\":{}}\n```"),CancellationToken.None});
+            typeof(ChatService).GetMethod("ExecuteToolCalls",BindingFlags.NonPublic|BindingFlags.Instance).Invoke(chat,new object[]{chat.Current,ToolCallParser.Parse("```tool\n{\"name\":\"task.list\",\"args\":{}}\n```"),CancellationToken.None,chat.Project,new Action<string>(_=>{})});
             Check("聊天工具闭环返回真实任务",chat.Current.Messages.Any(m=>m.Role=="tool"&&m.ToolName=="task.list"&&m.Content.Contains("核查联锁")));
             Check("项目工具接入真实仓库",Tool(ctx,"project.list").Output.Contains("任务联动项目"));
             var stamp=ApplicationTool.TaskStamp(store.Tasks[0]);confirm=false;

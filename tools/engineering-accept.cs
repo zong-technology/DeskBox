@@ -77,7 +77,7 @@ public class EngineeringAccept
         var chat = new ChatService(store, new ProviderStore());
         chat.SetGenerationOptions("plc", 0.0, 2048);
         var build = typeof(ChatService).GetMethod("BuildContext", BindingFlags.NonPublic | BindingFlags.Instance);
-        var msgs = (List<AiMessage>)build.Invoke(chat, new object[] { chat.Current });
+        var msgs = (List<AiMessage>)build.Invoke(chat, new object[] { chat.Current, chat.Project });
         var sys = msgs[0].Content;
         C("PLC 模式注入领域提示", sys.Contains("Siemens PLC") && sys.Contains("S7-1200/1500") && sys.Contains("变更控制"), "len=" + sys.Length);
         C("生成参数真实保存", chat.Current.Temperature == 0 && chat.Current.MaxTokens == 2048 && chat.Current.DomainMode == "plc", chat.Current.MaxTokens.ToString());

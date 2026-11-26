@@ -53,6 +53,8 @@ namespace DeskBox.Ai
         public static void RequireLocalPath(string path)
         {
             if(!Local || string.IsNullOrWhiteSpace(path))return;
+            if (path.StartsWith(@"\\", StringComparison.Ordinal))
+                throw new InvalidOperationException("本地隔离模式不能访问网络共享或映射的网络磁盘。");
             var full=Path.GetFullPath(path);
             if(full.StartsWith(@"\\",StringComparison.Ordinal)||new DriveInfo(Path.GetPathRoot(full)).DriveType==DriveType.Network)throw new InvalidOperationException("本地隔离模式不能访问网络共享或映射的网络磁盘。");
             var root=Path.GetPathRoot(full);var current=root;

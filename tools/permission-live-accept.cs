@@ -21,14 +21,14 @@ public class PermissionLiveAccept
         chat.PermissionRoots = TrustedRoots.Load; chat.FileAccessEnabled = () => enabled; chat.RefreshPermissions(); var session = chat.NewSession();
         var flags = BindingFlags.NonPublic | BindingFlags.Instance;
         var execute = typeof(ChatService).GetMethod("ExecuteToolCalls", flags);
-        Func<bool> read = () => { execute.Invoke(chat, new object[] { session, ToolCallParser.Parse("```tool\n" + Json.ToJson(new { name = "fs.read", args = new { path = path } }) + "\n```"), CancellationToken.None }); return session.Messages.Last(x => x.Role == "tool").Content.StartsWith("✅"); };
+        Func<bool> read = () => { execute.Invoke(chat, new object[] { session, ToolCallParser.Parse("```tool\n" + Json.ToJson(new { name = "fs.read", args = new { path = path } }) + "\n```"), CancellationToken.None, chat.Project, new Action<string>(_ => {}) }); return session.Messages.Last(x => x.Role == "tool").Content.StartsWith("✅"); };
         C("初始未授权拒绝", !read());
         TrustedRoots.Add(root); C("新增授权无需重建聊天即可读取", read());
         var build = typeof(ChatService).GetMethod("BuildContext", flags);
-        var context = (List<AiMessage>)build.Invoke(chat, new object[] { session }); C("模型上下文看到新授权", context[0].Content.Contains(root));
+        var context = (List<AiMessage>)build.Invoke(chat, new object[] { session, chat.Project }); C("模型上下文看到新授权", context[0].Content.Contains(root));
         chat.AllowedFiles.Add(path); TrustedRoots.Remove(root); C("移除授权立即拒绝旧工具上下文", !read()); C("撤销目录同时清除内部临时文件授权", !chat.AllowedFiles.Contains(path));
         TrustedRoots.Add(root); enabled = false; C("关闭文件总开关拒绝访问", !read());
-        context = (List<AiMessage>)build.Invoke(chat, new object[] { session }); C("模型识别文件访问关闭", context[0].Content.Contains("所有文件工具都会拒绝"));
+        context = (List<AiMessage>)build.Invoke(chat, new object[] { session, chat.Project }); C("模型识别文件访问关闭", context[0].Content.Contains("所有文件工具都会拒绝"));
         enabled = true; C("重新启用实时生效", read());
         string drive = Path.GetPathRoot(temp); TrustedRoots.Save(new List<string> { drive }); C("盘符授权保留根反斜杠", TrustedRoots.Load().Single() == drive);
         var permissionFile = Path.Combine(temp, "trusted-roots.json"); File.SetAttributes(permissionFile, FileAttributes.ReadOnly);

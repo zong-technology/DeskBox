@@ -137,7 +137,7 @@ public static class DeskBoxInstallCapture {
             if (!SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x0043)) throw new InvalidOperationException("Could not raise the installed test window.");
             SetForegroundWindow(window);
             Thread.Sleep(240);
-            navigation = Find(window, "nav-tia", "\u535a\u56fe AI \u5de5\u7a0b\u5e08");
+            navigation = Find(window, "nav-tia", "PLC Studio");
             var bounds = navigation.Current.BoundingRectangle;
             IntPtr navHit = WindowFromPoint(new Point((int)(bounds.Left + bounds.Width/2), (int)(bounds.Top + bounds.Height/2)));
             GetWindowThreadProcessId(navHit, out hitProcess);

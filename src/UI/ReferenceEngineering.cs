@@ -305,6 +305,9 @@ namespace DeskBox.UI
             grid.Controls.Add(OperationsPanel("项目导出文件", "", documentList, out listHint), 0, 0);
             grid.Controls.Add(OperationsPanel("原文预览", "", preview, out previewHint), 1, 0);
             int revision = 0;
+            string displayedPath = null;
+            string previousProject = null;
+            FileEntry[] displayedFiles = new FileEntry[0];
             documentList.RowActivated += async delegate
             {
                 var row = documentList.SelectedRow;
@@ -312,6 +315,7 @@ namespace DeskBox.UI
                 var path = row == null ? null : row.Tag as string;
                 if (scope == null || !scope.CanAccessPath(path)) return;
                 int current = ++revision;
+                displayedPath = path;
                 previewHint.Text = Path.GetFileName(path);
                 preview.Clear();
                 try
@@ -329,13 +333,29 @@ namespace DeskBox.UI
                 var scope = _projects.Context;
                 var root = scope == null ? null : string.IsNullOrEmpty(scope.DcsPath) ? scope.Root : scope.DcsPath;
                 var entries = ScopedFiles(scope, root, new[] { ".fhx", ".csv", ".txt", ".log", ".xml", ".dat", ".ufl" }, 250);
-                revision++;
-                preview.Clear();
-                previewHint.Text = "选择导出文件并按 Enter 查看前 64 Ki 字符";
+                string projectId = scope == null ? "" : scope.Id;
+                var fileBefore = displayedFiles.FirstOrDefault(file => file.Path == displayedPath);
+                var fileNow = entries.FirstOrDefault(file => file.Path == displayedPath);
+                if (previousProject != projectId || displayedPath == null || fileNow == null || fileBefore == null || fileNow.Mtime != fileBefore.Mtime)
+                {
+                    revision++;
+                    preview.Clear();
+                    displayedPath = null;
+                    previewHint.Text = "选择导出文件并按 Enter 查看前 64 Ki 字符";
+                }
+                bool needsRows = previousProject != projectId ||
+                    !entries.Select(file => Tuple.Create(file.Path, file.Mtime)).SequenceEqual(
+                        displayedFiles.Select(file => Tuple.Create(file.Path, file.Mtime)));
+                previousProject = projectId;
+                displayedFiles = entries;
                 listHint.Text = scope == null ? "请选择工程项目" : entries.Length == 0
                     ? "没有可读取的导出文件 · 核对资料目录与索引" : entries.Length + " 个文件 · 双击或按 Enter 预览";
-                documentList.SetRows(entries.Select(file => new ListRow
-                    { Cells = new[] { file.Name, TimeText(file.Mtime) }, Tag = file.Path, Tip = file.Path }).ToList());
+                if (needsRows)
+                {
+                    documentList.SetRows(entries.Select(file => new ListRow
+                        { Cells = new[] { file.Name, TimeText(file.Mtime) }, Tag = file.Path, Tip = file.Path }).ToList());
+                    if (displayedPath != null) documentList.SelectIndex(Array.FindIndex(entries, file => file.Path == displayedPath));
+                }
             };
             AddMain(page, grid, toolbar);
             return page;

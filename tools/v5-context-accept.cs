@@ -183,6 +183,12 @@ public static class V5ContextAcceptance
         new TiaMcpPolicy { Enabled = true, OfflineEngineeringEnabled = false }.Save();
         ExpectFailure(() => TiaOpenness.Run(new TiaJob { Operation = "read-open", ProjectFile = bFile, ProjectId = a.Id, PortalProcessId = 123 }, CancellationToken.None, projects.Context), "foreign engineering file rejected by TIA job boundary");
         Check(!TiaMcpPolicy.Load().OfflineEngineeringEnabled, "MCP capability policy reloads");
+        if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+        {
+            var foreign = Path.Combine(b.Root, "deliberately-not-a-TIA-project.ap20");
+            ExpectFailure(() => TiaOpenness.Run(new TiaJob { Operation = "read-open", ProjectFile = foreign,
+                ProjectId = a.Id, PortalProcessId = 1 }, CancellationToken.None, projects.Context), "project scope blocks foreign native jobs before Openness");
+        }
     }
 
     private static void CheckUi(string output)
@@ -218,7 +224,8 @@ public static class V5ContextAcceptance
             docs.SelectIndex(0);
             Press(docs, Keys.Enter);
             var preview = (RichTextBox)Find(workspace, "dcs-export-preview");
-            WaitFor(() => preview.Text.Contains("MODULE_INSTANCE"), "DCS text preview", true);
+            WaitFor(() => preview.Text.Contains("MODULE_INSTANCE") || preview.Text.Contains("读取失败"), "DCS text preview", true);
+            Check(preview.Text.Contains("MODULE_INSTANCE"), "actual FHX text visible: " + (preview.Text.Contains("MODULE_INSTANCE") ? "loaded" : preview.Text));
             form.SwitchView("tia");
             var tia = (TiaEngineerView)Find(workspace, "page-tia");
             tia.LoadExports(new[] { bFile });
