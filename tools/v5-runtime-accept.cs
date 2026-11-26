@@ -251,8 +251,9 @@ internal static class V5RuntimeAccept
             restored.Servers("A", out recovered).Any(item => item.Id == server.Id && item.Grants.Count == 1), "grants and actual failure records survive reload");
 
         if (args.Length != 2) throw new ArgumentException("Supply absolute Python executable and stdio fixture paths.");
+        string diagnosticPath = Path.Combine(root, "stdio-fixture-diagnostic.txt");
         var stdio = gateway.SaveServer("A", new McpServer { Name = "stdio fixture", Transport = "stdio", Address = args[0],
-            Arguments = "\"" + args[1] + "\""});
+            Arguments = "\"" + args[1] + "\" \"" + diagnosticPath + "\""});
         stdio.Enabled = true;
         gateway.SaveServer("A", stdio);
         result = gateway.Discover("A", stdio.Id, "", None);
