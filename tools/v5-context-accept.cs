@@ -263,6 +263,7 @@ public static class V5ContextAcceptance
                 var log = Find(panel, "agent-task-receipt");
                 WaitFor(() => log.Text.Contains("local.tool"), "agent tasks read from persistent store", true);
                 Check(log.Text.Contains("engineering-calculator") && log.Text.Contains("完成"), "execution record shows real successful step");
+                Check(log.ClientSize.Height > panel.ClientSize.Height / 2, "execution record has room to display steps");
                 CaptureWindow(panel, Path.Combine(output, "agent-task-record-dpi" + dpi + ".png"));
             });
             form.SwitchView("mcp");
@@ -329,8 +330,9 @@ public static class V5ContextAcceptance
             Check(discover.Visible && discover.Enabled, "third-party MCP entry and discover button are usable");
             discover.PerformClick();
             var tools = (ListBox)Find(panel, "mcp-discovered-tools");
-            WaitFor(() => tools.Items.Count == 1 || status.Text.Contains("failed"), "native third-party stdio discovery", true);
-            Check(tools.Items.Count == 1 && ((McpTool)tools.Items[0]).Name == "echo" && status.Text.Contains("succeeded"),
+            WaitFor(() => tools.Items.Count == 1 || status.Text.StartsWith("操作结束"), "native third-party stdio discovery", true);
+            Check(tools.Items.Count == 1 && ((McpTool)tools.Items[0]).Name == "echo" && status.Text.Contains("发现完成") &&
+                Find(panel, "mcp-call-receipt").Text.Contains("succeeded"),
                 "third-party MCP dialog displays actual discovered tool and receipt");
             Check(!Find(panel, "mcp-invoke").Enabled && Find(panel, "mcp-allow-tool").Enabled, "manual call UI respects stored grant");
             CaptureWindow(panel, Path.Combine(output, "third-party-mcp-dpi" + dpi + ".png"));
@@ -391,7 +393,7 @@ public static class V5ContextAcceptance
 
     private static void CaptureWindow(Form window, string path)
     {
-        using (var image = new Bitmap(window.ClientSize.Width, window.ClientSize.Height))
+        using (var image = new Bitmap(window.Width, window.Height))
         {
             using (var graphics = Graphics.FromImage(image))
             {

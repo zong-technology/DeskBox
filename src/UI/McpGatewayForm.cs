@@ -191,8 +191,9 @@ namespace DeskBox.UI
                 if (result.Catalog != null) SetCatalog(result.Catalog, tool == null ? null : tool.Name);
                 else if (!call) SetCatalog(null);
                 var receipt = result.Receipt;
-                status.Text = Describe(receipt) + (result.Error.Length == 0 ? "" : " · " + result.Error);
-                response.Text = status.Text + "\r\n" + result.Output;
+                status.Text = receipt.State == "succeeded" ? (call ? "调用完成。" : "发现完成 · " + receipt.ToolCount + " 个工具")
+                    : receipt.State == "cancelled" ? "已取消，请查看本次回执。" : "操作结束 · " + receipt.ErrorKind;
+                response.Text = Describe(receipt) + "\r\n" + result.Error + "\r\n" + result.Output;
             }
             catch (Exception error) { if (!IsDisposed && InScope) status.Text = error.Message; }
             finally
@@ -237,7 +238,11 @@ namespace DeskBox.UI
                     catch (Exception error) { status.Text = error.Message; }
                 });
             }
-            menu.Closed += delegate { BeginInvoke(new Action(menu.Dispose)); };
+            menu.Closed += delegate
+            {
+                if (IsHandleCreated && !IsDisposed) BeginInvoke(new Action(menu.Dispose));
+                else menu.Dispose();
+            };
             menu.Show(revoke, new Point(0, revoke.Height));
         }
 
@@ -264,8 +269,9 @@ namespace DeskBox.UI
         {
             var tool = SelectedTool;
             schema.Text = tool == null ? "" : catalog.ServerName + " " + catalog.ServerVersion + " · " + catalog.ProtocolVersion + "\r\n"
-                + tool.Description + "\r\n\r\n输入 Schema\r\n" + tool.InputSchema + "\r\n\r\n输出 Schema\r\n" + tool.OutputSchema
-                + "\r\n\r\n服务提示\r\n" + tool.Annotations;
+                + tool.Description + "\r\n\r\n输入 Schema\r\n" + tool.InputSchema + "\r\n\r\n输出 Schema\r\n"
+                + (tool.OutputSchema == "null" ? "服务未提供。" : tool.OutputSchema)
+                + "\r\n\r\n服务提示\r\n" + (tool.Annotations == "null" ? "服务未提供。" : tool.Annotations);
         }
 
         private void ShowReceipts()

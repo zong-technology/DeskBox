@@ -53,13 +53,18 @@ namespace DeskBox.UI
             runs.SelectedIndexChanged += delegate { ShowRecord(); };
             details = new TextBox { Dock = DockStyle.Fill, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Both,
                 WordWrap = false, Name = "agent-task-receipt" };
-            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 130 };
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, FixedPanel = FixedPanel.Panel1 };
             split.Panel1.Controls.Add(runs);
             split.Panel2.Controls.Add(details);
             Controls.Add(split);
             Controls.Add(status);
             Controls.Add(toolbar);
-            Shown += delegate { chat.Changed += CloseOnScopeChange; Reload(); };
+            Shown += delegate
+            {
+                split.SplitterDistance = Math.Max(split.Panel1MinSize, split.Height / 3);
+                chat.Changed += CloseOnScopeChange;
+                Reload();
+            };
             FormClosed += delegate { chat.Changed -= CloseOnScopeChange; };
         }
 
