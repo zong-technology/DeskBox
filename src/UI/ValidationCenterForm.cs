@@ -363,6 +363,12 @@ namespace DeskBox.UI
             var review = snapshot.All<ReviewRecord>().Where(item => item.TargetId == record.Id && item.TargetRevision == record.Revision)
                 .OrderByDescending(item => item.CreatedAt).FirstOrDefault();
             if (review != null) text.AppendLine("当前版本人工审核  " + StatusLabel(review.Decision) + " · " + review.CreatedBy);
+            var deviation = record as Deviation;
+            if (deviation != null && !string.IsNullOrEmpty(deviation.ClosureReviewId))
+            {
+                var closure = snapshot.Find<ReviewRecord>(deviation.ClosureReviewId);
+                if (closure != null) text.AppendLine("关闭依据  版本 " + closure.TargetRevision + " · " + closure.CreatedBy + " · " + closure.Id);
+            }
             foreach (var field in FieldsFor(record.GetType()).Where(item => item.Key != "Description" && item.Key != "Status"))
             {
                 var value = FieldValue(record, field.Key);

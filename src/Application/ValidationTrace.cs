@@ -171,6 +171,12 @@ namespace DeskBox.AppServices
             row.OrphanTest = req == null && test.Applicable && Active(test);
             row.Covered = req != null && row.Applicable && test.Applicable && Active(test);
             row.HistoricalExecutionCount = graph.Executions[test.Id].Count();
+            var deviations = graph.DeviationsByTestCase[test.Id].Concat(graph.Neighbors<Deviation>(test.Id, "deviation"))
+                .Concat(graph.Executions[test.Id].SelectMany(attempt => graph.DeviationsByExecution[attempt.Id]
+                    .Concat(graph.Neighbors<Deviation>(attempt.Id, "deviation"))))
+                .Where(item => !Is(item.Status, "withdrawn")).ToList();
+            row.DeviationIds = Ids(deviations.Select(item => item.Id));
+            row.OpenDeviationIds = Ids(deviations.Where(item => !Is(item.Status, "closed")).Select(item => item.Id));
             var execution = graph.LatestExecution(test);
             if (execution == null) return row;
             row.ExecutionId = execution.Id;
@@ -187,10 +193,6 @@ namespace DeskBox.AppServices
             row.EvidenceChecked = graph.Service != null;
             row.UnavailableEvidenceIds = Ids(row.EvidenceIds.Where(id => !graph.Available((Evidence)graph.Records[id])));
             row.EvidenceMissing = Terminal(execution.Status) && row.EvidenceIds.Count == row.UnavailableEvidenceIds.Count;
-            var deviations = graph.DeviationsByExecution[execution.Id].Concat(graph.Neighbors<Deviation>(execution.Id, "deviation"))
-                .Where(item => !Is(item.Status, "withdrawn")).ToList();
-            row.DeviationIds = Ids(deviations.Select(item => item.Id));
-            row.OpenDeviationIds = Ids(deviations.Where(item => !Is(item.Status, "closed")).Select(item => item.Id));
             return row;
         }
 
@@ -260,7 +262,7 @@ namespace DeskBox.AppServices
             internal readonly ILookup<string, TraceLink> Outgoing, Incoming;
             internal readonly ILookup<string, TestExecution> Executions;
             internal readonly ILookup<string, Evidence> EvidenceByExecution;
-            internal readonly ILookup<string, Deviation> DeviationsByExecution;
+            internal readonly ILookup<string, Deviation> DeviationsByExecution, DeviationsByTestCase;
             internal readonly List<string> InvalidLinkIds;
             internal readonly bool RecoveredTags;
             private readonly ILookup<string, ReviewRecord> reviews;
@@ -296,6 +298,7 @@ namespace DeskBox.AppServices
                 Executions = snapshot.All<TestExecution>().ToLookup(execution => execution.TestCaseId, StringComparer.Ordinal);
                 EvidenceByExecution = snapshot.All<Evidence>().ToLookup(evidence => evidence.ExecutionId, StringComparer.Ordinal);
                 DeviationsByExecution = snapshot.All<Deviation>().ToLookup(deviation => deviation.ExecutionId, StringComparer.Ordinal);
+                DeviationsByTestCase = snapshot.All<Deviation>().ToLookup(deviation => deviation.TestCaseId, StringComparer.Ordinal);
                 reviews = snapshot.All<ReviewRecord>().Where(Active).ToLookup(review => review.TargetId, StringComparer.Ordinal);
             }
 

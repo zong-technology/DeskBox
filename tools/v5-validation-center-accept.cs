@@ -266,22 +266,26 @@ public static class ValidationCenterAcceptance
         }, 0, None);
         var retestEvidence = Write(projectA, "retest.txt", "Synthetic successful fixture observation, recorded by the acceptance harness.");
         service.ArchiveEvidence(projectA, new Evidence { ExecutionId = retest.Id }, retestEvidence, None);
+        trace = ValidationTrace.Query(projectA, service.Read(projectA, None), new ValidationTraceFilter { TagId = tag.TagId }, None, service);
+        Check(trace.Rows.Any(row => row.RequirementId == urs.Id && row.ExecutionId == retest.Id && row.OpenDeviationIds.Contains(deviation.Id)),
+            "passing retest leaves the original open deviation visible in the current RTM");
         deviation.RetestExecutionId = retest.Id;
         deviation.Impact = "Limited to synthetic fixture comparison.";
         deviation.RootCause = "Synthetic input row was intentionally varied.";
         deviation.Action = "Recorded offline correction and rerun.";
         deviation.Status = "review-pending";
         deviation = Save(projectA, deviation, deviation.Revision);
-        service.Review(projectA, deviation.Id, deviation.Revision, "approved", "Reviewed fixture failure and attached retest", None);
+        var closingReview = service.Review(projectA, deviation.Id, deviation.Revision, "approved", "Reviewed fixture failure and attached retest", None);
         deviation = service.CloseDeviation(projectA, deviation.Id, deviation.Revision, None);
-        Check(deviation.Status == "closed" && deviation.ClosedAt > 0 && retest.RetestOfId == failure.Id &&
+        Check(deviation.Status == "closed" && deviation.ClosedAt > 0 && deviation.ClosureReviewId == closingReview.Id && retest.RetestOfId == failure.Id &&
             service.Read(projectA, None).Find<TestExecution>(failure.Id).Status == "failed", "reviewed close retains both failed original and successful retest");
         var totals = ValidationTrace.Statistics(projectA, service.Read(projectA, None), new ValidationTraceFilter(), None, service);
         Check(Metric(totals, "executed-tests").Numerator == 1 && Metric(totals, "test-cases").Numerator == 2 &&
             Metric(totals, "test-pass").Numerator == 1 && Metric(totals, "test-pass").Denominator == 1 &&
             totals.HistoricalExecutions == 2, "current pass statistics exclude old failed revisions and count history separately");
         trace = ValidationTrace.Query(projectA, service.Read(projectA, None), new ValidationTraceFilter { TagId = tag.TagId }, None, service);
-        Check(trace.Rows.Any(row => row.RequirementId == urs.Id && row.ExecutionId == retest.Id && !row.EvidenceMissing) &&
+        Check(trace.Rows.Any(row => row.RequirementId == urs.Id && row.ExecutionId == retest.Id && !row.EvidenceMissing &&
+            row.DeviationIds.Contains(deviation.Id) && !row.OpenDeviationIds.Contains(deviation.Id)) &&
             trace.InvalidLinkIds.Count == 0, "Tag filter resolves current passing execution and verified evidence");
     }
 
