@@ -1,6 +1,55 @@
-# DeskBox V5 · 功能矩阵
+# DeskBox V5 功能矩阵
 
-状态含义：VERIFIED 为同一版本与已注明环境中实测；IMPLEMENTED 为已接通实现、未完整复测；PARTIAL 为已有路径但覆盖缺口；UI_ONLY 为视觉或入口未接通业务；MOCK 为测试夹具或历史演示；BROKEN 为已查明缺陷；MISSING 为无产品实现；BLOCKED 为外部环境缺失。此表的基线为 `1930b40`。
+当前功能状态见 alpha.3 和 alpha.2 表。历史基线与 alpha.1 条目保留供追溯。VERIFIED 表示在列出的环境经验证，IMPLEMENTED 表示已经接通，PARTIAL 表示覆盖不完整，BLOCKED 表示受测试环境限制。MISSING、UI_ONLY、MOCK、BROKEN 用于记录缺少实现、仅有界面、回归夹具或缺陷。
+
+## V5.0-alpha.3 功能增量
+
+| 功能 | 状态 | 交付与验收范围 |
+| --- | --- | --- |
+| alpha.2 证据及交接核对 | VERIFIED | 受测源码 `3047cb7`、文档 `9a6e77a`、14 份交接、试验范围和双文件 SHA-256 已核对。 |
+| Agent 资料比较与 Tag 查询 | VERIFIED | 真实回环模型协议选择工程工具。结果包括真实差异、文件哈希、行号与稳定 Tag ID。外部商业模型的实际效果待授权测试。 |
+| Agent 与第三方 MCP 联动 | VERIFIED | 默认停用，项目级授权、只读封闭能力、参数 Schema、逐次人工确认、实时协商、跨项目、撤销和断流已测试。模型介导的调用限于本机模型和回环 HTTP 工具。 |
+| PLC 离线工程资料 | VERIFIED | 复用 SCL、XML、AML、CSV 分析和 TIA 工作台。增加来源定位、统一 Tag、字段差异和离线诊断回执查阅。 |
+| TIA Openness 实机 | BLOCKED | 现有实例、版本、工程和 PLC 对象只读路径继续保留。真实连接、授权项目及 Siemens 实际编译待持证隔离环境。 |
+| DeltaV FHX | PARTIAL | 结构、字段、未知对象和两版差异有真实文件与离线语法夹具测试。品牌版本和生产项目导出样本待验收。 |
+| 统一工程 Tag | VERIFIED | 项目与系统隔离导入、字段映射、冲突、合并、手工管理、分页、版本、双格式导出和恢复。支持 PLC、FHX 与 IO List 汇入同一实体。 |
+| 制药验证、仪表与事件关联 | PARTIAL | Tag 提供稳定实体关联接口。验证需求、用例、证据正式业务及仪表统一管理安排后续版本。 |
+| 第三方 MCP OAuth | MISSING | 现有手动 HTTP Bearer 与 stdio 保持。OAuth、远程 Agent 服务与更宽的 Schema 方言待后续兼容验证。 |
+
+[alpha.3 指南](V5-ALPHA3-GUIDE.md) · [FHX 矩阵](V5-DELTA-V-FHX-COMPATIBILITY.md) · [版本证据](V5-BUILD-PROVENANCE.md)
+
+## V5.0-alpha.2 功能优先增量
+
+| 功能 | 状态 | 已实现与验收边界 |
+| --- | --- | --- |
+| 桌面 Agent Runtime 与六层架构 | VERIFIED | 真模型协议、分步执行、真实工程计算、有限重试、项目／环境隔离、读写回执与崩溃恢复路径均有直接服务测试。保留 WinForms 及旧业务入口。 |
+| 多模型协议及能力探测 | VERIFIED | 实测本地 Chat Completions 和 Responses 的 SSE，记录有据的文本增量、终止帧和供应商上报的 Tokens。实际商业供应商、价格及高级模型原生 function calling 留待专项。 |
+| 本地确定性降级 | VERIFIED | 当前项目索引搜索、无可访问根时的拒绝、用量程确定性计算已有验收。明确本地命令支持在已配置模型时绕过模型。 |
+| 通用 MCP 注册与协议 | VERIFIED | 项目注册、HTTP＋SSE、独立 stdio、JSON-RPC、分页、结构化参数/响应、权限、诊断和取消有实际传输证据。可同时保留内置 TIA MCP。 |
+| 第三方 MCP 凭据、配置交换 | PARTIAL | 临时 Bearer 可用于 HTTP。OAuth、旧 SSE 传输和配置交换待评估。当前数据目录参与应用备份。 |
+| 桌面模型调用第三方 MCP | MISSING | 本期第三方工具提供逐工具授权和单次人工执行。桌面 Agent 使用已有受控工具注册表。 |
+| TIA 项目结构、DeltaV、统一 Tag | PARTIAL | 沿用 alpha.1 已验收的工程范围和离线导出读取。持证 V20 工程实机及 DeltaV FHX 兼容、统一 Tag 待 alpha.3。 |
+| 验证追踪矩阵、证据与审核 | MISSING | alpha.4 按用户确定的需求、用例、证据和偏差模型推进。 |
+| UI 设计交接 | IMPLEMENTED | 维护 14 份表现层交接文档和接口，先交付普通功能入口。最终视觉、布局和交互统一后置。 |
+
+[alpha.2 服务、数据与操作](V5-ALPHA2-GUIDE.md) · [验收证据](V5-ALPHA2-VERIFICATION.md) · [设计交接](UI-HANDOFF/PRODUCT-OVERVIEW.md)
+
+## V5.0-alpha.1 第一阶段增量
+
+| 模块 | 状态 | 当期范围 |
+| --- | --- | --- |
+| 工程上下文、项目切换、任务与事件隔离 | VERIFIED | 读写范围、重名任务和嵌套目录、保存失败、重新加载均有验收。Tag 与资产数据关系仍待实现。 |
+| 工程驾驶舱 | IMPLEMENTED | 当前工程、近 7 日到期任务、未关闭事件、变更文件、近期动作和服务状态已接入真实数据。RTM 覆盖率待实施。 |
+| 工作台导航、工具抽屉和工作模式 | VERIFIED | 主模块键盘激活、项目选择器和顶栏布局有运行与截图证据。四种模式的入口已实现，模式切换的多屏布局和项目级停靠恢复待验收。 |
+| AI 项目会话与文件访问 | VERIFIED | 验证开发版存储、项目切换、活跃请求取消、迟到流隔离、本地检索和旧版回滚历史范围。外部供应商费用和完整 Agent 任务中心为 PARTIAL。 |
+| 本机 TIA MCP 管理 | VERIFIED | 实际 stdio 进程启动、协议、工具发现、策略、耗时和响应回执有测试。第三方 MCP 注册、配置交换与通用工具权限仍为 MISSING。 |
+| PLC Studio | PARTIAL | 增加项目资料边界、独立草稿与作业。离线导出和工作台有证据，授权 V20 工程仍为 BLOCKED。 |
+| DCS Studio | PARTIAL | 支持从项目内文件源读取 FHX 等文本预览。版本兼容性、对象解析与差异仍为 MISSING。 |
+| 验证中心 | PARTIAL | 项目阶段、加权进度、资料入口和已有模板接入。证据库、追溯、偏差与签核仍为 MISSING。 |
+
+[操作、技术架构、数据兼容和回退](V5-P0-GUIDE.md) · [综合验收](V5-P0-VERIFICATION.md)
+
+## 历史基线 1930b40
 
 | 模块 / 页面 | 基线 | 实际入口、服务与验收缺口 |
 | --- | --- | --- |
@@ -45,34 +94,3 @@
 | 设置、权限、备份、安装与回滚 | IMPLEMENTED | `SettingsCenterView`、`AiEnvironment`、`DataBackupService`、Inno Setup、既有 Windows CI。自动更新、数据故障细分与完整健康中心待补。 |
 | 四种工作模式与布局持久化 | PARTIAL | 已有主导航、经典模式、TIA 折叠和部分联动，缺统一工作模式、停靠存档和多屏。 |
 | NOVA 语音样片与回归夹具 | MOCK | 仓库保存测试模型、Siemens 反射夹具和独立样片。它们用于受控回归或原型，实际桌面统计不依赖这些数据。 |
-
-## V5.0-alpha.1 第一阶段增量
-
-| 模块 | 状态 | 当期范围 |
-| --- | --- | --- |
-| 工程上下文、项目切换、任务与事件隔离 | VERIFIED | 读写范围、重名任务和嵌套目录、保存失败、重新加载均有验收。Tag 与资产数据关系仍待实现。 |
-| 工程驾驶舱 | IMPLEMENTED | 当前工程、近 7 日到期任务、未关闭事件、变更文件、近期动作和服务状态已接入真实数据。RTM 覆盖率待实施。 |
-| 工作台导航、工具抽屉和工作模式 | VERIFIED | 主模块键盘激活、项目选择器和顶栏布局有运行与截图证据。四种模式的入口已实现，模式切换的多屏布局和项目级停靠恢复待验收。 |
-| AI 项目会话与文件访问 | VERIFIED | 验证开发版存储、项目切换、活跃请求取消、迟到流隔离、本地检索和旧版回滚历史范围。外部供应商费用和完整 Agent 任务中心为 PARTIAL。 |
-| 本机 TIA MCP 管理 | VERIFIED | 实际 stdio 进程启动、协议、工具发现、策略、耗时和响应回执有测试。第三方 MCP 注册、配置交换与通用工具权限仍为 MISSING。 |
-| PLC Studio | PARTIAL | 增加项目资料边界、独立草稿与作业。离线导出和工作台有证据，授权 V20 工程仍为 BLOCKED。 |
-| DCS Studio | PARTIAL | 支持从项目内文件源读取 FHX 等文本预览。版本兼容性、对象解析与差异仍为 MISSING。 |
-| 验证中心 | PARTIAL | 项目阶段、加权进度、资料入口和已有模板接入。证据库、追溯、偏差与签核仍为 MISSING。 |
-
-[操作、技术架构、数据兼容和回退](V5-P0-GUIDE.md) · [综合验收](V5-P0-VERIFICATION.md)
-
-## V5.0-alpha.2 功能优先增量
-
-| 功能 | 状态 | 已实现与验收边界 |
-| --- | --- | --- |
-| 桌面 Agent Runtime 与六层架构 | VERIFIED | 真模型协议、分步执行、真实工程计算、有限重试、项目／环境隔离、读写回执与崩溃恢复路径均有直接服务测试。保留 WinForms 及旧业务入口。 |
-| 多模型协议及能力探测 | VERIFIED | 实测本地 Chat Completions 和 Responses 的 SSE，记录有据的文本增量、终止帧和供应商上报的 Tokens。实际商业供应商、价格及高级模型原生 function calling 留待专项。 |
-| 本地确定性降级 | VERIFIED | 当前项目索引搜索、无可访问根时的拒绝、用量程确定性计算已有验收。明确本地命令支持在已配置模型时绕过模型。 |
-| 通用 MCP 注册与协议 | VERIFIED | 项目注册、HTTP＋SSE、独立 stdio、JSON-RPC、分页、结构化参数/响应、权限、诊断和取消有实际传输证据。可同时保留内置 TIA MCP。 |
-| 第三方 MCP 凭据、配置交换 | PARTIAL | 临时 Bearer 可用于 HTTP。OAuth、旧 SSE 传输和配置交换待评估。当前数据目录参与应用备份。 |
-| 桌面模型调用第三方 MCP | MISSING | 本期第三方工具提供逐工具授权和单次人工执行。桌面 Agent 使用已有受控工具注册表。 |
-| TIA 项目结构、DeltaV、统一 Tag | PARTIAL | 沿用 alpha.1 已验收的工程范围和离线导出读取。持证 V20 工程实机及 DeltaV FHX 兼容、统一 Tag 待 alpha.3。 |
-| 验证追踪矩阵、证据与审核 | MISSING | alpha.4 按用户确定的需求、用例、证据和偏差模型推进。 |
-| UI 设计交接 | IMPLEMENTED | 维护 14 份表现层交接文档和接口，先交付普通功能入口。最终视觉、布局和交互统一后置。 |
-
-[alpha.2 服务、数据与操作](V5-ALPHA2-GUIDE.md) · [验收证据](V5-ALPHA2-VERIFICATION.md) · [设计交接](UI-HANDOFF/PRODUCT-OVERVIEW.md)

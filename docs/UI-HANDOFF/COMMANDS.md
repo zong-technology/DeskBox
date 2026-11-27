@@ -19,3 +19,10 @@
 - 「检测 MCP 协议」是本机 TIA 私有服务的独立检测。PLC Studio 中的作业由当前项目和工程策略授权。
 
 [流程](USER-FLOWS.md) · [接口](SERVICE-CONTRACTS.md)
+
+## alpha.3 命令
+
+- `engineering.compare {before,after,worksheet?,encoding?}` 在当前项目和已授权路径查找两份资料，返回可追溯差异。路径支持工程相对或绝对。
+- `engineering.tags {query?,system?}` 查询当前项目 Tag 台账，返回记录数、稳定 TagId、真实字段和来源。
+- `mcp.read {server,tool,arguments}` 仅可申请本轮公布的工具。arguments 是 JSON 对象，按实际 Schema 校验。调用前请求人工确认。
+- 资料工作台的「映射并预览」只读，「导入／补充来源」和「确认更新映射字段」才写入。选择不同项目会撤下当前操作范围。

@@ -18,3 +18,10 @@
 工程数据页共享顶部项目选择器。经典工作台保留现有导航及工程会话中的执行记录入口。
 
 [已实现功能](FEATURE-INVENTORY.md) · [全量功能矩阵](../V5-FUNCTION-MATRIX.md)
+
+## alpha.3 新入口
+
+- 项目中心 → 工程上下文 → 统一工程 Tag。
+- PLC Studio → 变量管理 → 统一 Tag 与比较。
+- DCS Studio → 解析与比较。
+- AI 工程中心 → 现有工程会话调度工程资料工具；MCP 管理 → 第三方 MCP → 允许 AI 申请。

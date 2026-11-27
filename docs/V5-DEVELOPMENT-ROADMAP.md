@@ -18,3 +18,13 @@
 后续阶段分别记录受控协议测试、Windows 运行以及真实工程环境。持证 V20、授权工程或实际导出物缺失时，独立开发可测试路径并保留现场阻塞状态。
 
 [首阶段验证](V5-P0-VERIFICATION.md) · [alpha.2 接口与操作](V5-ALPHA2-GUIDE.md) · [功能矩阵](V5-FUNCTION-MATRIX.md) · [设计交接](UI-HANDOFF/PRODUCT-OVERVIEW.md)
+
+## alpha.4 工程交付顺序
+
+1. 以项目 ID、稳定 TagId、来源文件哈希及原文位置建立验证资料引用。仪表暂保留稳定关联接口，资产台账继续按阶段推进。
+2. 落地 URS、FS、DS 至 DQ、FAT/SAT、IQ/OQ/PQ 的需求、测试用例与证据实体。逐项记录关联、版本、覆盖、实际结果和待审核状态。
+3. 加入原始证据哈希和不可覆盖归档。通过可重现用例覆盖偏差、CAPA、Punch List、修改、审核、撤回和数据恢复。
+4. 由真实需求、证据与状态导出 RTM、Excel 和 Word 报告草稿。应用日志保留工程诊断用途，签核与审计有明确权限和验收边界。
+5. 继续保留独立数据、接口和原生 Windows 安装回退证据。持证 TIA、授权 FHX 样本等现场验收与功能开发并行记录。
+
+[alpha.3 业务流程](V5-ALPHA3-GUIDE.md) · [版本证据](V5-BUILD-PROVENANCE.md)

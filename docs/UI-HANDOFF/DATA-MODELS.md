@@ -14,3 +14,17 @@
 应用备份可复制新增目录和 JSON 数据。Agent 执行任务在重开后以中断状态显示，避免自动再次执行。MCP 注册从备份加载时停用服务并清空旧授权。日志仅由实际操作生成，作工程诊断和追溯用途。
 
 [状态定义](UI-STATES.md) · [数据边界与兼容性](DESIGN-CONSTRAINTS.md)
+
+## alpha.3 数据
+
+| 模型 | 关键字段 |
+| --- | --- |
+| EngineeringSource | Type、项目相对 Document、原文件 Sha256、Version、Encoding、Bytes。 |
+| EngineeringDocument / EngineeringRecord | Source、Records、Issues。对象 Key、Kind、Name、Parent、Fields、Recognized、StartLine / EndLine、原文 Location。 |
+| EngineeringDiff / EngineeringDelta | 项目、两个来源和哈希、计数、诊断及单字段前后值、前后定位。 |
+| EngineeringTag | TagId、ProjectId、TagName、SystemId、EquipmentId、Description、DataType、SignalType、EngineeringUnit、RangeLow/RangeHigh、Address、来源、时间和 Revision。 |
+| TagSourceLink / TagRelation | 来源类型、原文、版本、哈希和编码。Relation 预留 instrument、requirement、test、incident、document 的稳定 ID。 |
+| TagImportPreview / TagImportResult | 带锁定源和台账版本的候选行、冲突/错误、写入结果统计和 TagIds。 |
+| McpGrant / AgentStep | 增加明确授权的 AllowAgent 与批准时实际 Schema。AgentStep.ReceiptId 关联执行时的网关回执。 |
+
+台账 `engineering-tags/` 分项目存储，带校验和、版本、原子写入和上一版。备份只读、修复明确确认。旧会话、项目文件、TIA 和 MCP 手动配置沿用。

@@ -19,3 +19,19 @@
 | `TiaOpenness.ProbeMcp(projectContext, cancellation)` | 当前工程和取消 | 本机私有 stdio 的实际协议协商及回执。由 TiaMcpPolicy 管理。 |
 
 [输入命令](COMMANDS.md) · [事件与状态](EVENTS.md) · [数据结构](DATA-MODELS.md)
+
+## alpha.3 读资料、差异及 Tag
+
+| 服务入口 | 输入 | 输出和校验 |
+| --- | --- | --- |
+| `EngineeringDocuments.Read(project, path, version, token, encoding, worksheet)` | 项目快照，文件，版本，可选编码、工作表 | EngineeringDocument，源哈希、对象、字段、位置及诊断。仅本地当前工程路径。 |
+| `EngineeringDocuments.Excerpt(project, source, firstLine, maxLines, token)` | 当前项目、原始来源和行号 | 有界带行号的原文。读取前重新验证哈希。XLSX 返回工作表/行定位给导入流程。 |
+| `EngineeringDocuments.Headers(project,path,worksheet,encoding,token)` | 授权工作簿／CSV／TSV | 列标题。可用 `TagCenter.DefaultMapping` 得到默认索引。 |
+| `EngineeringDocuments.Compare(project,beforePath,afterPath,token,…)` | 两份授权资料，版本、工作表、映射 | EngineeringDiff。保留源哈希、差异计数和字段位置。阻塞诊断时返回诊断状态。 |
+| `EngineeringDocuments.ExportDiff(project,diff,destination,token)` | 当前项目的差异对象与新 JSON 路径 | 仅创建新文件。 |
+| `TagCenter.Preview(project,path,version,defaultSystem,token,mapping,worksheet,encoding)` | 授权来源，零基列映射，默认系统 | TagImportPreview、校验诊断、字段冲突与来源。 |
+| `TagCenter.Commit(project, preview, replaceExistingFields, token)` | 原预览、合并决定 | TagImportResult 和各 TagId。核对工程、源哈希、台账版本，单次原子写入。 |
+| `TagCenter.Query / Save / History / CompareRevisions / Link` | 项目、查询/筛选/排序、TagId、预期版本或关联 ID | 查询分页、版本和关联。写入检查并发。 |
+| `TagCenter.Export / Restore` | 项目、新 CSV 或 XLSX 路径，或明确恢复请求 | 导出或恢复完成。恢复保留损坏原件。 |
+| `TiaOpenness.Run / PlcEngineering.ReadExports` | 已有项目、已有授权任务或导出物、CancellationToken | 沿用真实 TIA 及离线服务。结构数据层复用同一 PLC 导出解析器。 |
+| `McpGateway.SetToolGrant(..., allowAgent) / AgentTools / InvokeForAgent` | 项目、真实工具目录、工具身份、JSON、单次审批 | 已授权工具目录、验证错误、真实 MCP 响应和执行回执。每次重新发现。 |

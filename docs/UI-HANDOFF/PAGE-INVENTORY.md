@@ -11,3 +11,7 @@
 | 系统设置中的 AI 服务商 | `SettingsCenterView` | AI 环境、供应商配置、普通连接检查及独立的文本流探测。凭据输入保持遮挡。 |
 
 [组件清单](COMPONENT-INVENTORY.md) · [其他模块状态](../V5-FUNCTION-MATRIX.md)
+
+## alpha.3 资料入口
+
+`EngineeringDataForm` 由项目中心、PLC 变量管理和 DCS 原文预览区打开。Tag 台账页含查询、分页、排序、手工编辑、来源定位、版本比较与导出。资料页含导出文件读取、对象列表、原文跨度、版本比较、映射预览、确认导入及错误详情。`EngineeringFieldsForm` 提供命名字段映射、Tag 编辑及版本选择。「第三方 MCP」加入「允许 AI 申请」。
