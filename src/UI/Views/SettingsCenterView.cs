@@ -999,40 +999,61 @@ namespace DeskBox.UI.Views
             catch (Exception ex) { Toast("清理失败：" + ex.Message, false); }
         }
 
-        private void Backup()
+        private bool _backupWork;
+
+        private async void Backup()
         {
-            var result = DataBackupService.CreateBackup("manual");
-            if (!result.Ok)
+            if (_backupWork) return;
+            _backupWork = true;
+            Toast("正在复制数据并核验证据…");
+            try
             {
-                Toast(result.Message, false);
-                return;
+                var result = await Task.Run(() => DataBackupService.CreateBackup("manual"));
+                if (IsDisposed) return;
+                if (!result.Ok)
+                {
+                    Toast(result.Message, false);
+                    return;
+                }
+                _store.Log("info", "backup", result.Message + "：" + result.Directory);
+                MessageBox.Show(this,
+                    result.Message + "。\n\n位置：\n" + result.Directory +
+                    "\n\n服务商密钥使用原 Windows 用户凭据加密。更换用户或电脑后需重新填写。",
+                    "DeskBox 备份", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Toast("备份完成");
             }
-            _store.Log("info", "backup", result.Message + "：" + result.Directory);
-            MessageBox.Show(this,
-                result.Message + "。\n\n位置：\n" + result.Directory +
-                "\n\n注意：ai-providers.json 中的 API Key 使用当前 Windows 用户凭据加密，\n换用户或换电脑后无法解密，需要重新填写。",
-                "DeskBox 备份", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            Toast("备份完成");
+            finally { _backupWork = false; }
         }
 
-        private void RestoreBackup()
+        private async void RestoreBackup()
         {
+            if (_backupWork) return;
+            string selected;
             using (var dialog = new FolderBrowserDialog())
             {
                 dialog.Description = "选择 DeskBox 备份目录（例如 manual_20261030_120000）";
                 dialog.SelectedPath = Path.Combine(Store.DataDir, "backup");
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                var check = DataBackupService.ValidateBackup(dialog.SelectedPath);
+                selected = dialog.SelectedPath;
+            }
+            _backupWork = true;
+            Toast("正在核对备份及证据…");
+            try
+            {
+                var check = await Task.Run(() => DataBackupService.ValidateBackup(selected));
+                if (IsDisposed) return;
                 if (!check.Ok) { Toast(check.Message, false); return; }
                 var warning = "将从以下备份恢复 " + check.FileCount + " 个文件：\n\n" + check.Directory +
                     "\n\n恢复会覆盖现有配置、任务和历史。系统会先创建恢复前安全快照，并在下次启动前执行。继续？";
                 if (!Prompt.Confirm(this, "安排数据恢复", warning, Palette)) return;
-                var result = DataBackupService.ScheduleRestore(check.Directory);
+                var result = await Task.Run(() => DataBackupService.ScheduleRestore(check.Directory));
+                if (IsDisposed) return;
                 if (!result.Ok) { Toast(result.Message, false); return; }
                 _store.Log("info", "backup", "已安排下次启动恢复：" + check.Directory);
                 MessageBox.Show(this, "恢复已安排。请从托盘退出 DeskBox 后重新启动。\n\n下次启动会先创建恢复前安全快照，再应用所选备份。", "DeskBox 恢复", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Toast("已安排恢复");
             }
+            finally { _backupWork = false; }
         }
 
         protected override void OnActivated()

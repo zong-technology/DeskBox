@@ -23,7 +23,7 @@ namespace DeskBox.AppServices
         };
 
         internal static bool NeedsConfirmation(IAiTool tool) { return tool.RequiresConfirm || !ReadOnly.Contains(tool.Name); }
-        internal static bool Handles(string name) { return name == CompareTool || name == TagTool || name == McpTool; }
+        internal static bool Handles(string name) { return name == CompareTool || name == TagTool || name == McpTool || name == AgentValidationTools.Name; }
 
         internal static List<McpAgentTool> Advertise(AiChatRequest prompt, ProjectContext project, AiProvider provider)
         {
@@ -33,9 +33,9 @@ namespace DeskBox.AppServices
             text.AppendLine("当前工程只读工具，JSON 以既有 tool 代码块格式提交。");
             text.AppendLine("engineering.compare 参数 {before,after,worksheet?,encoding?}。对比当前项目经文件授权的两份 CSV、XLSX、SCL、XML、AML 或 FHX；按比较结果汇报来源文件、SHA-256 和行号。");
             text.AppendLine("engineering.tags 参数 {query?,system?}。查询当前项目 Tag 台账，返回稳定 ID、字段和来源定位。");
-            Uri endpoint;
-            if (Uri.TryCreate(provider.BaseUrl, UriKind.Absolute, out endpoint) && AiEnvironment.Loopback(endpoint))
+            if (PermitsValidation(provider))
             {
+                text.AppendLine(AgentValidationTools.Description);
                 try
                 {
                     foreach (var tool in new McpGateway().AgentTools(project.Id))
@@ -56,8 +56,14 @@ namespace DeskBox.AppServices
             return available;
         }
 
+        internal static bool PermitsValidation(AiProvider provider)
+        {
+            Uri endpoint;
+            return provider != null && Uri.TryCreate(provider.BaseUrl, UriKind.Absolute, out endpoint) && AiEnvironment.Loopback(endpoint);
+        }
+
         internal static ToolResult Execute(ToolCall call, ToolContext context, IReadOnlyList<McpAgentTool> tools,
-            Func<string, string, bool> confirm, Action<string> status, CancellationToken token, out string kind)
+            bool validationAllowed, Func<string, string, bool> confirm, Action<string> status, CancellationToken token, out string kind)
         {
             kind = "";
             if (context.Project == null)
@@ -67,6 +73,13 @@ namespace DeskBox.AppServices
             }
             try
             {
+                if (call.Name == AgentValidationTools.Name)
+                {
+                    if (!validationAllowed) { kind = "permission"; return ToolResult.Fail("验证资料查询仅对本机模型开放。"); }
+                    var queryResult = AgentValidationTools.Run(call, context, token);
+                    if (!queryResult.Ok) kind = "arguments";
+                    return queryResult;
+                }
                 if (call.Name == CompareTool)
                 {
                     var a = Authorize(context, Get(call, "before"));

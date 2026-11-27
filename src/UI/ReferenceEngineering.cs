@@ -248,9 +248,11 @@ namespace DeskBox.UI
 
         private Control BuildValidationCenter()
         {
-            var page = Page("验证中心", "阶段进度与项目验证资料");
+            var page = Page("验证中心", "验证业务记录、历史阶段进度与项目资料");
             var flow = new ValidationFlowControl(_p) { Dock = DockStyle.Fill };
             var toolbar = Toolbar();
+            var records = Button("打开验证工作台", () => ValidationCenterForm.Open(this, () => _projects.Context, () => _store.Tasks, () => _sync.Incidents), true, 154);
+            records.Name = "validation-workbench-open";
             var edit = Button("录入验证进度", delegate
             {
                 var project = CurrentProject();
@@ -263,6 +265,7 @@ namespace DeskBox.UI
                     throw new InvalidOperationException("请先在工程上下文绑定验证目录。");
                 OpenPath(scope.ValidationPath);
             }, false, 142);
+            toolbar.Controls.Add(records);
             toolbar.Controls.Add(edit);
             toolbar.Controls.Add(folder);
             toolbar.Controls.Add(Button("验证模板", () => ShowLegacy("engineering", control =>
@@ -280,7 +283,7 @@ namespace DeskBox.UI
             _reload["validation"] = delegate
             {
                 var project = CurrentProject();
-                edit.Enabled = folder.Enabled = project != null;
+                records.Enabled = edit.Enabled = folder.Enabled = project != null;
                 detail.Text = project == null ? "选择工程项目查看验证阶段。"
                     : project.Name + " · " + (project.ValidationSteps == null ? "验证进度待录入" : "阶段加权进度 " + ValidationProgress.Display(project));
                 flow.Visible = project != null && project.ValidationSteps != null;

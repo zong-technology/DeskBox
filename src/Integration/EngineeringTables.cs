@@ -246,8 +246,10 @@ namespace DeskBox.Integration
             return "\"" + value.Replace("\"", "\"\"") + "\"";
         }
 
-        internal static void WriteWorkbook(Stream stream, IEnumerable<string[]> rows, CancellationToken token)
+        internal static void WriteWorkbook(Stream stream, IEnumerable<string[]> rows, CancellationToken token, string sheetName = "Tags")
         {
+            if (string.IsNullOrWhiteSpace(sheetName) || sheetName.Length > 31 || sheetName.IndexOfAny(new[] { ':', '/', '\\', '?', '*', '[', ']' }) >= 0)
+                throw new ArgumentException("XLSX 工作表名称无效。");
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, true))
             {
                 WritePart(archive, "[Content_Types].xml", "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
@@ -258,7 +260,7 @@ namespace DeskBox.Integration
                 WritePart(archive, "_rels/.rels", Relationship("officeDocument", "xl/workbook.xml"));
                 WritePart(archive, "xl/_rels/workbook.xml.rels", Relationship("worksheet", "worksheets/sheet1.xml"));
                 WritePart(archive, "xl/workbook.xml", "<workbook xmlns=\"" + Spreadsheet + "\" xmlns:r=\"" + OfficeRel +
-                    "\"><sheets><sheet name=\"Tags\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+                    "\"><sheets><sheet name=\"" + System.Security.SecurityElement.Escape(sheetName) + "\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
                 using (var output = archive.CreateEntry("xl/worksheets/sheet1.xml").Open())
                 using (var writer = XmlWriter.Create(output))
                 {

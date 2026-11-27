@@ -48,6 +48,11 @@ namespace DeskBox.Fs
 
         public static PreviewResult Produce(string path, int maxChars = 200000)
         {
+            return Produce(path, maxChars, null);
+        }
+
+        internal static PreviewResult Produce(string path, int maxChars, string originalExtension)
+        {
             try
             {
                 if (maxChars <= 0) maxChars = 200000;
@@ -64,7 +69,7 @@ namespace DeskBox.Fs
                 if (!File.Exists(full)) return Fail("文件不存在：" + full);
 
                 var fi = new FileInfo(full);
-                string ext = (fi.Extension ?? "").ToLowerInvariant();
+                string ext = (originalExtension ?? fi.Extension ?? "").ToLowerInvariant();
 
                 var r = new PreviewResult { Title = fi.Name, Subtitle = "" };
 

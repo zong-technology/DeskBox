@@ -284,6 +284,24 @@ public static class V5ContextAcceptance
                 Check(list.Items[0].SubItems[1].Text == "A-MANUAL", "project route queries actual project Tag data");
                 CaptureWindow(panel, Path.Combine(output, "project-tags-dpi" + dpi + ".png"));
             });
+            var validation = new ValidationService();
+            validation.Save(scopes.Context, new ValidationRequirement { Number = "URS-UI", Stage = "URS",
+                Description = "Synthetic validation input for native UI acceptance." }, 0, CancellationToken.None);
+            form.SwitchView("validation");
+            UseDialog(Find(workspace, "validation-workbench-open"), "validation-workbench", panel =>
+            {
+                var table = (DataGridView)Find(panel, "validation-records");
+                var sectionPicker = (ComboBox)Find(panel, "validation-section");
+                WaitFor(() => sectionPicker.Enabled && table.Rows.Count >= 14, "validation overview uses persisted data", true);
+                CaptureWindow(panel, Path.Combine(output, "validation-overview-dpi" + dpi + ".png"));
+                sectionPicker.SelectedIndex = sectionPicker.FindStringExact("需求管理");
+                WaitFor(() => table.Rows.Count == 1, "validation requirements are readable", true);
+                Check(table.Rows[0].Cells[0].Value.ToString() == "URS-UI", "validation workbench opens current project's real ledger");
+                sectionPicker.SelectedIndex = sectionPicker.FindStringExact("RTM");
+                WaitFor(() => sectionPicker.Enabled && table.Rows.Count == 1, "validation RTM computes persisted uncovered requirement", true);
+                Check(table.Rows[0].Cells[0].Value.ToString() == "URS-UI", "RTM surfaces uncovered requirement through native route");
+                CaptureWindow(panel, Path.Combine(output, "validation-rtm-dpi" + dpi + ".png"));
+            });
             form.SwitchView("ai");
             var chat = (ChatService)Field(form, "_chat");
             Check(chat.Current.ProjectId == a.Id, "AI page and header share project");

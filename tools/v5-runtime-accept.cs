@@ -331,6 +331,21 @@ internal static class V5RuntimeAccept
         Check(run.State == "succeeded" && fixture.SawComparison && evidence != null && evidence.Ok && evidence.Output.Contains("L2"),
             "model selects engineering compare and receives deterministic source positions and hashes");
 
+        var validation = new ValidationService(root);
+        var requirement = (ValidationRequirement)validation.Save(project, new ValidationRequirement
+            { Number = "AI-URS-01", Title = "Document pressure", Stage = "URS", Description = "Actual fixture requirement" }, 0, None);
+        fixture.AgentRequirementId = requirement.Id;
+        model.Model = "a4-validation";
+        evidence = null;
+        run = runtime.Run(request, None, toolResult: (name, result) => evidence = result);
+        Check(run.State == "succeeded" && evidence != null && evidence.Ok && fixture.SawValidation && evidence.Output.Contains(requirement.Id),
+            "loopback model receives real scoped validation IDs through a read-only tool");
+        model.Model = "a4-mutate";
+        evidence = null;
+        run = runtime.Run(request, None, toolResult: (name, result) => evidence = result);
+        Check(run.State == "partial" && evidence != null && !evidence.Ok && !validation.Read(project, None).All<ReviewRecord>().Any(),
+            "forged model validation approval cannot create a review");
+
         model.Model = "a3-mcp";
         evidence = null;
         request.ConfirmTool = (name, detail) => false;
@@ -381,7 +396,8 @@ internal static class V5RuntimeAccept
         internal readonly ManualResetEventSlim CallWaiting = new ManualResetEventSlim(), ModelWaiting = new ManualResetEventSlim();
         internal volatile bool AgentSawTool, SawSession, SchemaDrift, ReorderSchema;
         internal volatile string CallMode = "", WriteTarget = "", AgentServerId = "";
-        internal volatile bool SawComparison, SawAgentMcp;
+        internal volatile bool SawComparison, SawAgentMcp, SawValidation;
+        internal volatile string AgentRequirementId = "";
         internal int Calls, Initializes, Deletes, RetryRequests;
         internal readonly string Base;
 
@@ -492,6 +508,16 @@ internal static class V5RuntimeAccept
                     {
                         name = "engineering.compare", args = new { before = "original.csv", after = "after.csv" }
                     }))) + "data: [DONE]\n\n");
+                    return;
+                case "a4-validation": case "a4-mutate":
+                    if (text.Contains("fixture result:"))
+                    {
+                        SawValidation = text.Contains(AgentRequirementId) && text.Contains("AI-URS-01");
+                        break;
+                    }
+                    if (!text.Contains("validation.query")) throw new Exception("Validation tool was not advertised.");
+                    Respond(stream, "200 OK", "text/event-stream", Delta(Tool(Json.ToJson(new { name = "validation.query",
+                        args = new { view = mode == "a4-validation" ? "requirements" : "approve", query = "AI-URS-01" } }))) + "data: [DONE]\n\n");
                     return;
                 case "a3-mcp": case "a3-incomplete":
                     if (text.Contains("fixture result:"))

@@ -110,6 +110,17 @@ namespace DeskBox.AppServices
             });
         }
 
+        internal TagPage Snapshot(ProjectContext project, CancellationToken token)
+        {
+            var scope = Require(project);
+            return store.Access(scope, token, file =>
+            {
+                bool recovered;
+                var data = store.Load(file, scope, out recovered);
+                return new TagPage { Total = data.Tags.Count, Recovered = recovered, Items = data.Tags };
+            });
+        }
+
         public EngineeringTag Save(ProjectContext project, EngineeringTag draft, int expectedRevision, CancellationToken token)
         {
             var id = Require(project);

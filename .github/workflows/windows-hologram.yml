@@ -124,6 +124,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Engineering data acceptance compile failed' }
           & .\dist\v5-engineering-data-accept.exe | Tee-Object dist\hologram-qa\v5-engineering-data-accept.log
           if ($LASTEXITCODE -ne 0) { throw 'Engineering data acceptance failed' }
+      - name: Verify validation records, RTM, evidence, recovery and report samples
+        timeout-minutes: 4
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Xml.dll /r:System.Xml.Linq.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\v5-validation-center-accept.exe tools\v5-validation-center-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Validation acceptance compile failed' }
+          New-Item -ItemType Directory -Force dist\validation-qa | Out-Null
+          & .\dist\v5-validation-center-accept.exe .\dist\validation-qa | Tee-Object dist\validation-qa\validation-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Validation acceptance failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DeskBox-V5-Validation
+          path: dist/validation-qa/
+          retention-days: 7
       - name: Verify Engineering OS project isolation and capture native WinForms routes
         id: v5_ui
         continue-on-error: true

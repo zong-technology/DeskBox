@@ -223,7 +223,7 @@ namespace DeskBox.AppServices
                         AgentEngineeringTools.Handles(call.Name) ? call.Name : "unregistered");
                     if (status != null) status("正在执行工具 · " + toolStep.Name);
                     string kind;
-                    var result = ExecuteTool(request, call, token, status, tools, out kind);
+                    var result = ExecuteTool(request, call, token, status, tools, AgentEngineeringTools.PermitsValidation(provider), out kind);
                     toolStep.ReceiptId = result.ReceiptId;
                     if (kind == "cancelled")
                     {
@@ -246,7 +246,7 @@ namespace DeskBox.AppServices
         }
 
         private static ToolResult ExecuteTool(AgentRunRequest request, ToolCall call, CancellationToken token,
-            Action<string> status, IReadOnlyList<McpAgentTool> tools, out string errorKind)
+            Action<string> status, IReadOnlyList<McpAgentTool> tools, bool validationAllowed, out string errorKind)
         {
             var registry = ToolRegistry.Instance;
             var tool = registry.ToolsForProject(request.Project)
@@ -271,7 +271,7 @@ namespace DeskBox.AppServices
                 throw new InvalidOperationException("工具上下文与本轮工程不一致。");
             token.ThrowIfCancellationRequested();
             if (engineering)
-                return AgentEngineeringTools.Execute(call, context, tools, request.ConfirmTool, status, token, out errorKind);
+                return AgentEngineeringTools.Execute(call, context, tools, validationAllowed, request.ConfirmTool, status, token, out errorKind);
             var result = registry.Invoke(tool.Name, call.Args, context);
             errorKind = result.Ok ? "" : "tool_error";
             return result;
@@ -302,6 +302,7 @@ namespace DeskBox.AppServices
         private static ToolResult LocalCalculation(string input, ToolContext context)
         {
             var call = ToolCallParser.ParseOne(input);
+            if (call != null && call.Name == AgentValidationTools.Name) return AgentValidationTools.Run(call, context, context.Cancellation);
             if (call == null || !new[] { "eng.scale_4_20", "eng.s7_address", "eng.modbus_float" }.Contains(call.Name))
                 return ToolResult.Fail("本地工具只接受工程计算命令。请输入 工具 后接包含 name 与 args 的 JSON 对象。");
             return ToolRegistry.Instance.Invoke(call.Name, call.Args, context);
