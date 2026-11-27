@@ -128,6 +128,11 @@ AREA NAME=""Line 1"" {
         var diagnostics = Write(a, "compile-export.json", Json.ToJson(new[] { new PlcDiagnostic { Source = "logic.scl", Severity = "Error", Line = 7, Column = 2,
             Message = "Isolated diagnostic fixture" } }));
         Check(EngineeringDocuments.Read(a, diagnostics, "", None).Records.Single().Location.Contains("logic.scl:7"), "compile diagnostics retain supplied source location");
+        var receiptFile = Write(a, "result.json", Json.ToJson(new TiaResult { CompileState = "Offline fixture error",
+            Diagnostics = new List<PlcDiagnostic> { new PlcDiagnostic { Source = "logic.scl", Severity = "Error", Line = 7, Message = "isolated" } } }));
+        var receipt = EngineeringDocuments.Read(a, receiptFile, "", None);
+        Check(receipt.Records.Count == 1 && receipt.Issues.Any(issue => issue.Message.Contains("Offline fixture error")),
+            "native TIA receipt shape can be reviewed offline without representing it as a fresh compilation");
         var xml = Write(a, "tags.xml", "<Document><SW.Tags.PlcTagTable><AttributeList><Name>Tags</Name></AttributeList><ObjectList>" +
             "<SW.Tags.PlcTag><AttributeList><Name>P101</Name><LogicalAddress>%ID10</LogicalAddress><DataTypeName>Real</DataTypeName>" +
             "</AttributeList></SW.Tags.PlcTag></ObjectList></SW.Tags.PlcTagTable></Document>");

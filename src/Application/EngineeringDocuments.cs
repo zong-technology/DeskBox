@@ -240,9 +240,25 @@ namespace DeskBox.AppServices
             {
                 using (var reader = EngineeringFiles.Text(stream, "auto", output.Source))
                 {
-                    var lines = Json.FromJson<List<PlcDiagnostic>>(reader.ReadToEnd());
+                    var raw = reader.ReadToEnd().TrimStart();
+                    List<PlcDiagnostic> lines = null;
+                    if (raw.StartsWith("[", StringComparison.Ordinal)) lines = Json.FromJson<List<PlcDiagnostic>>(raw);
+                    else
+                    {
+                        var fields = Json.FromJson<Dictionary<string, object>>(raw);
+                        if (fields != null && fields.ContainsKey("Diagnostics") && fields.ContainsKey("CompileState"))
+                        {
+                            var receipt = Json.FromJson<TiaResult>(raw);
+                            if (receipt != null)
+                            {
+                                lines = receipt.Diagnostics;
+                                output.Issues.Add(new EngineeringIssue { Location = output.Source.Document,
+                                    Message = "原始回执编译状态：" + receipt.CompileState + " · " + receipt.OpennessVersion });
+                            }
+                        }
+                    }
                     if (lines == null || lines.Any(item => item == null) || lines.Count > 10000)
-                        throw new InvalidDataException("诊断 JSON 应为 DeskBox PlcDiagnostic 数组，最多 10000 条。");
+                        throw new InvalidDataException("请选择 DeskBox TIA result.json 或 PlcDiagnostic 数组，最多 10000 条。");
                     for (int i = 0; i < lines.Count; i++)
                     {
                         token.ThrowIfCancellationRequested();

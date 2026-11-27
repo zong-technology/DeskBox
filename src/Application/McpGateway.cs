@@ -65,7 +65,12 @@ namespace DeskBox.AppServices
             if (settings.Servers.Count >= 500) throw new InvalidOperationException("MCP 注册已达 500 个服务上限。");
         }
 
-        public McpServer SetToolGrant(string projectId, McpCatalog catalog, string name, bool approved, bool allowAgent = false)
+        public McpServer SetToolGrant(string projectId, McpCatalog catalog, string name, bool approved)
+        {
+            return SetToolGrant(projectId, catalog, name, approved, false);
+        }
+
+        public McpServer SetToolGrant(string projectId, McpCatalog catalog, string name, bool approved, bool allowAgent)
         {
             if (catalog == null || catalog.ProjectId != Scope(projectId))
                 throw new UnauthorizedAccessException("工具目录超出当前工程范围。");

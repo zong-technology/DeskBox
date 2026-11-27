@@ -55,7 +55,8 @@ namespace DeskBox.Core
         {
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            // Keep sibling temporary names independent of the destination length on legacy Windows paths.
+            var tmp = Path.Combine(dir ?? "", ".deskbox-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
                 var bytes = new UTF8Encoding(false).GetBytes(Ser.Serialize(value));
