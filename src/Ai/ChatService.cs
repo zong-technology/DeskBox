@@ -38,6 +38,7 @@ namespace DeskBox.Ai
         public string ProjectId = "";
         public string Model = "";
         public string DomainMode = "automation";   // automation|plc|dcs|validation|troubleshoot|general
+        public bool ContainsValidationData;
         public double Temperature = 0.3;
         public int MaxTokens = 0;
         public string Channel = "text", AssistantName = "", Persona = "", VoiceModel = "";
@@ -360,10 +361,16 @@ namespace DeskBox.Ai
             SetStatusSafe("正在启动任务");
             Raise();
 
+            var input = session.Messages.Last(message => message.Role == "user").Content;
+            if (input.StartsWith("工具 ", StringComparison.Ordinal))
+            {
+                var command = ToolCallParser.ParseOne(input.Substring(3));
+                if (command != null && command.Name == AgentValidationTools.Name) { session.ContainsValidationData = true; Save(); }
+            }
             var request = new AgentRunRequest
             {
                 Project = project, SessionId = session.Id, Provider = ResolveProvider(session), Model = session.Model,
-                Text = session.Messages.Last(message => message.Role == "user").Content, ToolRounds = MaxToolRounds,
+                Text = input, ToolRounds = MaxToolRounds, LocalDataOnly = session.ContainsValidationData,
                 ConfirmTool = ConfirmTool,
                 BuildPrompt = () => new AiChatRequest
                 {
@@ -400,11 +407,15 @@ namespace DeskBox.Ai
                         },
                         (name, result) =>
                         {
-                            lock (_lock) session.Messages.Add(new ChatMessage
+                            lock (_lock)
                             {
-                                Id = "m_" + Guid.NewGuid().ToString("N").Substring(0, 8), Role = "tool", ToolName = name,
-                                Content = BoundedToolOutput(result), Ts = DateTimeOffset.Now.ToUnixTimeMilliseconds()
-                            });
+                                if (name == AgentValidationTools.Name && result.Ok) session.ContainsValidationData = true;
+                                session.Messages.Add(new ChatMessage
+                                {
+                                    Id = "m_" + Guid.NewGuid().ToString("N").Substring(0, 8), Role = "tool", ToolName = name,
+                                    Content = BoundedToolOutput(result), Ts = DateTimeOffset.Now.ToUnixTimeMilliseconds()
+                                });
+                            }
                             Save();
                             Raise();
                         });

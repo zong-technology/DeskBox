@@ -20,6 +20,7 @@ namespace DeskBox.AppServices
         public ProjectContext Project;
         public AiProvider Provider;
         public int ToolRounds = 2;
+        public bool LocalDataOnly;
         public Func<AiChatRequest> BuildPrompt;
         public Func<CancellationToken, ToolContext> CreateToolContext;
         public Func<string, string, bool> ConfirmTool;
@@ -46,7 +47,8 @@ namespace DeskBox.AppServices
             Uri endpoint;
             bool allowedLocally = mode != "local" || (configured && Uri.TryCreate(provider.BaseUrl, UriKind.Absolute, out endpoint) &&
                 AiEnvironment.Loopback(endpoint));
-            bool offline = explicitlyLocal || !configured || !allowedLocally ||
+            bool protectedHistory = request.LocalDataOnly && !AgentEngineeringTools.PermitsValidation(provider);
+            bool offline = explicitlyLocal || protectedHistory || !configured || !allowedLocally ||
                 (request.Project != null && !request.Project.PermitsModel(provider));
             var task = new AgentTask
             {
@@ -66,7 +68,7 @@ namespace DeskBox.AppServices
                     token.ThrowIfCancellationRequested();
                     if (offline)
                         Local(request, task, explicitlyLocal ? "显式本地命令" : !configured ? "未配置模型" :
-                            !allowedLocally ? "本地隔离限制" : "项目未授权该模型", token, status, beginReply, reply);
+                            protectedHistory ? "含验证资料的会话仅使用本机模型" : !allowedLocally ? "本地隔离限制" : "项目未授权该模型", token, status, beginReply, reply);
                     else
                         Model(request, provider, task, token, status, beginReply, delta, reply, toolResult);
                     if (task.State == "running") task.State = token.IsCancellationRequested ? "cancelled" : "succeeded";

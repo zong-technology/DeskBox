@@ -138,6 +138,7 @@ namespace DeskBox.AppServices
             using (EngineeringFiles.Open(project, preview.Path, preview.Source.Type, options.DocumentVersion, MaxInput, token, out current))
             {
                 if (current.Sha256 != preview.Source.Sha256) throw new IOException("原始文件已变化，请重新预览。");
+                current.Encoding = preview.Source.Encoding;
                 return service.Transact(project, token, snapshot =>
                 {
                     if (snapshot.Stamp != preview.Stamp) throw new InvalidOperationException("验证台账已更新，请重新预览。");
@@ -225,7 +226,16 @@ namespace DeskBox.AppServices
                 sheet = record.Location.Substring(0, mark);
             }
             EngineeringSource live;
-            var source = Load(project, path, record.Version, sheet, table, "auto", token, out live);
+            if (record.Type != "docx" && record.Type != "xlsx" && record.Type != "csv" && record.Type != "tsv")
+            {
+                int line;
+                if (!record.Location.StartsWith("L", StringComparison.OrdinalIgnoreCase) ||
+                    !int.TryParse(record.Location.Substring(1), out line) || line <= 0)
+                    throw new InvalidDataException("文本来源请使用 L 加行号。");
+                return new[] { EngineeringDocuments.Excerpt(project, new EngineeringSource { Document = record.Document, Sha256 = record.Sha256,
+                    Encoding = record.Encoding, Version = record.Version, Type = record.Type }, line, 15, token) };
+            }
+            var source = Load(project, path, record.Version, sheet, table, string.IsNullOrEmpty(record.Encoding) ? "auto" : record.Encoding, token, out live);
             if (!Equal(live.Sha256, record.Sha256)) throw new IOException("原始文件已变化，无法验证此定位。");
             var row = source.Rows.SingleOrDefault(item => item.Location == record.Location);
             if (row == null) throw new InvalidDataException("原始文件中不存在所记录的位置。");
@@ -404,7 +414,7 @@ namespace DeskBox.AppServices
 
         private static ValidationSource ToSource(EngineeringSource file, string location)
         {
-            return new ValidationSource { Type = file.Type, Document = file.Document, Location = location, Version = file.Version, Sha256 = file.Sha256 };
+            return new ValidationSource { Type = file.Type, Document = file.Document, Location = location, Version = file.Version, Sha256 = file.Sha256, Encoding = file.Encoding };
         }
 
         private static string Normalize(string label) { return new string((label ?? "").Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray()); }

@@ -2,8 +2,12 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using DeskBox;
+using DeskBox.AppServices;
 using DeskBox.Core;
+using DeskBox.Domain;
+using DeskBox.Engineering;
 
 public class BackupRestoreAccept
 {
@@ -54,7 +58,49 @@ public class BackupRestoreAccept
         var invalid = DataBackupService.ValidateBackup(Path.Combine(dir, "cache"));
         Check("拒绝非 DeskBox 备份", !invalid.Ok, invalid.Message);
 
+        CheckValidationBackup(dir);
+
         Console.WriteLine("\n==== 备份恢复验收: PASS " + pass + " / FAIL " + fail + " ====");
         return fail == 0 ? 0 : 1;
+    }
+
+    private static void CheckValidationBackup(string root)
+    {
+        var token = CancellationToken.None;
+        var workspaces = new WorkspaceStore();
+        var projectFolder = Directory.CreateDirectory(Path.Combine(root, "project")).FullName;
+        var workspace = workspaces.Add("Synthetic backup fixture", projectFolder, "PLC");
+        workspaces.SetCurrent(workspace.Id);
+        var project = workspaces.Context;
+        var service = new ValidationService(root);
+        var original = Path.Combine(projectFolder, "evidence.txt");
+        File.WriteAllText(original, "synthetic evidence for backup verification");
+        var evidence = service.ArchiveEvidence(project, new Evidence(), original, token);
+        var live = service.EvidencePath(project, evidence, token);
+        var good = DataBackupService.CreateBackup("evidence-valid");
+        var tampered = DataBackupService.CreateBackup("evidence-tampered");
+        Check("验证备份包含经过校验的证据与元数据", good.Ok && tampered.Ok &&
+            DataBackupService.ValidateBackup(good.Directory).Ok, good.Message);
+        if (!good.Ok || !tampered.Ok) return;
+
+        string blob = Directory.GetFiles(Path.Combine(tampered.Directory, "validation"), "*.bin", SearchOption.AllDirectories).Single();
+        var changed = File.ReadAllBytes(blob);
+        changed[0] ^= 1;
+        File.WriteAllBytes(blob, changed);
+        var rejected = DataBackupService.ScheduleRestore(tampered.Directory);
+        Check("拒绝恢复长度相同但哈希无效的证据备份", !rejected.Ok &&
+            !File.Exists(Path.Combine(root, "restore-pending.json")), rejected.Message);
+
+        File.WriteAllBytes(live, changed);
+        var failed = DataBackupService.CreateBackup("corrupt-working-copy");
+        Check("证据损坏时不发布不完整的备份", !failed.Ok && !Directory.Exists(failed.Directory), failed.Message);
+        string message = "";
+        Check("有效备份可恢复损坏原件并保留原有引用", DataBackupService.ScheduleRestore(good.Directory).Ok &&
+            DataBackupService.ApplyPendingRestore(out message) && service.VerifyEvidence(project, evidence, token) == "verified" &&
+            service.Read(project, token).Find<Evidence>(evidence.Id) != null, message);
+
+        var unpublished = Directory.CreateDirectory(Path.Combine(root, "backup", ".snapshot-fixture")).FullName;
+        File.Copy(Path.Combine(root, "state.json"), Path.Combine(unpublished, "state.json"));
+        Check("未发布的临时目录不可用作正式恢复源", !DataBackupService.ValidateBackup(unpublished).Ok, unpublished);
     }
 }

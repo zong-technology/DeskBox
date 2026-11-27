@@ -198,6 +198,7 @@ namespace DeskBox
             RequireOrdinaryDirectory(Path.GetDirectoryName(target));
             RequireOrdinaryDirectory(target);
             RequireOrdinaryDirectory(destination);
+            if (restore) ValidationStore.RequireRestorableDirectory(target);
             int count = 0;
             if (validate)
             {
@@ -220,6 +221,13 @@ namespace DeskBox
             }
             Directory.CreateDirectory(target);
             // The evidence required by both record snapshots is in place before metadata is published.
+            string primary = Path.Combine(source, "records.json");
+            string previous = Path.Combine(source, "records.json.bak");
+            if (restore && File.Exists(primary) && !File.Exists(previous) && File.Exists(Path.Combine(target, "records.json.bak")))
+            {
+                Copy(primary, Path.Combine(target, "records.json.bak"), true);
+                count++;
+            }
             foreach (var name in new[] { "records.json.bak", "records.json" })
             {
                 var file = Path.Combine(source, name);
@@ -233,9 +241,9 @@ namespace DeskBox
                     File.Copy(damaged, Path.Combine(target, Path.GetFileName(damaged)), true);
                     count++;
                 }
-            if (restore && !File.Exists(Path.Combine(source, "records.json")) && File.Exists(Path.Combine(source, "records.json.bak")))
+            if (restore && !File.Exists(primary) && File.Exists(previous))
             {
-                Copy(Path.Combine(source, "records.json.bak"), Path.Combine(target, "records.json"), true);
+                Copy(previous, Path.Combine(target, "records.json"), true);
                 count++;
             }
             return count;

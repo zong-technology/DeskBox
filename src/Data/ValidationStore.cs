@@ -92,6 +92,19 @@ namespace DeskBox.Data
             return sources.SelectMany(snapshot => snapshot.Records.Concat(snapshot.History)).OfType<Evidence>().ToList();
         }
 
+        internal static void RequireRestorableDirectory(string directory)
+        {
+            var records = Path.Combine(directory, "records.json");
+            foreach (var path in new[] { records, records + ".bak" })
+            {
+                if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException("验证台账不能使用重解析路径。");
+                var envelope = Json.Load<Envelope>(path, null);
+                if (envelope != null && envelope.Version > 1)
+                    throw new InvalidDataException("目标验证台账来自更高版本，禁止覆盖。");
+            }
+        }
+
         internal void Save(string directory, ValidationSnapshot snapshot, CancellationToken token, bool backup = true)
         {
             var records = new Payload { ProjectId = snapshot.ProjectId, Stamp = Guid.NewGuid().ToString("N"),

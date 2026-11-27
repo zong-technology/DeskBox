@@ -134,6 +134,10 @@ jobs:
           New-Item -ItemType Directory -Force dist\validation-qa | Out-Null
           & .\dist\v5-validation-center-accept.exe .\dist\validation-qa | Tee-Object dist\validation-qa\validation-accept.log
           if ($LASTEXITCODE -ne 0) { throw 'Validation acceptance failed' }
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\backup-restore-accept.exe tools\backup-restore-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Backup and evidence recovery acceptance compile failed' }
+          & .\dist\backup-restore-accept.exe | Tee-Object dist\validation-qa\backup-restore-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Backup and evidence recovery acceptance failed' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
