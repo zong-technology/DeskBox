@@ -102,5 +102,11 @@ public class BackupRestoreAccept
         var unpublished = Directory.CreateDirectory(Path.Combine(root, "backup", ".snapshot-fixture")).FullName;
         File.Copy(Path.Combine(root, "state.json"), Path.Combine(unpublished, "state.json"));
         Check("未发布的临时目录不可用作正式恢复源", !DataBackupService.ValidateBackup(unpublished).Ok, unpublished);
+
+        var records = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(live)), "records.json");
+        const string future = "{\"Version\":2}";
+        File.WriteAllText(records, future);
+        Check("恢复较旧备份不能覆盖较高版本验证台账", DataBackupService.ScheduleRestore(good.Directory).Ok &&
+            !DataBackupService.ApplyPendingRestore(out message) && File.ReadAllText(records) == future, message);
     }
 }

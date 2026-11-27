@@ -78,6 +78,15 @@ namespace DeskBox
 
             try
             {
+                foreach (var folder in ValidationDirectories(pending.BackupDirectory))
+                {
+                    var destination = Path.Combine(Store.DataDir, ValidationStore.FolderName, Path.GetFileName(folder));
+                    ValidationStore.WithDirectory(destination, CancellationToken.None, target =>
+                    {
+                        ValidationStore.RequireRestorableDirectory(target);
+                        return true;
+                    });
+                }
                 var safety = Path.Combine(Store.DataDir, "backup", "pre_restore_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
                 var snapshot = CreateSnapshot(Store.DataDir, safety, false);
                 safety = snapshot.Directory;
