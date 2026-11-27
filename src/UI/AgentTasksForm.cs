@@ -123,6 +123,7 @@ namespace DeskBox.UI
             details.Lines = header.Concat(item.Steps.Select(step => step.Kind + " · " + step.Name + " · " +
                 State(step.State) + " · " + step.ElapsedMs + " ms" +
                 (step.HttpStatus > 0 ? " · HTTP " + step.HttpStatus : "") +
+                (string.IsNullOrEmpty(step.ReceiptId) ? "" : " · MCP 回执 " + step.ReceiptId) +
                 (step.Attempts > 0 ? " · " + step.Attempts + " 次请求" : "") +
                 (step.InputTokens.HasValue || step.OutputTokens.HasValue
                     ? " · Tokens " + (step.InputTokens.HasValue ? step.InputTokens.ToString() : "未知") + "/" +

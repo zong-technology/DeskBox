@@ -73,7 +73,7 @@ public static class V5ContextAcceptance
         dcsFile = Path.Combine(second, "DCS_Export.fhx");
         File.WriteAllText(aFile, "FUNCTION_BLOCK A_Review\r\nBEGIN\r\nEND_FUNCTION_BLOCK\r\n");
         File.WriteAllText(bFile, "FUNCTION_BLOCK B_Review\r\nBEGIN\r\nEND_FUNCTION_BLOCK\r\n");
-        File.WriteAllText(dcsFile, "/* Authorized export text format fixture */\r\nMODULE_INSTANCE NAME=\"B_Review\"\r\n{\r\n}\r\n");
+        File.WriteAllText(dcsFile, "/* Offline FHX format acceptance fixture */\r\nMODULE_INSTANCE NAME=\"B_Review\"\r\n{\r\n  TAG NAME=\"Flow.PV\" SYSTEM_ID=DeltaV DATA_TYPE=REAL {}\r\n}\r\n");
         store = new Store();
         store.Init();
         store.Settings.ReferenceUi = true;
@@ -243,6 +243,18 @@ public static class V5ContextAcceptance
             WaitFor(() => preview.Text.Contains("MODULE_INSTANCE") || preview.Text.Contains("读取失败"), "DCS text preview", true);
             Check(preview.Text.Contains("MODULE_INSTANCE"), "actual FHX text visible: " + (preview.Text.Contains("MODULE_INSTANCE") ? "loaded" : preview.Text));
             CaptureWindow(form, Path.Combine(output, "dcs-preview-dpi" + dpi + ".png"));
+            UseDialog(Find(workspace, "dcs-structured-analysis"), "engineering-data-dialog", panel =>
+            {
+                var list = (ListView)Find(panel, "engineering-document-list");
+                WaitFor(() => list.Items.Count == 2, "DCS structured parser visible", true);
+                Check(list.Items.Cast<ListViewItem>().Any(item => item.SubItems[1].Text == "B_Review") &&
+                    list.Items.Cast<ListViewItem>().Any(item => item.SubItems[1].Text == "Flow.PV"), "DCS hierarchy and real tag render");
+                var import = Descendants(panel).OfType<Button>().Single(button => button.Text == "映射并预览 Tag…");
+                import.PerformClick();
+                WaitFor(() => list.Items.Count == 1 && list.Items[0].SubItems[1].Text == "Flow.PV", "DCS Tag preview visible", true);
+                Check(Descendants(panel).OfType<Button>().Single(button => button.Text == "导入／补充来源").Enabled, "DCS can preview an actual Tag import");
+                CaptureWindow(panel, Path.Combine(output, "dcs-structured-tag-preview-dpi" + dpi + ".png"));
+            });
             form.SwitchView("tia");
             var tia = (TiaEngineerView)Find(workspace, "page-tia");
             tia.LoadExports(new[] { bFile });
@@ -252,6 +264,26 @@ public static class V5ContextAcceptance
             Check(tia.IsDisposed && newTia != tia && Field(newTia, "snapshot") == null, "PLC switch discards previous workbench");
             newTia.LoadExports(new[] { aFile });
             WaitFor(() => Field(newTia, "snapshot") != null, "A export after scope switch", true);
+            ((TabControl)Field(newTia, "tabs")).SelectedIndex = 4;
+            Pump();
+            var plcData = Descendants(newTia).OfType<DarkButton>().Single(button => button.Text == "统一 Tag 与比较");
+            UseDialog(plcData, "engineering-data-dialog", panel =>
+            {
+                var list = (ListView)Find(panel, "engineering-document-list");
+                WaitFor(() => list.Items.Count == 1, "loaded PLC file reaches engineering-data entry", true);
+                Check(list.Items[0].SubItems[1].Text == "A_Review", "PLC structured view links current export and preserves block name");
+                CaptureWindow(panel, Path.Combine(output, "plc-export-source-dpi" + dpi + ".png"));
+            });
+            new TagCenter().Save(scopes.Context, new EngineeringTag
+                { TagName = "A-MANUAL", SystemId = "PLC-A", DataType = "Bool" }, 0, CancellationToken.None);
+            form.SwitchView("project-context");
+            UseDialog(Find(workspace, "project-tag-center"), "engineering-data-dialog", panel =>
+            {
+                var list = (ListView)Find(panel, "engineering-tags-list");
+                WaitFor(() => list.Items.Count == 1, "project Tag ledger loads", true);
+                Check(list.Items[0].SubItems[1].Text == "A-MANUAL", "project route queries actual project Tag data");
+                CaptureWindow(panel, Path.Combine(output, "project-tags-dpi" + dpi + ".png"));
+            });
             form.SwitchView("ai");
             var chat = (ChatService)Field(form, "_chat");
             Check(chat.Current.ProjectId == a.Id, "AI page and header share project");

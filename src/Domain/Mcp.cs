@@ -13,7 +13,18 @@ namespace DeskBox.Domain
 
     public sealed class McpGrant
     {
-        public string Tool = "", Fingerprint = "";
+        public string Tool = "", Fingerprint = "", InputSchema = "", Description = "";
+        public bool AllowAgent;
+    }
+
+    public sealed class McpAgentTool
+    {
+        public string ServerId { get; internal set; }
+        public string ServerName { get; internal set; }
+        public string Name { get; internal set; }
+        public string Description { get; internal set; }
+        public string InputSchema { get; internal set; }
+        internal string Fingerprint;
     }
 
     public sealed class McpTool
@@ -24,6 +35,7 @@ namespace DeskBox.Domain
         public string OutputSchema { get; internal set; }
         public string Annotations { get; internal set; }
         public bool ProhibitedByHints { get; internal set; }
+        public bool AgentReadOnly { get; internal set; }
         internal string Fingerprint;
     }
 

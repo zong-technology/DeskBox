@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -40,8 +40,10 @@ namespace DeskBox.UI.Views
             var current = new DarkButton("设为当前") { Left = 968, Top = 2, Width = 88 };
             var progress = new DarkButton("更新进度") { Left = 1064, Top = 2, Width = 88 };
             var search = new DarkButton("项目内搜索") { Left = 1160, Top = 2, Width = 100 };
+            var tagCenter = new DarkButton("统一工程 Tag…") { Left = 0, Top = 38, Width = 132 };
+            tagCenter.Click += delegate { EngineeringDataForm.Open(FindForm(), () => _workspaces.Context); };
             search.Click += delegate { var project = Selected(); if (project == null) { _status.Text = "请先选择项目"; return; } if (SearchRequested != null) SearchRequested(project); };
-            _status = new Label { Left = 0, Top = 48, AutoSize = true, ForeColor = Palette.TextFaint, BackColor = Palette.Bg, Font = new Font("Microsoft YaHei UI", 8.5F) };
+            _status = new Label { Left = 144, Top = 48, AutoSize = true, ForeColor = Palette.TextFaint, BackColor = Palette.Bg, Font = new Font("Microsoft YaHei UI", 8.5F) };
             add.Click += delegate { AddWorkspace(); };
             open.Click += delegate { OpenSelected(false); };
             reveal.Click += delegate { OpenSelected(true); };
@@ -53,7 +55,7 @@ namespace DeskBox.UI.Views
             _kind.SelectedIndexChanged += delegate { ReloadData(); };
             _filter.TextChanged += delegate { ReloadData(); };
             top.AutoScroll = true;
-            top.Controls.AddRange(new Control[] { add, open, reveal, edit, pin, remove, _kind, _filter, current, progress, search, _status });
+            top.Controls.AddRange(new Control[] { add, open, reveal, edit, pin, remove, _kind, _filter, current, progress, search, tagCenter, _status });
 
             _list = new DarkList { Dock = DockStyle.Fill, Palette = Palette, RowHeight = 38 };
             _list.SetColumns(new[] { "项目", "类型", "进度", "风险/截止", "客户/系统", "根目录" }, new[] { 220, 90, 90, 150, 190, 500 });

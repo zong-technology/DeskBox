@@ -157,12 +157,15 @@ namespace DeskBox.UI
             var toolbar = Toolbar();
             var edit = Button("编辑项目上下文", EditProjectContext, true, 170);
             toolbar.Controls.Add(edit);
+            var tags = Button("统一工程 Tag…", () => EngineeringDataForm.Open(FindForm(), () => _projects.Context), false, 160);
+            tags.Name = "project-tag-center";
+            toolbar.Controls.Add(tags);
             var data = List(new[] { "项目属性", "当前值" }, new[] { 190, 710 });
             data.Name = "project-context-properties";
             _reload["project-context"] = delegate
             {
                 var scope = _projects.Context;
-                edit.Enabled = scope != null;
+                edit.Enabled = tags.Enabled = scope != null;
                 if (scope == null)
                 {
                     data.SetRows(new List<ListRow> { new ListRow { Cells = new[] { "项目", "请在项目中心创建或选择工程" } } });
@@ -299,6 +302,15 @@ namespace DeskBox.UI
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 61));
             var documentList = List(new[] { "导出资料", "修改时间" }, new[] { 240, 160 });
             documentList.Name = "dcs-project-files";
+            var analyze = Button("解析与比较…", () =>
+            {
+                var selectedRow = documentList.SelectedRow;
+                var chosen = selectedRow == null ? null : selectedRow.Tag as string;
+                if (chosen != null && !string.Equals(Path.GetExtension(chosen), ".fhx", StringComparison.OrdinalIgnoreCase)) chosen = null;
+                EngineeringDataForm.Open(FindForm(), () => _projects.Context, chosen, "DCS Studio");
+            }, true, 139);
+            analyze.Name = "dcs-structured-analysis";
+            toolbar.Controls.Add(analyze);
             var preview = new RichTextBox { Dock = DockStyle.Fill, BackColor = _p.CardBg, ForeColor = _p.Text,
                 ReadOnly = true, DetectUrls = false, WordWrap = false, BorderStyle = BorderStyle.None, Font = FontOf(10), Name = "dcs-export-preview" };
             Label listHint, previewHint;

@@ -58,6 +58,20 @@ namespace DeskBox.Ai
             return list;
         }
 
+        internal static bool TryParseComplete(string text, out List<ToolCall> calls)
+        {
+            calls = new List<ToolCall>();
+            var openings = Regex.Matches(text ?? "", @"(?im)^\s*```tool\b").Count;
+            foreach (Match match in Block.Matches(text ?? ""))
+            {
+                var json = match.Groups[1].Value.Trim();
+                var call = ParseOne(json);
+                if (call == null || string.IsNullOrWhiteSpace(call.Name)) return false;
+                calls.Add(call);
+            }
+            return calls.Count == openings;
+        }
+
         internal static ToolCall ParseOne(string json)
         {
             try
@@ -76,7 +90,8 @@ namespace DeskBox.Ai
                     if (dict != null)
                     {
                         foreach (var kv in dict)
-                            call.Args[kv.Key] = kv.Value == null ? "" : Convert.ToString(kv.Value);
+                            call.Args[kv.Key] = kv.Value is System.Collections.IDictionary || kv.Value is System.Collections.IList
+                                ? DeskBox.Core.Json.ToJson(kv.Value) : kv.Value == null ? "" : Convert.ToString(kv.Value);
                     }
                 }
                 return call;

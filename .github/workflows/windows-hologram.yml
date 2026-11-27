@@ -115,6 +115,15 @@ jobs:
           $python = (Get-Command python).Source
           & .\dist\v5-runtime-accept.exe $python (Resolve-Path tools\v5-mcp-stdio-fixture.py).Path | Tee-Object dist\hologram-qa\v5-runtime-accept.log
           if ($LASTEXITCODE -ne 0) { throw 'Runtime and MCP protocol acceptance failed' }
+      - name: Verify offline PLC, FHX, engineering tags, differences and recovery
+        timeout-minutes: 3
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Xml.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\v5-engineering-data-accept.exe tools\v5-engineering-data-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Engineering data acceptance compile failed' }
+          & .\dist\v5-engineering-data-accept.exe | Tee-Object dist\hologram-qa\v5-engineering-data-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Engineering data acceptance failed' }
       - name: Verify Engineering OS project isolation and capture native WinForms routes
         id: v5_ui
         continue-on-error: true

@@ -13,7 +13,7 @@ namespace DeskBox.Domain
 
     public sealed class AgentStep
     {
-        public string Kind = "", Name = "", State = "running", ErrorKind = "";
+        public string Kind = "", Name = "", State = "running", ErrorKind = "", ReceiptId = "";
         public long StartedAt, ElapsedMs;
         public int HttpStatus, OutputCharacters;
         public int? InputTokens, OutputTokens;

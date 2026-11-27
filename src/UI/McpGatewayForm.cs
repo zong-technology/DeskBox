@@ -19,7 +19,7 @@ namespace DeskBox.UI
         private readonly ListBox tools;
         private readonly TextBox token, schema, arguments, response;
         private readonly Label status;
-        private readonly Button add, edit, toggle, discover, grant, revoke, invoke, cancel, receipts;
+        private readonly Button add, edit, toggle, discover, grant, grantAgent, revoke, invoke, cancel, receipts;
         private CancellationTokenSource operation;
         private McpCatalog catalog;
         private bool loadingServers;
@@ -73,7 +73,8 @@ namespace DeskBox.UI
             layout.Controls.Add(credential, 0, 2);
 
             var toolActions = Toolbar();
-            grant = AddButton(toolActions, "授权只读工具", "mcp-allow-tool", GrantTool);
+            grant = AddButton(toolActions, "授权只读工具", "mcp-allow-tool", () => GrantTool(false));
+            grantAgent = AddButton(toolActions, "允许 AI 申请", "mcp-allow-agent", () => GrantTool(true));
             revoke = AddButton(toolActions, "撤销授权", "mcp-revoke-tool", RevokeGrant);
             invoke = AddButton(toolActions, "人工调用", "mcp-invoke", () => Run(true));
             layout.Controls.Add(toolActions, 0, 3);
@@ -204,17 +205,18 @@ namespace DeskBox.UI
             }
         }
 
-        private void GrantTool()
+        private void GrantTool(bool forAgent)
         {
             var tool = SelectedTool;
             if (!InScope || tool == null || catalog == null) return;
-            if (MessageBox.Show(this, "已核对 " + tool.Name + " 的文档和 Schema，确认授权此版本的只读工具？",
+            if (MessageBox.Show(this, "已核对 " + tool.Name + " 的资料范围及 Schema。"
+                + (forAgent ? "仅使用经核对的本机离线资料服务。允许本机 AI 申请逐次人工确认？" : "确认授权此版本的只读工具？"),
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             try
             {
-                var server = gateway.SetToolGrant(scope, catalog, tool.Name, true);
+                var server = gateway.SetToolGrant(scope, catalog, tool.Name, true, forAgent);
                 LoadServers(server.Id);
-                status.Text = "授权已保存。每次调用仍需确认。";
+                status.Text = forAgent ? "已允许本机 AI 申请。每次调用仍需确认。" : "人工调用授权已保存。每次调用仍需确认。";
             }
             catch (Exception error) { status.Text = error.Message; }
         }
@@ -312,6 +314,9 @@ namespace DeskBox.UI
             discover.Enabled = available;
             token.Enabled = available && server.Transport == "http";
             grant.Enabled = available && tool != null && !tool.ProhibitedByHints;
+            Uri endpoint;
+            grantAgent.Enabled = available && scope.Length > 0 && tool != null && tool.AgentReadOnly &&
+                server.Transport == "http" && Uri.TryCreate(server.Address, UriKind.Absolute, out endpoint) && AiEnvironment.Loopback(endpoint);
             revoke.Enabled = registered && server.Grants.Count > 0;
             invoke.Enabled = available && authorized && !tool.ProhibitedByHints;
             cancel.Enabled = operation != null;

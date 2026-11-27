@@ -35,6 +35,7 @@ namespace DeskBox.Ai
         public bool Ok;
         public string Output = "";
         public string Error = "";
+        public string ReceiptId = "";
         public bool NeedConfirm;
         public string ConfirmText = "";
         public static ToolResult Success(string output) { return new ToolResult { Ok = true, Output = output }; }

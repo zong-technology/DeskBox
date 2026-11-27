@@ -143,7 +143,7 @@ namespace DeskBox.UI.Views
             Page("程序分析", "选择程序块或变量查看调用及引用。只读工程可另行授权读取块正文。", BuildReferencePanel(), Button("读取块正文", ReadBlockContent), Button("创建 SCL 草稿", OpenSelectedScl), Button("解释所选对象", Explain), Button("检查工程", Check));
             Page("硬件组态", "从机架选择模块查看槽位、订货号和来源。可加载 CAx AML 或查询本机 V20 硬件目录。", BuildHardwarePanel(), catalogQuery, Button("查本机型号", Catalog), Button("AI 硬件建议", ExplainHardware), Button("导出硬件清单", ExportHardware));
             Page("网络拓扑", "选择一条已记录的连接，查看来源或点击端点定位所属硬件。", BuildNetworkPanel());
-            Page("变量管理", "从工程变量或 IO CSV 检索地址。地址建议保留在详情区，可复核后再使用。", BuildVariablesPage(), Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
+            Page("变量管理", "从工程变量或 IO CSV 检索地址。地址建议保留在详情区，可复核后再使用。", BuildVariablesPage(), Button("统一 Tag 与比较", OpenEngineeringTagCenter), Button("变量引用", () => SelectTab(1)), Button("检查 IO", Check), new Label { Text = "输入 I 起点", AutoSize = true }, inputStart, new Label { Text = "输出 Q 起点", AutoSize = true }, outputStart, Button("生成地址建议", PlanIo));
             applyDraft = Button("应用已预览草稿", ApplyDraft);
             Page("工程对比", "查看草稿的逐行变更，或用当前工程和另一份同类资料对比。", BuildDiffPage(), applyDraft, Button("设为基线", Remember), Button("对比另一批文件", Compare), Button("对比 .ap20 副本", CompareProject));
             repairDraft = Button("生成修复草稿", RepairDraft);
@@ -913,6 +913,15 @@ namespace DeskBox.UI.Views
             var files = SelectExports(); if (files == null) return;
             LoadExports(files);
         }
+        private void OpenEngineeringTagCenter()
+        {
+            var source = programmingSource;
+            var current = projects == null ? projectScope : projects.Context;
+            string opened = source == null || source.Native || source.Files.Length != 1 || current == null ||
+                !current.IncludesPath(source.Files[0]) ? null : source.Files[0];
+            EngineeringDataForm.Open(FindForm(), () => projects == null ? projectScope : projects.Context, opened, "PLC Studio");
+        }
+
         public void LoadExports(string[] files) { RunAction(() => LoadExports(files, false)); }
 
         private void LoadExports(string[] files, bool attach, bool bind = false)

@@ -65,7 +65,7 @@ namespace DeskBox.AppServices
             if (settings.Servers.Count >= 500) throw new InvalidOperationException("MCP 注册已达 500 个服务上限。");
         }
 
-        public McpServer SetToolGrant(string projectId, McpCatalog catalog, string name, bool approved)
+        public McpServer SetToolGrant(string projectId, McpCatalog catalog, string name, bool approved, bool allowAgent = false)
         {
             if (catalog == null || catalog.ProjectId != Scope(projectId))
                 throw new UnauthorizedAccessException("工具目录超出当前工程范围。");
@@ -82,8 +82,11 @@ namespace DeskBox.AppServices
                 RequireIdle(server.Id);
                 if (!server.Enabled || catalog.Profile != McpProtocol.Profile(server))
                     throw new InvalidOperationException("服务配置或状态已变更，请重新发现工具。");
+                if (allowAgent && (server.ProjectId.Length == 0 || !AgentEndpoint(server) || !tool.AgentReadOnly))
+                    throw new UnauthorizedAccessException("Agent 只接受当前工程的本机 HTTP 工具，需明确声明只读和封闭能力并提供受支持的 Schema。");
                 server.Grants.RemoveAll(grant => grant.Tool == name);
-                server.Grants.Add(new McpGrant { Tool = name, Fingerprint = Fingerprint(catalog, tool) });
+                server.Grants.Add(new McpGrant { Tool = name, Fingerprint = Fingerprint(catalog, tool), AllowAgent = allowAgent,
+                    InputSchema = allowAgent ? tool.InputSchema : "", Description = allowAgent ? EngineeringDocuments.Clip(tool.Description, 400) : "" });
                 server.Revision++;
                 store.Save(settings, recovered);
                 return server;
@@ -117,7 +120,7 @@ namespace DeskBox.AppServices
 
         public McpResult Discover(string projectId, string serverId, string bearer, CancellationToken cancellation)
         {
-            return Run(projectId, serverId, "", null, false, bearer, cancellation);
+            return Run(projectId, serverId, "", null, false, bearer, cancellation, null);
         }
 
         public McpResult Invoke(string projectId, string serverId, string name, string argumentsJson,
@@ -125,17 +128,40 @@ namespace DeskBox.AppServices
         {
             if (string.IsNullOrWhiteSpace(name) || name.Length > 128 || name.Any(char.IsControl))
                 throw new ArgumentException("请选择有效的工具。");
-            return Run(projectId, serverId, name, argumentsJson, operatorApproved, bearer, cancellation);
+            return Run(projectId, serverId, name, argumentsJson, operatorApproved, bearer, cancellation, null);
+        }
+
+        public List<McpAgentTool> AgentTools(string projectId)
+        {
+            if (string.IsNullOrEmpty(projectId)) return new List<McpAgentTool>();
+            bool recovered;
+            return Servers(projectId, out recovered).Where(server => server.Enabled && AgentEndpoint(server))
+                .SelectMany(server => server.Grants.Where(grant => grant.AllowAgent && McpInputSchema.CanValidate(grant.InputSchema))
+                    .Select(grant => new McpAgentTool { ServerId = server.Id, ServerName = server.Name, Name = grant.Tool,
+                        InputSchema = grant.InputSchema, Description = grant.Description, Fingerprint = grant.Fingerprint }))
+                .Take(80).ToList();
+        }
+
+        public McpResult InvokeForAgent(string projectId, McpAgentTool tool, string argumentsJson, bool operatorApproved, CancellationToken cancellation)
+        {
+            if (tool == null || string.IsNullOrWhiteSpace(projectId)) throw new ArgumentException("请选择当前工程中已授权的工具。");
+            return Run(projectId, tool.ServerId, tool.Name, argumentsJson, operatorApproved, "", cancellation, tool);
+        }
+
+        private static bool AgentEndpoint(McpServer server)
+        {
+            Uri endpoint;
+            return server.Transport == "http" && Uri.TryCreate(server.Address, UriKind.Absolute, out endpoint) && AiEnvironment.Loopback(endpoint);
         }
 
         private McpResult Run(string projectId, string serverId, string name, string json,
-            bool approved, string bearer, CancellationToken cancellation)
+            bool approved, string bearer, CancellationToken cancellation, McpAgentTool agent)
         {
             McpServer server;
             var clock = Stopwatch.StartNew();
             var environment = AiEnvironment.Token;
             var receipt = new McpReceipt { Id = Guid.NewGuid().ToString("N"), Tool = name,
-                Operation = name.Length == 0 ? "discover" : "call", StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+                Operation = name.Length == 0 ? "discover" : agent == null ? "call" : "agent.call", StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
             lock (Gate)
             {
                 bool ignored;
@@ -160,6 +186,13 @@ namespace DeskBox.AppServices
                         token.ThrowIfCancellationRequested();
                         RequireEnabled(server, bearer);
                         var arguments = name.Length == 0 ? null : ReadArguments(server, name, json, approved);
+                        if (agent != null)
+                        {
+                            var grant = server.Grants.SingleOrDefault(item => item.Tool == name && item.AllowAgent &&
+                                item.Fingerprint == agent.Fingerprint);
+                            if (grant == null || !AgentEndpoint(server)) throw new McpFault("policy", "Agent 工具授权已撤销或变更。");
+                            McpInputSchema.Require(grant.InputSchema, arguments);
+                        }
                         wire = McpWire.Connect(server, bearer, token);
                         var protocol = new McpProtocol(wire, token);
                         result.Catalog = protocol.Discover(server, version => receipt.ProtocolVersion = version);
@@ -171,6 +204,11 @@ namespace DeskBox.AppServices
                             if (tool == null || tool.ProhibitedByHints || !server.Grants.Any(grant =>
                                 grant.Tool == name && grant.Fingerprint == Fingerprint(result.Catalog, tool)))
                                 throw new McpFault("policy", "服务端工具 Schema、版本或能力声明已变化，请重新发现并授权。");
+                            if (agent != null)
+                            {
+                                if (!tool.AgentReadOnly) throw new McpFault("policy", "服务不再声明受支持的只读能力。");
+                                McpInputSchema.Require(tool.InputSchema, arguments);
+                            }
                             receipt.Dispatched = true;
                             store.SaveReceipt(receipt);
                             token.ThrowIfCancellationRequested();

@@ -35,6 +35,7 @@ internal static class V5RuntimeAccept
             {
                 TestAgent(sandbox, fixture);
                 TestMcp(sandbox, fixture, args);
+                TestEngineeringAgent(Path.Combine(sandbox, "agent-alpha3"), fixture);
                 fixture.AssertHealthy();
             }
             Console.WriteLine("PASS " + checks + " checks with loopback HTTP/SSE and a separate stdio fixture.");
@@ -289,6 +290,75 @@ internal static class V5RuntimeAccept
         Throws<InvalidDataException>(() => gateway.Servers("A", out recovered), "unsupported future store version is protected");
     }
 
+    private static void TestEngineeringAgent(string root, Fixture fixture)
+    {
+        AppPaths.DataDir = DeskBox.Store.DataDir = root;
+        var workspace = new WorkspaceStore();
+        var first = workspace.Add("Alpha3 A", Directory.CreateDirectory(Path.Combine(root, "project-A")).FullName, "PLC");
+        var second = workspace.Add("Alpha3 B", Directory.CreateDirectory(Path.Combine(root, "project-B")).FullName, "DCS");
+        workspace.SetCurrent(first.Id);
+        var project = workspace.Context;
+        string before = Path.Combine(project.Root, "original.csv"), after = Path.Combine(project.Root, "after.csv");
+        File.WriteAllText(before, "Tag,system,datatype,unit\nP101,PLC,REAL,kPa");
+        File.WriteAllText(after, "Tag,system,datatype,unit\nP101,PLC,REAL,bar");
+        var gateway = new McpGateway(root);
+        var server = gateway.SaveServer(project.Id, new McpServer { Name = "Read-only loopback fixture", Address = fixture.Base + "/mcp-agent" });
+        server.Enabled = true;
+        gateway.SaveServer(project.Id, server);
+        var catalog = gateway.Discover(project.Id, server.Id, "", None).Catalog;
+        Check(catalog != null && catalog.Tools.Any(tool => tool.AgentReadOnly && tool.Name == "echo"), "actual service advertises a closed read-only capability");
+        gateway.SetToolGrant(project.Id, catalog, "echo", true);
+        Check(gateway.AgentTools(project.Id).Count == 0, "manual grant does not enable Agent discovery");
+        Throws<UnauthorizedAccessException>(() => gateway.SetToolGrant(project.Id, catalog, "write", true, true), "mutating tool cannot opt into Agent use");
+        gateway.SetToolGrant(project.Id, catalog, "echo", true, true);
+        var choice = gateway.AgentTools(project.Id).Single();
+        Check(gateway.AgentTools(second.Id).Count == 0 && choice.InputSchema.Contains("required"), "Agent lists real approved Schema in the owning project only");
+        var count = fixture.Calls;
+        var miss = gateway.InvokeForAgent(project.Id, choice, "{\"text\":42}", true, None);
+        Check(miss.Receipt.ErrorKind == "arguments" && fixture.Calls == count, "JSON Schema validation prevents transport dispatch");
+
+        fixture.AgentServerId = server.Id;
+        var model = new AiProvider { Id = "test", Model = "a3-compare", BaseUrl = fixture.Base + "/v1", MaxRetries = 0 };
+        var store = new AgentTaskStore(root);
+        var runtime = new AgentRuntime(store);
+        ToolResult evidence = null;
+        var request = new AgentRunRequest { Provider = model, Project = project, Text = "Compare engineering data", SessionId = "alpha3",
+            CreateToolContext = token => new ToolContext { Project = project, Cancellation = token, AllowedRoots = new List<string> { project.Root } },
+            BuildPrompt = () => new AiChatRequest { Messages = new List<AiMessage> { new AiMessage
+                { Content = evidence == null ? "fixture alpha3 request" : "fixture result:\n" + (evidence.Ok ? evidence.Output : evidence.Error) } } },
+            ConfirmTool = (name, detail) => true };
+        var run = runtime.Run(request, None, toolResult: (name, result) => evidence = result);
+        Check(run.State == "succeeded" && fixture.SawComparison && evidence != null && evidence.Ok && evidence.Output.Contains("L2"),
+            "model selects engineering compare and receives deterministic source positions and hashes");
+
+        model.Model = "a3-mcp";
+        evidence = null;
+        request.ConfirmTool = (name, detail) => false;
+        run = runtime.Run(request, None, toolResult: (name, result) => evidence = result);
+        Check(run.State == "partial" && run.Steps.Any(step => step.ErrorKind == "policy") && fixture.Calls == count, "human denial prevents an Agent tool dispatch");
+
+        evidence = null;
+        request.ConfirmTool = (name, detail) => detail.Contains("alpha3-safe-text");
+        run = runtime.Run(request, None, toolResult: (name, result) => evidence = result);
+        Check(run.State == "succeeded" && fixture.Calls == count + 1 && fixture.SawAgentMcp && evidence.Ok && evidence.Output.Contains("alpha3-safe-text") &&
+            run.Steps.Single(step => step.Name == "mcp.read").ReceiptId == gateway.Receipts(project.Id, server.Id).First().Id, "actual Agent MCP dispatch has durable run and gateway receipt linkage");
+
+        count = fixture.Calls;
+        evidence = null;
+        model.Model = "a3-incomplete";
+        run = runtime.Run(request, None, toolResult: (name, result) => evidence = result);
+        Check(run.State == "failed" && run.ErrorKind == "protocol" && fixture.Calls == count && evidence == null,
+            "no tool dispatch when a terminal model response contains an incomplete request");
+
+        fixture.SchemaDrift = !fixture.SchemaDrift;
+        var drift = gateway.InvokeForAgent(project.Id, choice, "{\"text\":\"stale\"}", true, None);
+        Check(drift.Receipt.State == "denied" && !drift.Receipt.Dispatched && fixture.Calls == count, "live schema drift invalidates the agent grant");
+        gateway.RevokeTool(project.Id, server.Id, "echo");
+        var revoked = gateway.InvokeForAgent(project.Id, choice, "{\"text\":\"stale\"}", true, None);
+        Check(revoked.Receipt.State == "denied" && fixture.Calls == count && gateway.AgentTools(project.Id).Count == 0, "revoked tool cannot be reused from a previous model catalogue");
+        Throws<UnauthorizedAccessException>(() => gateway.InvokeForAgent(second.Id, choice, "{}", true, None), "other project cannot dispatch the same third-party tool");
+    }
+
     private static void Check(bool value, string label)
     {
         if (!value) throw new InvalidOperationException(label);
@@ -310,7 +380,8 @@ internal static class V5RuntimeAccept
         private volatile Exception error;
         internal readonly ManualResetEventSlim CallWaiting = new ManualResetEventSlim(), ModelWaiting = new ManualResetEventSlim();
         internal volatile bool AgentSawTool, SawSession, SchemaDrift, ReorderSchema;
-        internal volatile string CallMode = "", WriteTarget = "";
+        internal volatile string CallMode = "", WriteTarget = "", AgentServerId = "";
+        internal volatile bool SawComparison, SawAgentMcp;
         internal int Calls, Initializes, Deletes, RetryRequests;
         internal readonly string Base;
 
@@ -362,7 +433,7 @@ internal static class V5RuntimeAccept
                         offset += n;
                     }
                     string text = Encoding.UTF8.GetString(bytes);
-                    if (first.Contains(" /mcp ")) Mcp(stream, first, headers, text);
+                    if (first.Contains(" /mcp ") || first.Contains(" /mcp-agent ")) Mcp(stream, first, headers, text);
                     else Model(stream, first, text);
                 }
                 catch (IOException) { } // Expected when the client aborts big or stalled responses.
@@ -409,6 +480,31 @@ internal static class V5RuntimeAccept
                         return;
                     }
                     break;
+                case "a3-compare":
+                    if (text.Contains("fixture result:"))
+                    {
+                        SawComparison = text.Contains("original.csv") && text.Contains("after.csv") && text.Contains("L2") &&
+                            text.Contains("kPa") && text.Contains("bar");
+                        break;
+                    }
+                    if (!text.Contains("engineering.compare")) throw new Exception("Comparison tool was not advertised.");
+                    Respond(stream, "200 OK", "text/event-stream", Delta(Tool(Json.ToJson(new
+                    {
+                        name = "engineering.compare", args = new { before = "original.csv", after = "after.csv" }
+                    }))) + "data: [DONE]\n\n");
+                    return;
+                case "a3-mcp": case "a3-incomplete":
+                    if (text.Contains("fixture result:"))
+                    {
+                        if (text.Contains("alpha3-safe-text")) SawAgentMcp = true;
+                        break;
+                    }
+                    if (!text.Contains("mcp.read") || !text.Contains(AgentServerId)) throw new Exception("Approved real tool was not advertised.");
+                    var call = Tool(Json.ToJson(new { name = "mcp.read",
+                        args = new { server = AgentServerId, tool = "echo", arguments = new { text = "alpha3-safe-text" } } }));
+                    if (mode == "a3-incomplete") call += "\n```tool\n{";
+                    Respond(stream, "200 OK", "text/event-stream", Delta(call) + "data: [DONE]\n\n");
+                    return;
                 case "responses":
                     if (!first.Contains(" /v1/responses ") || !request.ContainsKey("input")) throw new Exception("Incorrect Responses endpoint/body.");
                     Respond(stream, "200 OK", "text/event-stream",
@@ -425,7 +521,8 @@ internal static class V5RuntimeAccept
         private void Mcp(Stream stream, string first, Dictionary<string, string> headers, string text)
         {
             string bearer;
-            if (!headers.TryGetValue("Authorization", out bearer) || bearer != "Bearer " + FixtureToken)
+            bool agent = first.Contains(" /mcp-agent ");
+            if (!agent && (!headers.TryGetValue("Authorization", out bearer) || bearer != "Bearer " + FixtureToken))
             {
                 Respond(stream, "401 Unauthorized", "application/json", "");
                 return;
@@ -467,7 +564,13 @@ internal static class V5RuntimeAccept
                 {
                     var props = new { text = new { type = SchemaDrift ? "integer" : "string" } };
                     object schema = ReorderSchema ? (object)new { properties = props, type = "object" } : new { type = "object", properties = props };
-                    var definitions = new[] { new { name = "echo", description = "Test echo", inputSchema = schema } };
+                    if (agent)
+                    {
+                        schema = new { type = "object", properties = new { text = new { type = "string", minLength = SchemaDrift ? 1 : 2 } },
+                            required = new[] { "text" }, additionalProperties = false };
+                    }
+                    var definitions = new[] { new { name = "echo", description = "Test echo", inputSchema = schema,
+                        annotations = new { readOnlyHint = true, openWorldHint = false, destructiveHint = false } } };
                     Respond(stream, "200 OK", "application/json", Envelope(id, new { tools = definitions, nextCursor = "fixture-next" }));
                 }
                 return;

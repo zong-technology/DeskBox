@@ -100,12 +100,8 @@ namespace DeskBox.Engineering.Tia
                 var file = new FileInfo(full);
                 if (file.Length > MaxFile || (size += file.Length) > 32L * 1024 * 1024)
                     throw new InvalidDataException("每个文件最多 8 MB，一批最多 32 MB。");
-                string ext = file.Extension.ToLowerInvariant();
-                if (ext == ".xml") ReadXml(full, result);
-                else if (ext == ".aml") AmlTopology.Read(ReadExportXml(full), file.Name, result, token);
-                else if (ext == ".scl" || ext == ".udt" || ext == ".db") ReadScl(File.ReadAllText(full), file.Name, result);
-                else if (ext == ".csv") ReadIo(full, result);
-                else throw new InvalidDataException("没有对应的导出文件读取器：" + ext);
+                using (var stream = File.OpenRead(full))
+                    ReadExport(stream, file.Name, result, token);
                 if (result.Objects.Count > 50000) throw new InvalidDataException("对象数量超过 50000。");
             }
             if (result.Objects.Count > 50000) throw new InvalidDataException("对象数量超过 50000。");
@@ -113,15 +109,29 @@ namespace DeskBox.Engineering.Tia
             return result;
         }
 
-        private static XDocument ReadExportXml(string path)
+        internal static void ReadExport(Stream stream, string file, PlcSnapshot result, CancellationToken token)
         {
-            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = MaxFile };
-            using (var reader = XmlReader.Create(path, settings)) return XDocument.Load(reader, LoadOptions.SetLineInfo);
+            string ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext == ".xml") ReadXml(ReadExportXml(stream), file, result);
+            else if (ext == ".aml") AmlTopology.Read(ReadExportXml(stream), file, result, token);
+            else if (ext == ".scl" || ext == ".udt" || ext == ".db")
+            {
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true))
+                    ReadScl(reader.ReadToEnd(), file, result);
+            }
+            else if (ext == ".csv") ReadIo(stream, file, result);
+            else throw new InvalidDataException("没有对应的导出文件读取器：" + ext);
+            token.ThrowIfCancellationRequested();
         }
 
-        private static void ReadXml(string path, PlcSnapshot snapshot)
+        private static XDocument ReadExportXml(Stream stream)
         {
-            var doc = ReadExportXml(path);
+            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = MaxFile };
+            using (var reader = XmlReader.Create(stream, settings)) return XDocument.Load(reader, LoadOptions.SetLineInfo);
+        }
+
+        private static void ReadXml(XDocument doc, string file, PlcSnapshot snapshot)
+        {
             int count = snapshot.Objects.Count;
             var hardwareIds = new Dictionary<XElement, string>();
             foreach (var element in doc.Descendants().Where(x => XmlKinds.Contains(x.Name.LocalName)))
@@ -130,7 +140,7 @@ namespace DeskBox.Engineering.Tia
                 var name = Value(attributes, "Name");
                 if (name.Length == 0) continue;
                 var line = (IXmlLineInfo)element;
-                var item = new PlcObject { Kind = element.Name.LocalName.Split('.').Last(), Name = name, Source = Path.GetFileName(path) + ":" + line.LineNumber,
+                var item = new PlcObject { Kind = element.Name.LocalName.Split('.').Last(), Name = name, Source = file + ":" + line.LineNumber,
                     Language = Value(attributes, "ProgrammingLanguage"), Address = Value(attributes, "LogicalAddress"), DataType = Value(attributes, "DataTypeName"),
                     HardwareType = Value(attributes, "TypeIdentifier"), Firmware = Value(attributes, "FirmwareVersion"),
                     OrderNumber = Value(attributes, "OrderNumber"), Slot = Value(attributes, "PositionNumber") };
@@ -177,7 +187,7 @@ namespace DeskBox.Engineering.Tia
                 item.Fingerprint = Hash(element.ToString(SaveOptions.DisableFormatting));
                 snapshot.Objects.Add(item);
             }
-            if (snapshot.Objects.Count == count) snapshot.Notes.Add(Path.GetFileName(path) + " 中没有可识别的 SimaticML 工程对象。");
+            if (snapshot.Objects.Count == count) snapshot.Notes.Add(file + " 中没有可识别的 SimaticML 工程对象。");
         }
 
         private static string StructuredText(XElement element)
@@ -284,9 +294,9 @@ namespace DeskBox.Engineering.Tia
             return offset < source.Length && source[offset] == '(';
         }
 
-        private static void ReadIo(string path, PlcSnapshot snapshot)
+        private static void ReadIo(Stream stream, string file, PlcSnapshot snapshot)
         {
-            using (var csv = new TextFieldParser(path, Encoding.UTF8, true))
+            using (var csv = new TextFieldParser(stream, Encoding.UTF8, true, true))
             {
                 csv.SetDelimiters(","); csv.HasFieldsEnclosedInQuotes = true;
                 if (csv.EndOfData) return;
@@ -301,7 +311,7 @@ namespace DeskBox.Engineering.Tia
                     if (string.IsNullOrWhiteSpace(values[name])) throw new InvalidDataException("CSV 名称为空，第 " + row + " 行。");
                     string addr = Cell(values, address), plc = Cell(values, device), part = Cell(values, order);
                     var item = new PlcObject { Name = values[name], Kind = "PlcTag", Scope = plc, Address = addr, DataType = Cell(values, type), Signal = Cell(values, signal),
-                    Source = Path.GetFileName(path) + ":" + row, Controller = plc, OrderNumber = part,
+                    Source = file + ":" + row, Controller = plc, OrderNumber = part,
                     Content = "信号 " + Cell(values, signal) + " · 订货号 " + (part.Length == 0 ? "待确认" : part) + " · 地址 " + (addr.Length == 0 ? "待分配" : addr),
                         Fingerprint = Hash(string.Join("\u001f", values)) };
                     snapshot.Objects.Add(item);

@@ -27,7 +27,7 @@ namespace DeskBox.Integration
             {
                 protocolVersion = "2025-06-18",
                 capabilities = new { },
-                clientInfo = new { name = "DeskBox", version = "5.0.0-alpha.2" }
+                clientInfo = new { name = "DeskBox", version = "5.0.0-alpha.3" }
             });
             string version = ReadString(hello, "protocolVersion");
             if (!Versions.Contains(version) || (server.Transport == "http" && version == "2024-11-05"))
@@ -83,6 +83,8 @@ namespace DeskBox.Integration
                     {
                         Name = toolName, Description = description, InputSchema = inputJson, OutputSchema = outputJson,
                         Annotations = hintsJson, ProhibitedByHints = Equals(isDestructive, true) || Equals(isReadOnly, false),
+                        AgentReadOnly = Equals(isReadOnly, true) && !Equals(isDestructive, true) &&
+                            Equals(Value(annotations, "openWorldHint"), false) && McpInputSchema.CanValidate(inputJson),
                         Fingerprint = Json.ToJson(new[] { toolName, description, inputJson, outputJson, hintsJson })
                     });
                 }

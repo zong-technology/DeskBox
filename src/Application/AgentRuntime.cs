@@ -144,6 +144,7 @@ namespace DeskBox.AppServices
                 var prompt = request.BuildPrompt == null
                     ? new AiChatRequest { Messages = new List<AiMessage> { new AiMessage { Content = request.Text } } }
                     : request.BuildPrompt();
+                var tools = AgentEngineeringTools.Advertise(prompt, request.Project, provider);
                 prompt.Model = task.Model;
                 var received = new StringBuilder();
                 string error = "", errorKind = "";
@@ -195,7 +196,12 @@ namespace DeskBox.AppServices
 
                 string text = received.ToString();
                 step.OutputCharacters = text.Length;
-                var calls = string.IsNullOrEmpty(error) ? ToolCallParser.Parse(text) : new List<ToolCall>();
+                var calls = new List<ToolCall>();
+                if (string.IsNullOrEmpty(error) && !ToolCallParser.TryParseComplete(text, out calls))
+                {
+                    errorKind = "protocol";
+                    error = "模型工具请求不完整或无法解析，本轮未执行任何工具。";
+                }
                 if (round == rounds && calls.Count > 0)
                 {
                     errorKind = "tool_round_limit";
@@ -213,10 +219,18 @@ namespace DeskBox.AppServices
                 foreach (var call in calls.Take(8))
                 {
                     token.ThrowIfCancellationRequested();
-                    var toolStep = BeginStep(task, "tool.call", ToolRegistry.Instance.Get(call.Name) == null ? "unregistered" : call.Name);
+                    var toolStep = BeginStep(task, "tool.call", ToolRegistry.Instance.Get(call.Name) != null ||
+                        AgentEngineeringTools.Handles(call.Name) ? call.Name : "unregistered");
                     if (status != null) status("正在执行工具 · " + toolStep.Name);
                     string kind;
-                    var result = ExecuteTool(request, call, token, status, out kind);
+                    var result = ExecuteTool(request, call, token, status, tools, out kind);
+                    toolStep.ReceiptId = result.ReceiptId;
+                    if (kind == "cancelled")
+                    {
+                        CompleteStep(task, toolStep, "cancelled", kind);
+                        if (output != null) output(toolStep.Name, result);
+                        token.ThrowIfCancellationRequested();
+                    }
                     toolStep.OutputCharacters = result.Ok ? (result.Output ?? "").Length : 0;
                     CompleteStep(task, toolStep, result.Ok ? "succeeded" : "failed", kind);
                     if (output != null) output(toolStep.Name, result);
@@ -232,17 +246,18 @@ namespace DeskBox.AppServices
         }
 
         private static ToolResult ExecuteTool(AgentRunRequest request, ToolCall call, CancellationToken token,
-            Action<string> status, out string errorKind)
+            Action<string> status, IReadOnlyList<McpAgentTool> tools, out string errorKind)
         {
             var registry = ToolRegistry.Instance;
             var tool = registry.ToolsForProject(request.Project)
                 .FirstOrDefault(item => string.Equals(item.Name, call.Name, StringComparison.OrdinalIgnoreCase));
-            if (tool == null || request.CreateToolContext == null)
+            bool engineering = AgentEngineeringTools.Handles(call.Name);
+            if ((!engineering && tool == null) || request.CreateToolContext == null)
             {
                 errorKind = "permission";
                 return ToolResult.Fail("当前环境或工程未授权调用该工具。");
             }
-            if (tool.RequiresConfirm)
+            if (tool != null && AgentEngineeringTools.NeedsConfirmation(tool))
             {
                 if (status != null) status("等待人工确认 · " + tool.Name);
                 if (request.ConfirmTool == null || !request.ConfirmTool(tool.Name, "AI 请求执行操作：" + tool.Name + "\n\n" + call.Describe()))
@@ -255,6 +270,8 @@ namespace DeskBox.AppServices
             if (context == null || !ReferenceEquals(context.Project, request.Project))
                 throw new InvalidOperationException("工具上下文与本轮工程不一致。");
             token.ThrowIfCancellationRequested();
+            if (engineering)
+                return AgentEngineeringTools.Execute(call, context, tools, request.ConfirmTool, status, token, out errorKind);
             var result = registry.Invoke(tool.Name, call.Args, context);
             errorKind = result.Ok ? "" : "tool_error";
             return result;
