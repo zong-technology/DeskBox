@@ -20,9 +20,11 @@ namespace DeskBox.UI.Views
             _notifications = notifications;
             _showCalibration = showCalibration;
             var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Palette.Bg };
-            var read = new DarkButton("全部标为已读") { Width = 120 };
-            var clear = new DarkButton("清理已读") { Width = 90 };
-            _openCalibration = new DarkButton("查看校准到期") { Name = "notification-open-calibration", Width = 136, Enabled = false };
+            var read = ToolbarButton("全部标为已读");
+            var clear = ToolbarButton("清理已读");
+            _openCalibration = ToolbarButton("查看校准到期");
+            _openCalibration.Name = "notification-open-calibration";
+            _openCalibration.Enabled = false;
             _openCalibration.Click += delegate { OpenCalibration(SelectedNotification); };
             _stat = new Label { AutoSize = true, ForeColor = Palette.TextFaint, Font = new Font("Microsoft YaHei UI", 8.5F),
                 BackColor = Palette.Bg, Margin = new Padding(6, 10, 3, 3) };
@@ -49,6 +51,20 @@ namespace DeskBox.UI.Views
             Body.Controls.Add(top);
             _list.BringToFront();
             if (_notifications != null) _notifications.Changed += OnChanged;
+        }
+
+        private DarkButton ToolbarButton(string text)
+        {
+            var button = new DarkButton(text) { Palette = Palette };
+            Action fit = () =>
+            {
+                var size = TextRenderer.MeasureText(button.Text, button.Font);
+                button.Size = new Size(size.Width + 22, size.Height + 10);
+            };
+            fit();
+            button.HandleCreated += delegate { fit(); };
+            button.FontChanged += delegate { fit(); };
+            return button;
         }
 
         private AppNotification SelectedNotification

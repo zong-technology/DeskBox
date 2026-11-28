@@ -334,6 +334,9 @@ public static class V5ContextAcceptance
                 list.SelectIndex(list.Rows.FindIndex(row => ((AppNotification)row.Tag).Kind == "calibration"));
                 var open = Find(panel, "notification-open-calibration");
                 Check(open.Enabled && open.Focus(), "calibration action is reachable by keyboard");
+                Check(open.Parent.Controls.OfType<DarkButton>().All(button =>
+                    button.ClientSize.Width >= TextRenderer.MeasureText(button.Text, button.Font).Width + 10),
+                    "notification toolbar leaves room for Chinese labels");
                 CaptureWindow(panel, Path.Combine(output, "calibration-notification-dpi" + dpi + ".png"));
                 UseDialog(open, "instrument-workbench", ledger =>
                 {

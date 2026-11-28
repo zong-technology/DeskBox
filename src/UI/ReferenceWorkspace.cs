@@ -420,7 +420,8 @@ namespace DeskBox.UI
 
         internal void ShowLegacy(string name, Action<Control> configure = null)
         {
-            using(var dialog=new Form{Name=name+"-dialog",Text="DeskBox · "+name,StartPosition=FormStartPosition.CenterParent,Size=new Size(1120,760),BackColor=_p.Bg})
+            string title = name == "notifications" ? "通知中心" : name;
+            using(var dialog=new Form{Name=name+"-dialog",Text="DeskBox · "+title,StartPosition=FormStartPosition.CenterParent,Size=new Size(1120,760),BackColor=_p.Bg})
             {var view=_legacyFactory(name);if(view==null)return;view.Dock=DockStyle.Fill;dialog.Controls.Add(view);var baseView=view as Views.ViewBase;if(baseView!=null){baseView.ApplyPalette(_p);baseView.Activate();}if(configure!=null)configure(view);dialog.ShowDialog(this);}DataChanged();
         }
         private void OpenPath(string path){if(!File.Exists(path)&&!Directory.Exists(path)){_status.Text="路径已不存在："+path;return;}Win32.OpenPath(path);if(File.Exists(path))_library.Touch(path);}
