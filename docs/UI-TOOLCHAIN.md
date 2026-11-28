@@ -2,6 +2,23 @@
 
 本项目保留原生 WinForms 架构、`build.ps1` 和 `tools/render-v4-ui.cs`。自动化使用隔离测试宿主，不启动或更新生产 DeskBox。脚本、截图、合成数据和编译临时文件落在 D 盘源码的 `dist/ui-qa-*`，无需恢复真实工程数据或配置实际云账号。
 
+## UI/UX Pro Max
+
+仓库内安装 `ui-ux-pro-max` v2.15.0，固定上游提交 `a38d04c3d5c298c851dbe5e6ee1965ee3de42cb5`。使用官方 Codex 模板，保留离线数据、搜索与校验脚本及 MIT 许可。Codex 从项目的 `.agents/skills` 发现此技能。脚本使用 Python 3 标准库。 [已安装技能](../.agents/skills/ui-ux-pro-max/SKILL.md) · [MIT 许可](../.agents/skills/ui-ux-pro-max/LICENSE) · [上游版本](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/releases/tag/v2.15.0)
+
+- 新增页面或统一视觉时生成候选设计系统，结合工程场景检查信息密度、状态层级及实际工作流程。已批准的方案以 DeskBox 设计规范和现有设计变量为准。
+- 修复或审查现有页面时，聚焦实际问题，如键盘焦点遮挡、长中文标签、缩放、空状态或错误提示。WinForms 使用通用 UX 建议和本项目的原生控件、布局与验收标准。SwiftUI 等其他页面按实际技术栈选择指引。
+- 设计检索使用概括性描述。新样式或交互按现有 Windows 矩阵实测，涉及打印、导出或高风险按钮时同时核对相应业务流程。
+
+在仓库根目录运行已有的 Python 3 命令，Windows 通常用 `python`。
+
+```sh
+python3 -B .agents/skills/ui-ux-pro-max/scripts/search.py "industrial engineering dashboard" --design-system -p DeskBox
+python3 -B .agents/skills/ui-ux-pro-max/scripts/search.py "keyboard focus not obscured" --domain ux
+```
+
+Codex CLI 已验证技能发现及仓库作用域。设计系统生成、键盘焦点检索和上游数据校验均已通过。
+
 ## 运行与验收矩阵
 
 在 Windows 隔离测试账户或虚拟机中，将显示比例设为 100%、125% 或 150%，重新打开测试进程后分别运行。使用能容纳目标窗口的桌面分辨率。

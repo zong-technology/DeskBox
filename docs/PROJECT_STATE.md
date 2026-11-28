@@ -15,6 +15,8 @@
 
 [Windows 运行](https://github.com/zong-technology/DeskBox/actions/runs/46134844982) · [本轮验收](V5-ALPHA5-INSTRUMENTS.md) · [版本证据](V5-BUILD-PROVENANCE.md) · [功能矩阵](V5-FUNCTION-MATRIX.md)
 
+UI/UX Pro Max v2.15.0 已纳入仓库项目技能。已验证 Codex 发现、设计系统生成、可访问性检索与数据校验。后续 UI 任务依据项目规则使用。 [工具链及安装来源](UI-TOOLCHAIN.md#uiux-pro-max)
+
 ## alpha.5 仪表资产首批增量
 
 从 `b629418` 继续开发，首批候选源码为 `2497092`。仪表台账已经接入现场工程、工程上下文和统一 Tag。支持稳定 ID、型号及量程、手册、校准及维护、证据引用和校验、到期筛选、导出与恢复。Linux 交叉构建和 28 项仪表专项通过。后续顺序为到期通知、关联现场事件及验证记录，以及授权通信资料与 PI/UFL。 [操作及测试](V5-ALPHA5-INSTRUMENTS.md) · [Windows 候选运行](https://github.com/zong-technology/DeskBox/actions/runs/46134844982)
