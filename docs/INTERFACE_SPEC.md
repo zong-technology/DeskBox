@@ -23,6 +23,8 @@
 | `ValidationTrace.Query / Related / Statistics` | 接收项目快照及过滤条件，返回双向关系、RTM、覆盖缺口、计数和可空比率。传入服务以核对文件完整性。 |
 | `ValidationTrace.RecordImpact / CaptureBaseline / CompareBaselines` | 用实际工程差异、稳定 ID、哈希与版本记录待评估影响和固定基线。 |
 | `ValidationReports.Export` | 项目、报告种类、目标和可选模板映射。生成 XLSX 或待审核 DOCX。仅创建新报告文件。 |
+| `InstrumentService.Read / Save / Record` | 读取项目仪表、修订及校准维护历史。写入资产时校验最新修订号和修订令牌、项目归属与 TagId。活动只追加。选择已归档证据时校验同项目来源及实际字节。 |
+| `InstrumentService.VerifyAttachment / Export / Restore` | 按资产 ID 和可选活动 ID 查验来源哈希。普通原件返回项目内路径，已归档证据返回校验成功和空路径。项目根下可生成 CSV 或 XLSX。主台账损坏时显式从上一版恢复。 |
 
 [业务接口、参数和错误](UI-HANDOFF/SERVICE-CONTRACTS.md) · [领域模型](UI-HANDOFF/DATA-MODELS.md) · [统计定义](V5-VALIDATION-METRICS.md)
 

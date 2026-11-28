@@ -1,6 +1,17 @@
 # DeskBox V5 功能矩阵
 
-当前增量见 alpha.4 表，alpha.3 与 alpha.2 保留各阶段历史状态。历史基线与 alpha.1 条目保留供追溯。VERIFIED 表示在列出的环境经验证，IMPLEMENTED 表示已经接通，PARTIAL 表示覆盖不完整，BLOCKED 表示受测试环境限制。MISSING、UI_ONLY、MOCK、BROKEN 用于记录缺少实现、仅有界面、回归夹具或缺陷。
+当前增量见 alpha.5 表，alpha.4、alpha.3 与 alpha.2 保留各阶段历史状态。历史基线与 alpha.1 条目保留供追溯。VERIFIED 表示在列出的环境经验证，IMPLEMENTED 表示已经接通，PARTIAL 表示覆盖不完整，BLOCKED 表示受测试环境限制。MISSING、UI_ONLY、MOCK、BROKEN 用于记录缺少实现、仅有界面、回归夹具或缺陷。
+
+## V5.0-alpha.5 仪表资产首批增量
+
+| 功能 | 状态 | 验收范围 |
+| --- | --- | --- |
+| 仪表台账、修订及工程 Tag | VERIFIED | 业务套件验证稳定 ID、同项目关联、重复编号、版本冲突和项目隔离。 |
+| 校准、维护、手册及证书 | VERIFIED | 业务套件验证追加记录、来源定位及 SHA-256、已归档证据复用、到期筛选依据。 |
+| CSV/XLSX、备份与恢复 | VERIFIED | 业务套件验证真实台账导出、禁止覆盖、损坏回退、并发令牌与应用备份。 |
+| 到期通知、资产与现场事件或验证记录直接关联 | PARTIAL | 当前支持台账内到期筛选及通过 Tag 和证据衔接。自动通知和直接关系待后续。 |
+
+[仪表操作与验收](V5-ALPHA5-INSTRUMENTS.md)
 
 ## V5.0-alpha.4 制药验证与工程追溯
 
