@@ -1,0 +1,80 @@
+[
+  {
+    "kind": "request",
+    "protocolVersion": "1.0.0-draft.1",
+    "requestId": "fixture-submit-1",
+    "callerId": "fixture-eco",
+    "timestamp": "2026-01-01T00:00:00Z",
+    "operation": "tasks.submit",
+    "params": {
+      "projectId": "fixture-project-a",
+      "capabilityId": "fixture.local_echo",
+      "capabilityVersion": "1.0.0",
+      "arguments": { "value": "synthetic input" }
+    }
+  },
+  {
+    "kind": "response",
+    "protocolVersion": "1.0.0-draft.1",
+    "requestId": "fixture-submit-1",
+    "serviceId": "fixture-deskbox",
+    "timestamp": "2026-01-01T00:00:00Z",
+    "operation": "tasks.submit",
+    "result": {
+      "taskId": "fixture-task-1",
+      "projectId": "fixture-project-a",
+      "capabilityId": "fixture.local_echo",
+      "capabilityVersion": "1.0.0",
+      "status": "pending",
+      "revision": 1,
+      "updatedAt": "2026-01-01T00:00:00Z"
+    }
+  },
+  {
+    "kind": "response",
+    "protocolVersion": "1.0.0-draft.1",
+    "requestId": "fixture-status-1",
+    "serviceId": "fixture-deskbox",
+    "timestamp": "2026-01-01T00:00:01Z",
+    "operation": "tasks.status",
+    "result": {
+      "taskId": "fixture-task-1",
+      "projectId": "fixture-project-a",
+      "capabilityId": "fixture.local_echo",
+      "capabilityVersion": "1.0.0",
+      "status": "succeeded",
+      "revision": 3,
+      "updatedAt": "2026-01-01T00:00:01Z",
+      "result": { "value": "synthetic input" }
+    }
+  },
+  {
+    "kind": "response",
+    "protocolVersion": "1.0.0-draft.1",
+    "requestId": "fixture-cancel-1",
+    "serviceId": "fixture-deskbox",
+    "timestamp": "2026-01-01T00:00:01Z",
+    "operation": "tasks.cancel",
+    "error": {
+      "code": "access_denied",
+      "message": "The caller lacks authorization for this project.",
+      "retryable": false
+    }
+  },
+  {
+    "kind": "event",
+    "protocolVersion": "1.0.0-draft.1",
+    "eventId": "fixture-event-1",
+    "serviceId": "fixture-deskbox",
+    "subscriptionId": "fixture-subscription-1",
+    "sequence": 1,
+    "timestamp": "2026-01-01T00:00:01Z",
+    "eventType": "task.updated",
+    "task": {
+      "taskId": "fixture-task-1",
+      "projectId": "fixture-project-a",
+      "status": "succeeded",
+      "revision": 3
+    }
+  }
+]

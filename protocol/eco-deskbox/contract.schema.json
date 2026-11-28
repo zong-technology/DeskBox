@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ECO–DeskBox draft.1",
+  "description": "Protocol-neutral message contract proposed by DeskBox for joint review.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/event" }
+  ],
+  "$defs": {
+    "version": { "const": "1.0.0-draft.1" },
+    "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "state": { "enum": ["pending", "running", "awaiting_approval", "succeeded", "failed", "cancelled"] },
+    "operation": {
+      "enum": ["service.discover", "service.health", "capabilities.list", "capabilities.register", "data.query", "tasks.submit", "tasks.status", "tasks.cancel", "events.subscribe", "events.poll", "events.unsubscribe"]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string", "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "retryable": { "type": "boolean" },
+        "retryAfterMs": { "type": "integer", "minimum": 0 }
+      },
+      "dependentSchemas": { "retryAfterMs": { "properties": { "retryable": { "const": true } } } }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "version", "mode", "inputSchemaRef", "resultSchemaRef"],
+      "properties": {
+        "capabilityId": { "$ref": "#/$defs/id" },
+        "version": { "$ref": "#/$defs/id" },
+        "mode": { "enum": ["query", "task"] },
+        "inputSchemaRef": { "type": "string", "format": "uri-reference", "minLength": 1 },
+        "resultSchemaRef": { "type": "string", "format": "uri-reference", "minLength": 1 }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "protocolVersion", "requestId", "callerId", "timestamp", "operation", "params"],
+      "properties": {
+        "kind": { "const": "request" },
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "requestId": { "$ref": "#/$defs/id" },
+        "callerId": { "$ref": "#/$defs/id" },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "deadline": { "$ref": "#/$defs/timestamp" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "params": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "enum": ["service.discover", "service.health"] } } },
+          "then": { "properties": { "params": { "maxProperties": 0 } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "capabilities.list" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/projectScope" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "capabilities.register" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/capability" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["data.query", "tasks.submit"] } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/capabilityCall" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["tasks.status", "tasks.cancel"] } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/taskRef" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "events.subscribe" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/projectScope" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "events.poll" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/eventCursor" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "events.unsubscribe" } } },
+          "then": { "properties": { "params": { "$ref": "#/$defs/subscriptionRef" } } }
+        }
+      ]
+    },
+    "projectScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId"],
+      "properties": { "projectId": { "$ref": "#/$defs/id" } }
+    },
+    "capabilityCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "capabilityId", "capabilityVersion", "arguments"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/id" },
+        "capabilityId": { "$ref": "#/$defs/id" },
+        "capabilityVersion": { "$ref": "#/$defs/id" },
+        "arguments": { "type": "object" }
+      }
+    },
+    "taskRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "taskId"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/id" },
+        "taskId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "subscriptionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subscriptionId"],
+      "properties": { "subscriptionId": { "$ref": "#/$defs/id" } }
+    },
+    "eventCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subscriptionId", "afterSequence"],
+      "properties": {
+        "subscriptionId": { "$ref": "#/$defs/id" },
+        "afterSequence": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "protocolVersion", "requestId", "serviceId", "timestamp", "operation"],
+      "properties": {
+        "kind": { "const": "response" },
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "requestId": { "$ref": "#/$defs/id" },
+        "serviceId": { "$ref": "#/$defs/id" },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "result": { "type": "object" },
+        "error": { "$ref": "#/$defs/error" }
+      },
+      "oneOf": [{ "required": ["result"] }, { "required": ["error"] }],
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "service.discover" } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/discovery" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "service.health" } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/health" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "capabilities.list" } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/catalog" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "capabilities.register" } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/capability" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["tasks.submit", "tasks.status", "tasks.cancel"] } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/task" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "tasks.submit" } } },
+          "then": { "properties": { "result": { "properties": { "status": { "const": "pending" }, "revision": { "const": 1 } } } } }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["events.subscribe", "events.unsubscribe"] } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/subscriptionRef" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "events.poll" } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/eventPage" } } }
+        }
+      ]
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supportedVersions"],
+      "properties": {
+        "supportedVersions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ready"],
+      "properties": { "ready": { "type": "boolean" } }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilities"],
+      "properties": { "capabilities": { "type": "array", "items": { "$ref": "#/$defs/capability" } } }
+    },
+    "eventPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "nextSequence"],
+      "properties": {
+        "events": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/event" } },
+        "nextSequence": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId", "projectId", "capabilityId", "capabilityVersion", "status", "revision", "updatedAt"],
+      "properties": {
+        "taskId": { "$ref": "#/$defs/id" },
+        "projectId": { "$ref": "#/$defs/id" },
+        "capabilityId": { "$ref": "#/$defs/id" },
+        "capabilityVersion": { "$ref": "#/$defs/id" },
+        "status": { "$ref": "#/$defs/state" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "updatedAt": { "$ref": "#/$defs/timestamp" },
+        "progress": { "type": "number", "minimum": 0, "maximum": 100 },
+        "cancelRequested": { "type": "boolean" },
+        "result": { "type": "object" },
+        "error": { "$ref": "#/$defs/error" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "succeeded" } } },
+          "then": { "required": ["result"] },
+          "else": { "not": { "required": ["result"] } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "failed" } } },
+          "then": { "required": ["error"] },
+          "else": { "not": { "required": ["error"] } }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "protocolVersion", "eventId", "serviceId", "subscriptionId", "sequence", "timestamp", "eventType", "task"],
+      "properties": {
+        "kind": { "const": "event" },
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "eventId": { "$ref": "#/$defs/id" },
+        "serviceId": { "$ref": "#/$defs/id" },
+        "subscriptionId": { "$ref": "#/$defs/id" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "eventType": { "const": "task.updated" },
+        "task": { "$ref": "#/$defs/taskState" }
+      }
+    },
+    "taskState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId", "projectId", "status", "revision"],
+      "properties": {
+        "taskId": { "$ref": "#/$defs/id" },
+        "projectId": { "$ref": "#/$defs/id" },
+        "status": { "$ref": "#/$defs/state" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/state" },
+        "to": { "$ref": "#/$defs/state" }
+      },
+      "oneOf": [
+        { "properties": { "from": { "const": "pending" }, "to": { "enum": ["running", "awaiting_approval", "failed", "cancelled"] } } },
+        { "properties": { "from": { "const": "running" }, "to": { "enum": ["awaiting_approval", "succeeded", "failed", "cancelled"] } } },
+        { "properties": { "from": { "const": "awaiting_approval" }, "to": { "enum": ["pending", "failed", "cancelled"] } } }
+      ]
+    }
+  }
+}

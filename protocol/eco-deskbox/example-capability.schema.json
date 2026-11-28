@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic fixture.local_echo capability",
+  "$defs": {
+    "input": { "$ref": "#/$defs/value" },
+    "result": { "$ref": "#/$defs/value" },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": { "value": { "type": "string" } }
+    }
+  }
+}

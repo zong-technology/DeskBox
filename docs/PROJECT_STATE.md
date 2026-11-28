@@ -24,6 +24,8 @@
 
 [专属规范](DESKBOX_SPEC.md) · [接口现状、缺口和接入顺序](INTERFACE_SPEC.md#eco-接入准备评估) · [技术决策](DECISIONS.md) · [工程上下文测试](../tools/v5-context-accept.cs) · [Agent／MCP 测试](../tools/v5-runtime-accept.cs) · [工程数据测试](../tools/v5-engineering-data-accept.cs)
 
+基于 `ed731e3` 增补 ECO × DeskBox 协议草案 `1.0.0-draft.1`。消息 Schema、示例和进程内模拟任务服务的 10 项契约测试通过，覆盖 36 种状态组合。桌面运行时仍使用已验收版本。传输、认证、事件投递及双方兼容验证等待确认。 [协议草案](INTERFACE_SPEC.md#eco--deskbox-统一通信协议-v10-草案) · [契约测试](../test/eco_deskbox_contract_test.py)
+
 ## 未验证与限制
 
 - 持证并获授权的 TIA Portal V20、真实 DeltaV 版本样本、外部商业模型效果、iPhone 真机、200% DPI、2K／4K 及多屏需要相应环境。
