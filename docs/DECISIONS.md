@@ -10,5 +10,7 @@
 | 计划和结果分别计算 | 阶段进度继续沿用 ValidationProgress。需求覆盖、执行、通过、审核和交付取各自的真实记录。 |
 | 授权人员负责结论 | 系统记录人工测试、复验、偏差关闭和审核。AI 读授权范围内的资料并准备草稿。 |
 | 权限延伸至外部工具 | 本机 MCP 逐项核准和确认，模型按项目权限运行，验证结果留在本机。 |
+| DeskBox 独立运行，ECO 可选接入 | 人工入口持续覆盖完整业务。后续适配器通过 DeskBox 服务契约获取已授权能力。DeskBox 管理用户授权范围内的本地台账，双方各自管理内部实现。 |
+| ECO 接入按具体用例增量实现 | 先通过模拟客户端验证最小只读范围，认证、项目授权和审计随首个接口交付。任务写入、运行管理和事件按实际需求扩展。通用 MCP 客户端、TIA 本地作业和移动同步协议保留各自用途。 |
 
-[仓库规则](../AGENTS.md) · [当前架构](ARCHITECTURE.md) · [接口](INTERFACE_SPEC.md) · [历史待决定事项](DEFERRED-DECISIONS.md) · [版本证据](V5-BUILD-PROVENANCE.md)
+[仓库规则](../AGENTS.md) · [DeskBox 专属规范](DESKBOX_SPEC.md) · [当前架构](ARCHITECTURE.md) · [接口](INTERFACE_SPEC.md) · [历史待决定事项](DEFERRED-DECISIONS.md) · [版本证据](V5-BUILD-PROVENANCE.md)

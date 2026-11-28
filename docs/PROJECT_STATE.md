@@ -16,6 +16,14 @@
 
 [Windows 运行](https://github.com/zong-technology/DeskBox/actions/runs/46036702085) · [验收报告](V5-ALPHA4-VERIFICATION.md) · [版本证据](V5-BUILD-PROVENANCE.md) · [功能矩阵](V5-FUNCTION-MATRIX.md)
 
+## DeskBox 专属规范与 ECO 准备
+
+已基于分支 `codex/deskbox-v5-p0` 的 `51d7a81` 核对 WinForms、项目上下文、文件检索、任务、Agent Runtime、MCP、工作流和移动同步。DeskBox 保留独立运行和完整人工入口。项目及文件查询、执行、状态和回执已有可复用的内部服务。ECO 的可选接入入口、调用者权限、对外能力目录和事件契约仍待实现。先随实际用例验证最小授权只读范围，继续按既定顺序开发 alpha.5。
+
+本轮 Linux .NET Framework 4.8 交叉构建通过，0 错误、5 项既有警告。使用合成文件、进程内模拟调用方、回环 HTTP/SSE 和独立 stdio 夹具复跑，工程上下文 32 项、Agent／MCP 72 项、离线工程数据 48 项全部通过。覆盖项目及文件隔离、取消、授权撤销、Schema 变化和回执。ECO 公开契约落地后单独进行端到端验收。
+
+[专属规范](DESKBOX_SPEC.md) · [接口现状、缺口和接入顺序](INTERFACE_SPEC.md#eco-接入准备评估) · [技术决策](DECISIONS.md) · [工程上下文测试](../tools/v5-context-accept.cs) · [Agent／MCP 测试](../tools/v5-runtime-accept.cs) · [工程数据测试](../tools/v5-engineering-data-accept.cs)
+
 ## 未验证与限制
 
 - 持证并获授权的 TIA Portal V20、真实 DeltaV 版本样本、外部商业模型效果、iPhone 真机、200% DPI、2K／4K 及多屏需要相应环境。
