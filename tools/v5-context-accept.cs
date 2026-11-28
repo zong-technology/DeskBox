@@ -302,6 +302,24 @@ public static class V5ContextAcceptance
                 Check(table.Rows[0].Cells[0].Value.ToString() == "URS-UI", "RTM surfaces uncovered requirement through native route");
                 CaptureWindow(panel, Path.Combine(output, "validation-rtm-dpi" + dpi + ".png"));
             });
+            var instruments = new InstrumentService();
+            var asset = instruments.Save(scopes.Context, new InstrumentAsset { Number = "PT-UI", Name = "Synthetic pressure transmitter",
+                Kind = "压力变送器" }, 0, CancellationToken.None);
+            var date = DateTime.Today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            instruments.Record(scopes.Context, new InstrumentActivity { AssetId = asset.Id, Kind = "calibration", Date = date, DueDate = date,
+                Notes = "Synthetic native UI record." }, CancellationToken.None);
+            form.SwitchView("incidents");
+            UseDialog(Find(workspace, "instrument-workbench-open"), "instrument-workbench", panel =>
+            {
+                var list = (DataGridView)Find(panel, "instrument-assets");
+                var records = (DataGridView)Find(panel, "instrument-history");
+                WaitFor(() => list.Rows.Count == 1, "instrument ledger loads from field operations", true);
+                list.CurrentCell = list.Rows[0].Cells[0];
+                Check(list.Rows[0].Cells[0].Value.ToString() == "PT-UI" && list.Rows[0].Cells[5].Value.ToString() == "今日到期",
+                    "instrument ledger shows the recorded calibration due date");
+                WaitFor(() => records.Rows.Count == 1, "instrument calibration history is visible", true);
+                CaptureWindow(panel, Path.Combine(output, "instrument-ledger-dpi" + dpi + ".png"));
+            });
             form.SwitchView("ai");
             var chat = (ChatService)Field(form, "_chat");
             Check(chat.Current.ProjectId == a.Id, "AI page and header share project");

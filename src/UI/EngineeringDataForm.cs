@@ -79,6 +79,10 @@ namespace DeskBox.UI
             ActionButton(tagActions, "下一页", () => { if (tagList.Items.Count == PageSize) RefreshTags(offset + PageSize); });
             ActionButton(tagActions, "新增…", () => EditTag(null));
             ActionButton(tagActions, "编辑…", () => { if (SelectedTag != null) EditTag(SelectedTag); });
+            ActionButton(tagActions, "关联仪表…", () =>
+            {
+                if (SelectedTag != null) InstrumentRegisterForm.Open(this, active, SelectedTag.TagId);
+            });
             ActionButton(tagActions, "版本比较", ShowRevisions);
             ActionButton(tagActions, "来源定位", ShowTagSource);
             ActionButton(tagActions, "导出 CSV/XLSX", ExportTags);
@@ -504,7 +508,7 @@ namespace DeskBox.UI
             {
                 table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 table.Controls.Add(new Label { Text = labels[i], AutoSize = true, Margin = new Padding(3, 7, 3, 3) }, 0, i);
-                if (choices == null) inputs[i] = new TextBox { Text = values[i] };
+                if (choices == null || choices[i] == null) inputs[i] = new TextBox { Text = values[i] };
                 else
                 {
                     var list = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };

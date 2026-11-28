@@ -46,7 +46,9 @@ namespace DeskBox.UI.Views
             var edit=new DarkButton("查看 / 处理"){Width=120,Palette=Palette}; edit.Click+=delegate{if(_list.SelectedRow!=null)Edit(_list.SelectedRow.Tag as SyncRecord);else _summary.Text="先选择一项现场事件";};
             _search=new DarkInput{Width=250,Palette=Palette,Placeholder="搜索项目、设备、现象或负责人"};_search.Inner.TextChanged+=delegate{ReloadData();};
             _filter=new DarkSelect(new[]{"全部状态","待处理","调查中","已解决","已关闭"}){Width=120,Palette=Palette};_filter.SelectedIndex=0;_filter.SelectedIndexChanged+=delegate{ReloadData();};
-            toolbar.Controls.AddRange(new Control[]{add,edit,_search,_filter});
+            var instruments = new DarkButton("仪表资产…") { Name = "instrument-workbench-open", Width = 105, Palette = Palette };
+            instruments.Click += delegate { InstrumentRegisterForm.Open(FindForm(), () => _projects.Context); };
+            toolbar.Controls.AddRange(new Control[]{add,edit,instruments,_search,_filter});
             _summary=new Label{Dock=DockStyle.Bottom,Height=30,ForeColor=Palette.TextDim};
             _list=new DarkList{Dock=DockStyle.Fill,Palette=Palette,RowHeight=44};
             _list.SetColumns(new[]{"状态","级别","项目 / 设备","事件描述","负责人","更新时间"},new[]{90,60,210,340,100,150});

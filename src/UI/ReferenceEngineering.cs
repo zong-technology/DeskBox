@@ -160,6 +160,7 @@ namespace DeskBox.UI
             var tags = Button("统一工程 Tag…", () => EngineeringDataForm.Open(FindForm(), () => _projects.Context), false, 160);
             tags.Name = "project-tag-center";
             toolbar.Controls.Add(tags);
+            toolbar.Controls.Add(Button("仪表资产…", () => InstrumentRegisterForm.Open(FindForm(), () => _projects.Context), false, 112));
             var data = List(new[] { "项目属性", "当前值" }, new[] { 190, 710 });
             data.Name = "project-context-properties";
             _reload["project-context"] = delegate

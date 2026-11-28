@@ -138,6 +138,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Backup and evidence recovery acceptance compile failed' }
           & .\dist\backup-restore-accept.exe | Tee-Object dist\validation-qa\backup-restore-accept.log
           if ($LASTEXITCODE -ne 0) { throw 'Backup and evidence recovery acceptance failed' }
+      - name: Verify instrument records, Tag scope, calibration evidence and recovery
+        shell: powershell
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /r:System.dll /r:System.Core.dll /r:System.Xml.dll /r:System.Web.Extensions.dll /r:dist\DeskBox.exe /out:dist\v5-instrument-accept.exe tools\v5-instrument-accept.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Instrument acceptance compile failed' }
+          & .\dist\v5-instrument-accept.exe | Tee-Object dist\hologram-qa\v5-instrument-accept.log
+          if ($LASTEXITCODE -ne 0) { throw 'Instrument acceptance failed' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

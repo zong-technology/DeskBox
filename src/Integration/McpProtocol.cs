@@ -27,7 +27,8 @@ namespace DeskBox.Integration
             {
                 protocolVersion = "2025-06-18",
                 capabilities = new { },
-                clientInfo = new { name = "DeskBox", version = "5.0.0-alpha.4" }
+                clientInfo = new { name = "DeskBox", version = ((System.Reflection.AssemblyInformationalVersionAttribute)
+                    Attribute.GetCustomAttribute(typeof(McpProtocol).Assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute))).InformationalVersion }
             });
             string version = ReadString(hello, "protocolVersion");
             if (!Versions.Contains(version) || (server.Transport == "http" && version == "2024-11-05"))
