@@ -26,3 +26,12 @@
 - `engineering.tags {query?,system?}` 查询当前项目 Tag 台账，返回记录数、稳定 TagId、真实字段和来源。
 - `mcp.read {server,tool,arguments}` 仅可申请本轮公布的工具。arguments 是 JSON 对象，按实际 Schema 校验。调用前请求人工确认。
 - 资料工作台的「映射并预览」只读，「导入／补充来源」和「确认更新映射字段」才写入。选择不同项目会撤下当前操作范围。
+
+## alpha.4 业务动作
+
+- **录入和修订** 保存需求、验证资料、计划和测试设计。提交时传入预期版本。
+- **导入预览和确认** 选择当前项目的 Excel、CSV 或 Word 资料，核对字段映射、定位和重复项后确认正式写入。Word 提取候选可按原文复核。
+- **关联、执行、归档** 按记录 ID 建立关系。执行或重测时填写实际结果、人员及关联。选中证据后可验证文件或定位原件。
+- **人工审核** 按当前审核许可提交审核结论。关闭偏差时读取关联复验及审核记录。
+- **导出** 从项目记录生成 RTM、执行结果、交付清单或报告草稿。显式选定目标，新文件名保留历史输出。
+- **AI 查找** `validation.query {view,query?,id?,stage?,system?,equipment?,tag?,risk?,fromRevision?,toRevision?}` 从当前项目查询需要的记录。可用视图为 `requirements`、`testcases`、`rtm`、`uncovered`、`evidence`、`missing-evidence`、`open-deviations`、`history`、`tags`、`impact`、`deliverables` 和 `summary-draft`。本机回环模型可调用，也可通过「工具」显式提交查询 JSON。

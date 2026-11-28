@@ -35,3 +35,31 @@
 | `TagCenter.Export / Restore` | 项目、新 CSV 或 XLSX 路径，或明确恢复请求 | 导出或恢复完成。恢复保留损坏原件。 |
 | `TiaOpenness.Run / PlcEngineering.ReadExports` | 已有项目、已有授权任务或导出物、CancellationToken | 沿用真实 TIA 及离线服务。结构数据层复用同一 PLC 导出解析器。 |
 | `McpGateway.SetToolGrant(..., allowAgent) / AgentTools / InvokeForAgent` | 项目、真实工具目录、工具身份、JSON、单次审批 | 已授权工具目录、验证错误、真实 MCP 响应和执行回执。每次重新发现。 |
+
+## alpha.4 验证接口
+
+所有业务接口接收当前项目的 `ProjectContext` 或绑定该上下文的快照，耗时操作接收 `CancellationToken`。表单刷新前核对项目与快照版本。
+
+| 服务 | 职责 |
+| --- | --- |
+| `ValidationService.Read / Save / Link / WithdrawLink` | 读取项目记录、校验当前修订、保存实体，以及按项目稳定 ID 建立或撤回有效关系。 |
+| `ValidationService.LinkTask / LinkIncident` | 为 Punch Item 关联当前项目的已有任务和现场事件。调用方从相应模块选择现有记录。 |
+| `ValidationService.CaptureSource(project, path, location, version, token, type)` | 从工程授权路径获取 SHA-256、相对路径、版本和位置。 |
+| `ValidationService.RecordExecution` | 记录人工测试执行或复验，验证用例及步骤版本，保留旧执行。 |
+| `ValidationService.ArchiveEvidence / VerifyEvidence / EvidencePath / ExportEvidence / RestoreEvidence` | 归档原件或衍生件，通过 SHA-256 与大小复核证据，定位或导出当前项目归档；只允许用大小和哈希一致的项目文件恢复异常证据。 |
+| `ValidationService.Review / CloseDeviation / AssessImpact` | 根据验证计划中的审核人执行验证工作流，处理偏差、依据明确的审核版本关闭，以及授权人员评估变更重测决定。 |
+| `ValidationService.Restore` | 从可验证的上一版台账执行明确恢复。 |
+| `ValidationTrace.Related(project, snapshot, id, token, service)` | 按记录 ID 或 TagId 读取同项目有效入边和出边。 |
+| `ValidationTrace.Query(project, snapshot, filter, token, service)` | 从同一项目的快照计算 RTM。可传服务核对证据实际文件。返回当前执行及证据、各次执行的关联偏差和按记录 ID 可回查的诊断。 |
+| `ValidationTrace.Statistics(project, snapshot, filter, token, service)` | 计算实际统计，分别返回指标、分子、可空分母和可空比率。 |
+| `ValidationTrace.RecordImpact(service, project, diff, title, actor, token)` | 结合 alpha.3 的 `EngineeringDiff` 及可核对来源，为受影响记录保存待评估清单。 |
+| `ValidationTrace.CaptureBaseline(service, project, title, actor, token)` | 固定记录修订、Tag 版本、来源、关联和作者。 |
+| `ValidationTrace.CompareBaselines(project, before, after, token)` | 提供两个已保存基线间按实体 ID 的变化。 |
+| `ValidationImport.Headers / DefaultMapping` | 读取 CSV、单工作表 XLSX 或 DOCX 候选列，生成按列号的默认映射。 |
+| `ValidationImport.Preview(project, path, options, token)` | 选阶段、逻辑文档号及其版本、导入类型和列映射。返回新增、修改、已移除、未变及阻塞诊断。 |
+| `ValidationImport.Commit(project, preview, applyRevision, token, retireMissing)` | 人工确认后按原源哈希、项目和台账版本提交。仅当完整的需求表格修订获明确确认时支持作废缺失项。 |
+| `ValidationImport.CompareRequirement / Locate` | 按需求稳定 ID 比较两个正式历史修订，或按绑定的来源哈希定位原表格行、Word 段落或表格行。 |
+| `ValidationReports.Export(project, kind, destination, token, templatePath, templateMapping, stage)` | 从真实记录生成 XLSX 或 DOCX，带来源、版本、状态和草稿标记。可选无宏 DOCX 模板及正文占位映射。 |
+| `validation.query` | 确定性验证查询，仅供本机回环模型或显式本地命令。读当前项目，不提供通过、关闭、审核或附件修改能力。 |
+
+[状态和错误](ERROR-STATES.md) · [统计口径](../V5-VALIDATION-METRICS.md)

@@ -1,6 +1,24 @@
 # DeskBox V5 功能矩阵
 
-当前功能状态见 alpha.3 和 alpha.2 表。历史基线与 alpha.1 条目保留供追溯。VERIFIED 表示在列出的环境经验证，IMPLEMENTED 表示已经接通，PARTIAL 表示覆盖不完整，BLOCKED 表示受测试环境限制。MISSING、UI_ONLY、MOCK、BROKEN 用于记录缺少实现、仅有界面、回归夹具或缺陷。
+当前增量见 alpha.4 表，alpha.3 与 alpha.2 保留各阶段历史状态。历史基线与 alpha.1 条目保留供追溯。VERIFIED 表示在列出的环境经验证，IMPLEMENTED 表示已经接通，PARTIAL 表示覆盖不完整，BLOCKED 表示受测试环境限制。MISSING、UI_ONLY、MOCK、BROKEN 用于记录缺少实现、仅有界面、回归夹具或缺陷。
+
+## V5.0-alpha.4 制药验证与工程追溯
+
+| 功能 | 状态 | 交付与验收范围 |
+| --- | --- | --- |
+| 计划、阶段、验证文档与交付资料 | IMPLEMENTED | 独立验证计划和记录，保留原有阶段计划进度。实际统计由业务数据产生。 |
+| URS、FS、DS、需求版本与导入 | VERIFIED | Windows 业务验收覆盖手工需求、修订、来源、CSV/XLSX 字段映射、DOCX 候选提取及人工确认。 |
+| RTM 与统一 Tag | VERIFIED | Windows 业务验收覆盖稳定 ID、双向追溯、关联诊断、统计和 XLSX。RTM 按当前修订显示执行，汇总各次执行的偏差。 |
+| 测试方案、用例、人工执行及复验 | VERIFIED | Windows 验收覆盖版本锁定和执行历史，状态与审核分别记录。 |
+| 证据、偏差与人工审核 | VERIFIED | Windows 验收覆盖证据归档、哈希、衍生件、复验及审批。单证据原始字节修复另有 Linux 专项结果。 |
+| 风险评估 | PARTIAL | 项目风险规则说明、控制、剩余风险及审核具备实际台账。可配置自动评分和风险流程扩展待后续。 |
+| CAPA、Punch List 与合规辅助 | PARTIAL | 按项目记录、关系和审核。工作流集成及需正式验证的受监管能力留待后续。 |
+| 变更影响与验证基线 | VERIFIED | 业务套件覆盖候选影响、稳定 ID、证据引用和版本冻结。WinForms 双文件入口使用默认映射。 |
+| 验证报告与模板 | VERIFIED | Windows 业务验收产生 XLSX、DOCX 及 DOCX 企业模板草稿，独立解析库可重新打开。 |
+| 受控 AI 验证助手 | VERIFIED | 回环协议核对当前项目只读查询和审核拒绝。商业外部模型验收单独记录。 |
+| 持证 TIA 与授权 DeltaV 样本 | BLOCKED | 维持 alpha.3 对授权工程样本和外部环境的验收边界。 |
+
+[验证指南](V5-ALPHA4-GUIDE.md) · [指标](V5-VALIDATION-METRICS.md) · [验收](V5-ALPHA4-VERIFICATION.md) · [交接](UI-HANDOFF/PRODUCT-OVERVIEW.md)
 
 ## V5.0-alpha.3 功能增量
 

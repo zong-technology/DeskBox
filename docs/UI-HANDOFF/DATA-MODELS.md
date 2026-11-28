@@ -28,3 +28,31 @@
 | McpGrant / AgentStep | 增加明确授权的 AllowAgent 与批准时实际 Schema。AgentStep.ReceiptId 关联执行时的网关回执。 |
 
 台账 `engineering-tags/` 分项目存储，带校验和、版本、原子写入和上一版。备份只读、修复明确确认。旧会话、项目文件、TIA 和 MCP 手动配置沿用。
+
+## alpha.4 验证领域
+
+| 模型 | 业务用途 |
+| --- | --- |
+| ValidationPlan / ValidationDocument | 项目范围、阶段、验证计划、受控文档和法规依据。 |
+| ValidationRequirement / DesignReference / RiskAssessment | 需求及其来源、设计依据、风险、适用性和控制措施。 |
+| TestProtocol / TestCase / TestStep | 测试方案、用例、步骤、前置条件和预期结果。 |
+| TestExecution | 人工结果、执行人、执行时间、执行状态、用例修订和重测历史。 |
+| Evidence | 原件或衍生件、来源、文件名、哈希、大小、归档及执行关联。 |
+| Deviation / CAPARecord / PunchItem | 偏差调查、措施、复验、CAPA 和遗留问题。 |
+| ReviewRecord | 审核对象及其版本、审核人员、结论、时间和意见。 |
+| TraceLink | 稳定 ID 的多对多关系，带项目归属、修订和来源信息。 |
+| ChangeImpact | 两版工程来源、差异、已匹配和待核对对象、候选影响。 |
+| ValidationBaseline / Deliverable | 固定记录及 Tag 版本的基线、验证交付清单。 |
+
+实体使用稳定 ID、项目归属、修订、创建时间、更新时间和来源。工作台使用当前工程的 TagId 关联工程数据。文档号和需求号供人搜索与审阅。测试执行保存用例版本及步骤快照，过往审核保留当时记录版本。
+
+[服务接口](SERVICE-CONTRACTS.md) · [验证工作指南](../V5-ALPHA4-GUIDE.md)
+
+### 追踪边类型
+
+- `derives` 连接两条需求。可按项目规则用它连接 URS、FS 和 DS。
+- `design` 连接需求与下游需求或设计引用。`risk` 连接需求或设计引用与风险。`verifies` 连接需求、设计或风险与测试用例。覆盖率沿这些有向边计算。
+- `evidence` 连接需求、用例、执行或 Punch Item 与证据。`deviation` 连接证据、执行或用例与偏差。`retest` 和 `capa` 从偏差指向重测执行与 CAPA。
+- `tag` 连接同项目的稳定 Tag ID。`document` 指向项目内验证文档。
+- `impact` 连接已记录的变更影响与需求、用例、证据或风险。`task` 和 `incident` 通过专用入口关联 Punch Item 与现有模块记录。
+- 测试执行自身保存 TestCaseId 及 TestCaseRevision。证据、偏差和人工审核另外保存实际目标 ID。图和报告须同时读取这些直接引用与追踪边。

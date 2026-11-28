@@ -5,6 +5,7 @@
 | 5.0.0-alpha.1 | `89b4fd7`，从 `1930b40` 增量开发 | `8f00f9a` 的指南、审查文件、矩阵与报告 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/45775554408) · [验收报告](V5-P0-VERIFICATION.md) |
 | 5.0.0-alpha.2 | `3047cb71b7b4ef358ed2321583c86d107da0f4a3` | `9a6e77afe28e6ff7705b7c7ec0e7cf4f4ea3da35` 的矩阵、测试报告与 14 份 `docs/UI-HANDOFF/` 文件 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/45863717693) · [alpha.2 验收](V5-ALPHA2-VERIFICATION.md) · [当期文档](https://github.com/zong-technology/DeskBox/tree/9a6e77afe28e6ff7705b7c7ec0e7cf4f4ea3da35/docs/UI-HANDOFF) |
 | 5.0.0-alpha.3 | `55fb00393322a309799910e7fde1f7c270c1d382` | 本版验收及 14 份 UI 交接文件随文档提交归档 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/45987405048) · [alpha.3 验收](V5-ALPHA3-VERIFICATION.md) |
+| 5.0.0-alpha.4 | `5f9c95c5f5c256082797325fa6f146ad2452bf9a` | 验收报告、14 份 UI 交接和统计说明同一文档提交 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/46036702085) · [alpha.4 验收](V5-ALPHA4-VERIFICATION.md) · [文档提交历史](https://github.com/zong-technology/DeskBox/commits/codex/deskbox-v5-p0/docs/V5-ALPHA4-VERIFICATION.md) |
 
 ## alpha.2 安装哈希复核
 
@@ -18,3 +19,12 @@ alpha.3 开始前从开发分支得到了上述文档提交，并对工作区已
 原 14 份交接路径位于 `docs/UI-HANDOFF/`，包括 PRODUCT-OVERVIEW、FEATURE-INVENTORY、PAGE-INVENTORY、SERVICE-CONTRACTS、DATA-MODELS、COMMANDS、EVENTS、USER-FLOWS、COMPONENT-INVENTORY、UI-STATES、ERROR-STATES、NAVIGATION-MAP、DESIGN-CONSTRAINTS、ACCEPTANCE-CRITERIA，每项为 Markdown。
 
 [alpha.2 安装产物](https://github.com/zong-technology/DeskBox/actions/runs/45863717693/artifacts/15140640651) · [完整功能矩阵](V5-FUNCTION-MATRIX.md)
+
+## alpha.4 安装及便携包哈希
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `DeskBox-5.0.0-alpha.4-Windows-Setup.zip` | `828539cacd570cda46cdebdbb30c05d01da5d43ee3700b0107344d1c87c8d71b` |
+| `DeskBox-5.0.0-alpha.4-Portable.zip` | `23ccd7a138b0da1a669ffea5aedbc285786ee5569aa042cf538a8665e37fbe6f` |
+
+安装包外层 ZIP 来自 Windows 工作流。便携包从同一次 Windows 工作流的归档提取原生程序后组装，程序 SHA-256 与安装包中的对应 EXE 一致。文档提交在 Windows 验收之后，变更范围为文档与交接记录。 [构建与验收](V5-ALPHA4-VERIFICATION.md)

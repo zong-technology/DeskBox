@@ -8,9 +8,9 @@
 
 ## V5 Engineering OS 候选版
 
-当前开发分支 `codex/deskbox-v5-p0` 进入功能优先阶段。alpha.3 加入 PLC 和 FHX 离线资料分析、统一工程 Tag 与受控的 Agent／MCP 联动。后续工程能力按版本推进，视觉重构排在功能和接口冻结后。
+开发分支 `codex/deskbox-v5-p0` 的 alpha.4 加入制药验证工作台，覆盖验证需求、测试与复验、RTM、证据、偏差、工程变更影响、基线和报告草稿。继续保留 alpha.3 的 PLC、FHX、统一 Tag 与受控 Agent／MCP 功能。
 
-[alpha.3 工程资料与操作](docs/V5-ALPHA3-GUIDE.md) · [验证与下载](docs/V5-ALPHA3-VERIFICATION.md) · [版本路线图](docs/V5-DEVELOPMENT-ROADMAP.md)
+[alpha.4 验证操作指南](docs/V5-ALPHA4-GUIDE.md) · [Windows 验收与下载](docs/V5-ALPHA4-VERIFICATION.md) · [版本路线图](docs/V5-DEVELOPMENT-ROADMAP.md)
 
 ## V2.1 Foundation Preview
 
