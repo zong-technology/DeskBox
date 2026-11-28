@@ -8,9 +8,9 @@
 
 ## V5 Engineering OS 候选版
 
-开发分支 `codex/deskbox-v5-p0` 的 alpha.4 加入制药验证工作台，覆盖验证需求、测试与复验、RTM、证据、偏差、工程变更影响、基线和报告草稿。继续保留 alpha.3 的 PLC、FHX、统一 Tag 与受控 Agent／MCP 功能。
+开发分支 `codex/deskbox-v5-p0` 的 alpha.5.1 增加当前项目的仪表校准到期提醒，可从通知直接查看到期仪表。V5 已提供仪表、统一 Tag、制药验证工作台、PLC 和 FHX 离线资料，以及受控 Agent／MCP。
 
-[alpha.4 验证操作指南](docs/V5-ALPHA4-GUIDE.md) · [Windows 验收与下载](docs/V5-ALPHA4-VERIFICATION.md) · [版本路线图](docs/V5-DEVELOPMENT-ROADMAP.md)
+[仪表及校准提醒](docs/V5-ALPHA5-INSTRUMENTS.md#alpha51-校准到期提醒) · [制药验证操作指南](docs/V5-ALPHA4-GUIDE.md) · [版本路线图](docs/V5-DEVELOPMENT-ROADMAP.md)
 
 通过 Codex Cloud 持续开发时，从仓库指令和当前状态恢复开发上下文。历史阶段说明保留在各版本文档。 [仓库指令](AGENTS.md) · [通用开发规范 V2.0](docs/DEVELOPMENT_RULES.md) · [当前项目状态](docs/PROJECT_STATE.md)
 

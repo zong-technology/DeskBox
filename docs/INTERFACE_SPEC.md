@@ -25,6 +25,7 @@
 | `ValidationReports.Export` | 项目、报告种类、目标和可选模板映射。生成 XLSX 或待审核 DOCX。仅创建新报告文件。 |
 | `InstrumentService.Read / Save / Record` | 读取项目仪表、修订及校准维护历史。写入资产时校验最新修订号和修订令牌、项目归属与 TagId。活动只追加。选择已归档证据时校验同项目来源及实际字节。 |
 | `InstrumentService.VerifyAttachment / Export / Restore` | 按资产 ID 和可选活动 ID 查验来源哈希。普通原件返回项目内路径，已归档证据返回校验成功和空路径。项目根下可生成 CSV 或 XLSX。主台账损坏时显式从上一版恢复。 |
+| `InstrumentService.ReadCalibrationReminder / NotificationStore.UpdateCalibration` | 后台读取指定项目和日期，以最近实际校准和到期状态计算汇总及去重键。通知中心只接收当前项目结果，保留已读或已清理状态。台账备份视图不更新提醒。 |
 
 [业务接口、参数和错误](UI-HANDOFF/SERVICE-CONTRACTS.md) · [领域模型](UI-HANDOFF/DATA-MODELS.md) · [统计定义](V5-VALIDATION-METRICS.md)
 

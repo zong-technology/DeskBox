@@ -7,6 +7,7 @@
 | 5.0.0-alpha.3 | `55fb00393322a309799910e7fde1f7c270c1d382` | 本版验收及 14 份 UI 交接文件随文档提交归档 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/45987405048) · [alpha.3 验收](V5-ALPHA3-VERIFICATION.md) |
 | 5.0.0-alpha.4 | `5f9c95c5f5c256082797325fa6f146ad2452bf9a` | 验收报告、14 份 UI 交接和统计说明同一文档提交 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/46036702085) · [alpha.4 验收](V5-ALPHA4-VERIFICATION.md) · [文档提交历史](https://github.com/zong-technology/DeskBox/commits/codex/deskbox-v5-p0/docs/V5-ALPHA4-VERIFICATION.md) |
 | 5.0.0-alpha.5 仪表候选 | `2497092fe0f73509985acb9c3f986111a0ff41df` | 仪表指南、接口和验收记录随文档提交归档 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/46134844982) · [仪表验收](V5-ALPHA5-INSTRUMENTS.md) |
+| 5.0.0-alpha.5.1 校准提醒候选 | `b3188abdab1133d7aff344eb33e086419d4d09a4` | 校准提醒、原生 UI 及安装记录随文档提交归档 | [Windows CI](https://github.com/zong-technology/DeskBox/actions/runs/46145171210) · [校准提醒验收](V5-ALPHA5-INSTRUMENTS.md#alpha51-校准到期提醒) |
 
 ## alpha.2 安装哈希复核
 
@@ -40,3 +41,14 @@ alpha.3 开始前从开发分支得到了上述文档提交，并对工作区已
 | `DeskBox-5.0.0-alpha.5-Portable.zip` | `a58f153aaa4e66661e2ec7276d33b3be117a54cd1dcf349955db60e206b751b3` |
 
 安装包及便携版中的 Windows 程序 SHA-256 一致。工作流产物归档与下载后文件重新校验。 [安装包](https://github.com/zong-technology/DeskBox/actions/runs/46134844982/artifacts/15259441371) · [原生 Windows 程序与日志](https://github.com/zong-technology/DeskBox/actions/runs/46134844982/artifacts/15259790664)
+
+## alpha.5.1 校准候选 SHA-256
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `DeskBox-5.0.0-alpha.5.1-Setup.exe` | `7dca153b82fc2a39e71d55d9365c160b0fae58a8df1251a3e690b88e52ece54c` |
+| `DeskBox.exe` | `cc2ab7ecf7de13f213bfe3fb454cf74b7080cea0ccff9051a14ed21339f84d0b` |
+| `DeskBox-5.0.0-alpha.5.1-Windows-Setup.zip` | `5630b75bccbf07f820c947bda3ec0b33b9479b583630bfc60f6a461fca1813ad` |
+| `DeskBox-5.0.0-alpha.5.1-Portable.zip` | `c5bc152cdeda0b722053006f87fcf1c85cf6c4a579ffb49cd046cdeeab635280` |
+
+从同一次成功的工作流核对 Windows 程序、安装包和验收记录。便携版内置同一 Windows 程序。 [安装包](https://github.com/zong-technology/DeskBox/actions/runs/46145171210/artifacts/15263477442) · [原生程序与回归日志](https://github.com/zong-technology/DeskBox/actions/runs/46145171210/artifacts/15263144118)

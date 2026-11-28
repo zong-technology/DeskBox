@@ -6,20 +6,22 @@
 
 | 项目 | 已核实状态 |
 | --- | --- |
-| 最新验收版本 | `5.0.0-alpha.5` 仪表首个 Windows 候选，WinForms / .NET Framework 4.8 |
-| Windows 受测源码 | `2497092fe0f73509985acb9c3f986111a0ff41df`，从 `b629418` 增量开发 |
-| Windows 构建与验收 | GitHub 托管 Windows 运行 `46134844982` 成功。仪表专项 28 项及原有业务回归通过，安装升级回滚 85 项 |
-| 原生 UI | 100%、125%、150% 各 119 项工程上下文和界面断言，归档 138 张截图，新增仪表台账截图 |
+| 最新验收版本 | `5.0.0-alpha.5.1` 仪表校准 Windows 候选，WinForms / .NET Framework 4.8 |
+| Windows 受测源码 | `b3188abdab1133d7aff344eb33e086419d4d09a4`，从 `5d7b791` 增量开发 |
+| Windows 构建与验收 | GitHub 托管 Windows 运行 `46145171210` 成功。仪表专项 38 项和安装、升级、回滚、卸载 85 项通过 |
+| 原生 UI | 100%、125%、150% 各 127 项工程上下文和界面断言，归档 141 张截图 |
 | 开发策略 | 功能优先，保留现有数据与可用入口。验证业务可脱离 UI 测试，集中视觉重构留到 beta |
-| 用户可用入口 | 选择工程后进入「现场工程 → 仪表资产」，验证工作台保留既有入口 |
+| 用户可用入口 | 选择工程后进入「工程驾驶舱 → 通知 → 查看校准到期」，完整台账入口为「现场工程 → 仪表资产」 |
 
-[Windows 运行](https://github.com/zong-technology/DeskBox/actions/runs/46134844982) · [本轮验收](V5-ALPHA5-INSTRUMENTS.md) · [版本证据](V5-BUILD-PROVENANCE.md) · [功能矩阵](V5-FUNCTION-MATRIX.md)
+[Windows 运行](https://github.com/zong-technology/DeskBox/actions/runs/46145171210) · [本轮验收](V5-ALPHA5-INSTRUMENTS.md#alpha51-校准到期提醒) · [版本证据](V5-BUILD-PROVENANCE.md) · [功能矩阵](V5-FUNCTION-MATRIX.md)
 
 UI/UX Pro Max v2.15.0 已纳入仓库项目技能。已验证 Codex 发现、设计系统生成、可访问性检索与数据校验。后续 UI 任务依据项目规则使用。 [工具链及安装来源](UI-TOOLCHAIN.md#uiux-pro-max)
 
 ## alpha.5 仪表资产首批增量
 
-从 `b629418` 继续开发，首批候选源码为 `2497092`。仪表台账已经接入现场工程、工程上下文和统一 Tag。支持稳定 ID、型号及量程、手册、校准及维护、证据引用和校验、到期筛选、导出与恢复。Linux 交叉构建和 28 项仪表专项通过。后续顺序为到期通知、关联现场事件及验证记录，以及授权通信资料与 PI/UFL。 [操作及测试](V5-ALPHA5-INSTRUMENTS.md) · [Windows 候选运行](https://github.com/zong-technology/DeskBox/actions/runs/46134844982)
+从 `b629418` 继续开发，首批候选源码为 `2497092`。仪表台账已经接入现场工程、工程上下文和统一 Tag。支持稳定 ID、型号及量程、手册、校准及维护、证据引用和校验、到期筛选、导出与恢复。Linux 交叉构建和 28 项仪表专项通过。 [操作及测试](V5-ALPHA5-INSTRUMENTS.md) · [首批 Windows 候选运行](https://github.com/zong-technology/DeskBox/actions/runs/46134844982)
+
+alpha.5.1 接通当前项目的校准到期汇总、跨重启去重、通知快捷入口和设置开关。业务增量 `92a2310`，最终候选 `b3188ab` 修复通知中心高 DPI 标签截断。Linux 交叉构建和 38 项仪表专项已通过。 [操作及测试](V5-ALPHA5-INSTRUMENTS.md#alpha51-校准到期提醒) · [Windows 候选运行](https://github.com/zong-technology/DeskBox/actions/runs/46145171210)
 
 ## DeskBox 专属规范与 ECO 准备
 
@@ -41,6 +43,6 @@ UI/UX Pro Max v2.15.0 已纳入仓库项目技能。已验证 Codex 发现、设
 
 ## 下一阶段与本文件维护
 
-alpha.5 已进入仪表资产增量。后续按路线完善到期通知和跨模块关联，再推进通信资料、PI/UFL、工程知识和现场证据。任务结束时更新本文件的版本、分支、提交、测试环境、实际结果、数据兼容、阻塞和后续阶段。需要详细复现时链接验收报告，保留历史版本证据。
+alpha.5 已交付仪表资产和到期提醒增量。后续按路线完善与现场事件、验证记录的关联，再推进通信资料、PI/UFL、工程知识和现场证据。任务结束时更新本文件的版本、分支、提交、测试环境、实际结果、数据兼容、阻塞和后续阶段。需要详细复现时链接验收报告，保留历史版本证据。
 
 [路线](ROADMAP.md) · [变更记录](../CHANGELOG.md)
