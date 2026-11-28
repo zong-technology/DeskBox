@@ -320,6 +320,29 @@ public static class V5ContextAcceptance
                 WaitFor(() => records.Rows.Count == 1, "instrument calibration history is visible", true);
                 CaptureWindow(panel, Path.Combine(output, "instrument-ledger-dpi" + dpi + ".png"));
             });
+            var notices = (NotificationStore)Field(form, "_notifications");
+            scopes.SetCurrent(b.Id);
+            Check(!notices.Items.Any(item => item.Kind == "calibration"), "calibration notices are scoped on project change");
+            scopes.SetCurrent(a.Id);
+            WaitFor(() => notices.Items.Any(item => item.Kind == "calibration"), "automatic calibration notice for active project", true);
+            form.SwitchView("home");
+            var entry = Find(workspace, "dashboard-notifications-open");
+            Check(entry.Text.StartsWith("通知 ", StringComparison.Ordinal), "dashboard displays unread notification count");
+            UseDialog(entry, "notifications-dialog", panel =>
+            {
+                var list = (DarkList)Find(panel, "notification-list");
+                list.SelectIndex(list.Rows.FindIndex(row => ((AppNotification)row.Tag).Kind == "calibration"));
+                var open = Find(panel, "notification-open-calibration");
+                Check(open.Enabled && open.Focus(), "calibration action is reachable by keyboard");
+                CaptureWindow(panel, Path.Combine(output, "calibration-notification-dpi" + dpi + ".png"));
+                UseDialog(open, "instrument-workbench", ledger =>
+                {
+                    Check(((CheckBox)Find(ledger, "instrument-due-only")).Checked, "notification opens the due-only ledger");
+                    var table = (DataGridView)Find(ledger, "instrument-assets");
+                    WaitFor(() => table.Rows.Count == 1, "instrument notice opens real ledger rows", true);
+                    Check(table.Rows[0].Cells[0].Value.ToString() == "PT-UI", "notice shows only the current project's due asset");
+                });
+            });
             form.SwitchView("ai");
             var chat = (ChatService)Field(form, "_chat");
             Check(chat.Current.ProjectId == a.Id, "AI page and header share project");

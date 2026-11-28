@@ -29,4 +29,14 @@ namespace DeskBox.Domain
         public List<InstrumentActivity> Activities = new List<InstrumentActivity>();
         public bool Recovered { get; internal set; }
     }
+
+    public sealed class CalibrationReminder
+    {
+        public string ProjectId { get; internal set; }
+        public string Key { get; internal set; }
+        public bool Recovered { get; internal set; }
+        public int Overdue { get; internal set; }
+        public int DueToday { get; internal set; }
+        public int DueSoon { get; internal set; }
+    }
 }

@@ -23,7 +23,9 @@ namespace DeskBox.UI
             toolbar.Controls.Add(Button("项目中心", () => Navigate("projects"), true, 104));
             toolbar.Controls.Add(Button("工程启动台", () => Navigate("operations"), false, 124));
             toolbar.Controls.Add(Button("AI 工程助手", () => Navigate("ai"), false, 123));
-            toolbar.Controls.Add(Button("通知", () => ShowLegacy("notifications"), false, 78));
+            _dashboardNotifications = Button("通知", () => ShowLegacy("notifications"), false, 90);
+            _dashboardNotifications.Name = "dashboard-notifications-open";
+            toolbar.Controls.Add(_dashboardNotifications);
 
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 54));

@@ -8,6 +8,7 @@ using DeskBox.Core;
 using DeskBox.Data;
 using DeskBox.Domain;
 using DeskBox.Engineering;
+using DeskBox.Engineering.Tia;
 using DeskBox.Integration;
 
 namespace DeskBox.AppServices
@@ -160,10 +161,37 @@ namespace DeskBox.AppServices
 
         public static string DueStatus(InstrumentActivity calibration, DateTime today)
         {
-            DateTime due;
-            if (calibration == null || !ParseDate(calibration.DueDate, out due)) return "未设到期日";
-            int days = (due - today.Date).Days;
+            int? days = DaysUntilDue(calibration, today);
+            if (!days.HasValue) return "未设到期日";
             return days < 0 ? "已逾期" : days == 0 ? "今日到期" : days <= 30 ? "30 天内到期" : "未到期";
+        }
+
+        private static int? DaysUntilDue(InstrumentActivity calibration, DateTime today)
+        {
+            DateTime due;
+            return calibration == null || !ParseDate(calibration.DueDate, out due) ? (int?)null : (due - today.Date).Days;
+        }
+
+        public CalibrationReminder ReadCalibrationReminder(ProjectContext project, DateTime today, CancellationToken token)
+        {
+            var data = Read(project, token);
+            var alert = new CalibrationReminder { ProjectId = data.ProjectId, Recovered = data.Recovered };
+            if (data.Recovered) return alert;
+            var entries = data.Activities.Where(item => item.Kind == "calibration").ToLookup(item => item.AssetId);
+            var keys = new List<string>();
+            foreach (var asset in data.Assets.OrderBy(item => item.Id, StringComparer.Ordinal))
+            {
+                token.ThrowIfCancellationRequested();
+                var latest = LatestCalibration(entries[asset.Id]);
+                int? days = DaysUntilDue(latest, today);
+                if (!days.HasValue || days > 30) continue;
+                if (days < 0) alert.Overdue++;
+                else if (days == 0) alert.DueToday++;
+                else alert.DueSoon++;
+                keys.Add(latest.Id + ":" + Math.Sign(days.Value));
+            }
+            if (keys.Count > 0) alert.Key = PlcEngineering.Hash(string.Join("|", keys));
+            return alert;
         }
 
         public void Export(ProjectContext project, string destination, CancellationToken token)

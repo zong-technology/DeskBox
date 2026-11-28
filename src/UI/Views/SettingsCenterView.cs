@@ -905,6 +905,7 @@ namespace DeskBox.UI.Views
 
             AddCheck(p, "启用应用内提醒", _store.Settings.NotifyInApp, delegate(bool v) { _store.Settings.NotifyInApp = v; });
             AddCheck(p, "任务到点提醒", _store.Settings.NotifyTask, delegate(bool v) { _store.Settings.NotifyTask = v; });
+            AddCheck(p, "当前项目的仪表校准提醒", _store.Settings.NotifyCalibration, delegate(bool v) { _store.Settings.NotifyCalibration = v; });
 
             RowLabel(p, "系统托盘气泡通知", "启用后，任务与自动化通知会同步显示托盘气泡");
             AddCheck(p, "启用托盘气泡", _store.Settings.NotifyTray, delegate(bool v) { _store.Settings.NotifyTray = v; });

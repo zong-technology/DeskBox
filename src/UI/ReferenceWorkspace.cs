@@ -35,6 +35,8 @@ namespace DeskBox.UI
         private Panel _content,_rail,_railBody;
         private FlowLayoutPanel _subnav;
         private Label _status;
+        private DarkButton _dashboardNotifications;
+        private readonly NotificationStore _notifications;
         private DarkSelect _projectPicker, _mode;
         private string[] _projectIds = new string[0];
         private bool _updatingPicker;
@@ -50,9 +52,10 @@ namespace DeskBox.UI
         public string CurrentPage{get{return _current;}}
         public static readonly string[] ReferencePages = EngineeringNavigation.Routes;
 
-        public ReferenceWorkspace(Store store,WorkspaceStore projects,LocalSyncCoordinator sync,CloudSyncAgent cloud,ChatService chat,ProviderStore providers,Automation.WorkflowEngine workflows,FileLibrary library,Func<string,UserControl> legacyFactory)
+        public ReferenceWorkspace(Store store,WorkspaceStore projects,LocalSyncCoordinator sync,CloudSyncAgent cloud,ChatService chat,ProviderStore providers,Automation.WorkflowEngine workflows,FileLibrary library,Func<string,UserControl> legacyFactory, NotificationStore notifications = null)
         {
             _store=store;_projects=projects;_sync=sync;_cloud=cloud;_chat=chat;_providers=providers;_workflows=workflows;_library=library;_legacyFactory=legacyFactory;
+            _notifications = notifications;
             _p=Palette.For(store.Settings.Theme,store.Settings.Accent);
             Dock=DockStyle.Fill;BackColor=_p.Bg;Font=FontOf(9);SetStyle(ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint,true);
             using(var stream=typeof(ReferenceWorkspace).Assembly.GetManifestResourceStream("DeskBox.EngineeringFactory")){if(stream!=null)using(var image=Image.FromStream(stream))_factory=new Bitmap(image);}
@@ -370,12 +373,16 @@ namespace DeskBox.UI
             if (_status == null) return;
             RefreshProjectPicker();
             var scope = _projects.Context;
+            int unread = _notifications == null ? 0 : _notifications.UnreadCount;
+            if (_dashboardNotifications != null)
+                _dashboardNotifications.Text = unread == 0 ? "通知" : "通知 " + unread;
             int open = _store.Tasks.Count(task => !task.Done && (scope == null || scope.IncludesTask(task)));
             int issues = _sync.Incidents.Count(item => item.Status != "closed" && (scope == null || item.ProjectId == scope.Id));
             if (!string.IsNullOrWhiteSpace(_projects.RecoveryNotice))
                 _railTips.SetToolTip(_status, _projects.RecoveryNotice);
             _status.Text = (_projects.RecoveryNotice == null ? "" : "工程配置恢复提示 · ") +
-                (scope == null ? "全局工具" : scope.Name) + "   ·   " + open + " 项待办   ·   " + issues + " 项未关闭事件   ·   "
+                (scope == null ? "全局工具" : scope.Name) + "   ·   " + (unread == 0 ? "" : unread + " 条未读通知   ·   ")
+                + open + " 项待办   ·   " + issues + " 项未关闭事件   ·   "
                 + (_cloud.Connected ? "云同步在线" : _sync.Running ? "局域网同步在线" : "同步未连接") + "   ·   Ctrl+K";
         }
 
@@ -413,7 +420,7 @@ namespace DeskBox.UI
 
         internal void ShowLegacy(string name, Action<Control> configure = null)
         {
-            using(var dialog=new Form{Text="DeskBox · "+name,StartPosition=FormStartPosition.CenterParent,Size=new Size(1120,760),BackColor=_p.Bg})
+            using(var dialog=new Form{Name=name+"-dialog",Text="DeskBox · "+name,StartPosition=FormStartPosition.CenterParent,Size=new Size(1120,760),BackColor=_p.Bg})
             {var view=_legacyFactory(name);if(view==null)return;view.Dock=DockStyle.Fill;dialog.Controls.Add(view);var baseView=view as Views.ViewBase;if(baseView!=null){baseView.ApplyPalette(_p);baseView.Activate();}if(configure!=null)configure(view);dialog.ShowDialog(this);}DataChanged();
         }
         private void OpenPath(string path){if(!File.Exists(path)&&!Directory.Exists(path)){_status.Text="路径已不存在："+path;return;}Win32.OpenPath(path);if(File.Exists(path))_library.Touch(path);}

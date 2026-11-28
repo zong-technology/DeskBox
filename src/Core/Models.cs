@@ -54,6 +54,7 @@ namespace DeskBox
         public bool FileOpConfirm = true;           // 文件操作需确认
         public bool NotifyInApp = true;             // 应用内提醒
         public bool NotifyTask = true;              // 任务提醒
+        public bool NotifyCalibration = true;
         public bool NotifyTray = false;             // 托盘气泡通知
         public int LogKeepDays = 30;                // 日志保留天数
         public bool LocalSyncEnabled = false;

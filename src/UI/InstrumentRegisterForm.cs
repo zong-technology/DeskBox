@@ -20,7 +20,7 @@ namespace DeskBox.UI
         private readonly InstrumentService service = new InstrumentService();
         private readonly System.Windows.Forms.Timer watch = new System.Windows.Forms.Timer { Interval = 250 };
         private readonly TextBox search = new TextBox { Width = 165, AccessibleName = "搜索资产编号、名称或 Tag" };
-        private readonly CheckBox due = new CheckBox { Text = "只看到期或逾期", AutoSize = true };
+        private readonly CheckBox due = new CheckBox { Text = "只看到期或逾期（含未来 30 天）", AutoSize = true };
         private readonly Button cancel = new Button { Text = "取消操作", AutoSize = true, Enabled = false };
         private readonly Label status = new Label { Dock = DockStyle.Bottom, Height = 28, AutoEllipsis = true, UseMnemonic = false };
         private readonly DataGridView assets = Grid("instrument-assets", "资产编号", "名称", "类型", "Tag", "校准到期", "状态");
@@ -32,7 +32,7 @@ namespace DeskBox.UI
         private readonly string tagFilter;
         private bool binding;
 
-        internal static void Open(IWin32Window owner, Func<ProjectContext> active, string tagFilter = "")
+        internal static void Open(IWin32Window owner, Func<ProjectContext> active, string tagFilter = "", bool dueOnly = false)
         {
             var project = active();
             if (project == null)
@@ -40,10 +40,10 @@ namespace DeskBox.UI
                 MessageBox.Show(owner, "请先选择工程项目。", "仪表资产");
                 return;
             }
-            using (var form = new InstrumentRegisterForm(project, active, tagFilter)) form.ShowDialog(owner);
+            using (var form = new InstrumentRegisterForm(project, active, tagFilter, dueOnly)) form.ShowDialog(owner);
         }
 
-        private InstrumentRegisterForm(ProjectContext project, Func<ProjectContext> active, string tagFilter)
+        private InstrumentRegisterForm(ProjectContext project, Func<ProjectContext> active, string tagFilter, bool dueOnly)
         {
             this.project = project;
             this.active = active;
@@ -68,6 +68,8 @@ namespace DeskBox.UI
             var filter = Bar();
             filter.Controls.Add(new Label { Text = "筛选", AutoSize = true, Margin = new Padding(5, 7, 3, 3) });
             filter.Controls.Add(search);
+            due.Name = "instrument-due-only";
+            due.Checked = dueOnly;
             filter.Controls.Add(due);
             var entryActions = Bar();
             Button(entryActions, "追加校准…", delegate { Record("calibration"); });

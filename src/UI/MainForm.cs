@@ -49,6 +49,7 @@ namespace DeskBox.UI
         private DeskBox.Ai.ProviderStore _providers;
         private DeskBox.Ai.ChatService _chat;
         private NotificationStore _notifications;
+        private System.Threading.CancellationTokenSource _calibrationCheck;
         private DeskBox.Engineering.WorkspaceStore _workspaces;
         private ProjectContext _projectScope;
         private FolderSession _folderSession;
@@ -80,6 +81,7 @@ namespace DeskBox.UI
             UpdateGlobalControls();
             LoadItems(false);
             SwitchView("home");
+            Shown += delegate { CheckCalibrationReminders(); };
         }
 
         private void BuildUi()
@@ -925,7 +927,7 @@ namespace DeskBox.UI
         {
             if(enabled&&_reference==null)
             {
-                _reference=new ReferenceWorkspace(_store,_workspaces,_localSync,_cloudSync,_chat,_providers,_workflows,_library,CreateView);
+                _reference=new ReferenceWorkspace(_store,_workspaces,_localSync,_cloudSync,_chat,_providers,_workflows,_library,CreateView,_notifications);
                 _reference.FileAiRequested += path => AskAiForPaths(new[] { path });
                 _reference.TiaFileRequested += path => { SwitchView("tia"); if (_tiaView != null) _tiaView.LoadExports(new[] { path }); };
                 _reference.PageChanged += id => { if (id == "desktop") RefreshReferenceDesktop(); };
@@ -1057,7 +1059,13 @@ namespace DeskBox.UI
                     case "disk": return BuildDiskView();
                     case "history": return BuildHistoryView();
                     case "filehistory": return BuildFileHistoryView();
-                    case "notifications": return new DeskBox.UI.Views.NotificationsView(_store, _notifications);
+                    case "notifications": return new DeskBox.UI.Views.NotificationsView(_store, _notifications,
+                        projectId =>
+                        {
+                            var current = _projectScope;
+                            if (current != null && current.Id == projectId)
+                                InstrumentRegisterForm.Open(this, () => _projectScope, dueOnly: true);
+                        });
                     case "ai": return BuildAiView();
                     case "automation": return BuildAutomationView();
                     case "monitor": return BuildMonitorView();
@@ -1383,7 +1391,7 @@ namespace DeskBox.UI
         {
             if (_reminderTimer != null) return;
             _reminderTimer = new Timer { Interval = 20000 };
-            _reminderTimer.Tick += delegate { CheckTaskReminders(); };
+            _reminderTimer.Tick += delegate { CheckTaskReminders(); CheckCalibrationReminders(); };
             _reminderTimer.Start();
             CheckTaskReminders();
         }
@@ -1413,12 +1421,39 @@ namespace DeskBox.UI
             catch (Exception ex) { AppLog.Write("warn", "task", "提醒检查失败: " + ex.Message); }
         }
 
+        private async void CheckCalibrationReminders()
+        {
+            var project = _projectScope;
+            if (_closing || !IsHandleCreated || project == null || _notifications == null ||
+                !_store.Settings.NotifyInApp || !_store.Settings.NotifyCalibration || _calibrationCheck != null) return;
+            var operation = new System.Threading.CancellationTokenSource();
+            _calibrationCheck = operation;
+            var today = DateTime.Today;
+            try
+            {
+                var result = await System.Threading.Tasks.Task.Run(() =>
+                    new DeskBox.AppServices.InstrumentService().ReadCalibrationReminder(project, today, operation.Token), operation.Token);
+                if (!_closing && !IsDisposed && !operation.IsCancellationRequested && project.SameScope(_projectScope) &&
+                    _store.Settings.NotifyInApp && _store.Settings.NotifyCalibration)
+                    _notifications.UpdateCalibration(result);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { DeskBox.Core.AppLog.Write("warn", "instrument", "校准提醒检查失败：" + ex.Message); }
+            finally
+            {
+                _calibrationCheck = null;
+                operation.Dispose();
+                if (!_closing && !IsDisposed && !project.SameScope(_projectScope)) CheckCalibrationReminders();
+            }
+        }
+
         private void OnNotificationPublished(AppNotification item)
         {
             try
             {
                 if (_closing || IsDisposed) return;
                 if (InvokeRequired) { BeginInvoke(new Action<AppNotification>(OnNotificationPublished), item); return; }
+                if (item.Kind == "calibration" && (_projectScope == null || _projectScope.Id != item.SourceId)) return;
                 _lblConn.Text = "🔔 " + item.Title + "：" + item.Message;
                 _lblConn.ForeColor = item.Kind == "error" ? Color.FromArgb(248, 113, 113) : Palette.Accent;
                 if (_noticeStatusTimer != null) { _noticeStatusTimer.Stop(); _noticeStatusTimer.Dispose(); }
@@ -1492,6 +1527,13 @@ namespace DeskBox.UI
             _projectScope = next;
             if (_chat != null) _chat.SetProjectContext(next);
             if (!changed) return;
+            if (_calibrationCheck != null) _calibrationCheck.Cancel();
+            if (_notifications != null) _notifications.SetCalibrationProject(next == null ? null : next.Id);
+            if (_noticeStatusTimer != null && _lblConn.Text.StartsWith("🔔 仪表校准提醒", StringComparison.Ordinal))
+            {
+                StopAndDisposeTimer(ref _noticeStatusTimer);
+                UpdateConnLabel();
+            }
             AddProjectToIndex();
             if (previous != null && next != null && _folderSession != null && previous.IncludesPath(CurrentFolder()) &&
                 next.CanAccessPath(next.Root) && Directory.Exists(next.Root)) _folderSession.Navigate(next.Root);
@@ -1519,6 +1561,7 @@ namespace DeskBox.UI
             _tiaView = null;
             if (_reference != null) _reference.SetProjectContext(next);
             if (reopen) SwitchView("tia");
+            if (_reminderTimer != null) CheckCalibrationReminders();
         }
 
         private void AddProjectToIndex()
@@ -2130,6 +2173,7 @@ namespace DeskBox.UI
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _closing = true;
+            if (_calibrationCheck != null) _calibrationCheck.Cancel();
             if (_desktopMenu != null) { _desktopMenu.Dispose(); _desktopMenu = null; }
             if (_liveVoice != null) _liveVoice.CancelForShutdown();
             try { if (_chat != null) _chat.Cancel(); } catch { }

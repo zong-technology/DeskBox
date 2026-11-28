@@ -88,6 +88,7 @@ internal static class InstrumentAcceptance
                 && InstrumentService.DueStatus(recorded, today) == "30 天内到期"
                 && InstrumentService.DueStatus(recorded, today.AddDays(-30)) == "未到期"
                 && InstrumentService.DueStatus(null, today) == "未设到期日", "due states use actual date and ignore maintenance");
+            CheckReminders(service, store, first, second, today);
             string csv = Path.Combine(first.Root, "assets.csv"), xlsx = Path.Combine(first.Root, "assets.xlsx");
             service.Export(first, csv, None);
             service.Export(first, xlsx, None);
@@ -112,6 +113,7 @@ internal static class InstrumentAcceptance
             File.WriteAllText(meta, "{damaged main");
             var recovered = service.Read(first, None);
             Check(recovered.Recovered && recovered.Assets.Single().Location == "Fixture skid A", "corrupt metadata falls back to checked previous copy");
+            Check(service.ReadCalibrationReminder(first, today, None).Recovered, "backup view does not drive calibration notifications");
             Throws<InvalidOperationException>(() => service.Record(first, original, None), "recovered ledger is read-only");
             service.Restore(first, None);
             var replacement = service.Read(first, None).Assets.Single();
@@ -123,7 +125,7 @@ internal static class InstrumentAcceptance
             string message;
             Check(DataBackupService.ScheduleRestore(backup.Directory).Ok && DataBackupService.ApplyPendingRestore(out message)
                 && service.Read(first, None).Assets.Single().Location == "Fixture skid A"
-                && service.Read(second, None).Assets.Single().Id == other.Id,
+                && service.Read(second, None).Assets.Any(item => item.Id == other.Id),
                 "whole-app restore restores both project histories and preserves identities");
 
             Console.WriteLine("PASS " + count + " instrument acceptance checks (isolated synthetic fixtures).");
@@ -137,6 +139,49 @@ internal static class InstrumentAcceptance
     {
         return new InstrumentAsset { Number = "PT-010", Name = "Synthetic pressure transmitter", Kind = "压力变送器",
             Manufacturer = "Fixture", RangeLow = 0, RangeHigh = 10, Unit = "bar", TagId = tag };
+    }
+
+    private static void CheckReminders(InstrumentService service, Store store, ProjectContext first, ProjectContext second, DateTime today)
+    {
+        var notice = new NotificationStore(store);
+        int published = 0;
+        notice.Published += item => { if (item.Kind == "calibration") published++; };
+        notice.Publish("Existing task", "Synthetic general notification", "task", "fixture-task");
+        notice.SetCalibrationProject(first.Id);
+        var due = service.ReadCalibrationReminder(first, today, None);
+        Check(due.DueToday == 1 && due.Overdue == 0 && due.DueSoon == 0, "reminder counts latest live calibration");
+        notice.UpdateCalibration(due);
+        var issued = notice.Items.Single(item => item.Kind == "calibration");
+        notice.UpdateCalibration(due);
+        Check(published == 1 && notice.UnreadCount == 2, "unchanged scan does not republish or replace general reminders");
+        notice.MarkRead(issued.Id, true);
+        notice.ClearRead();
+        var reopened = new NotificationStore(store);
+        reopened.SetCalibrationProject(first.Id);
+        reopened.UpdateCalibration(due);
+        Check(reopened.Items.Single().Kind == "task", "cleared summary stays hidden across reopening and repeats");
+        reopened.SetCalibrationProject(second.Id);
+        reopened.UpdateCalibration(due);
+        Check(reopened.Items.Single().Kind == "task", "project switch rejects late foreign summary");
+        reopened.SetCalibrationProject(first.Id);
+        reopened.UpdateCalibration(service.ReadCalibrationReminder(first, today.AddDays(1), None));
+        Check(reopened.Items.Single(item => item.Kind == "calibration").Message.Contains("已逾期 1"),
+            "a new due stage resurfaces the summary once");
+        reopened.SetCalibrationProject(null);
+        Check(reopened.Items.Single().Kind == "task", "unbound scope hides project reminders");
+
+        var future = service.Save(second, new InstrumentAsset { Number = "FUTURE", Name = "Fixture", Kind = "压力" }, 0, None);
+        service.Record(second, new InstrumentActivity { AssetId = future.Id, Kind = "calibration", Date = Date(today.AddDays(-1)),
+            DueDate = Date(today.AddDays(90)), Notes = "Synthetic future due date." }, None);
+        Check(service.ReadCalibrationReminder(second, today.AddDays(59), None).Key == null &&
+            service.ReadCalibrationReminder(second, today.AddDays(60), None).DueSoon == 1, "reminder includes the 30-day boundary");
+        reopened.SetCalibrationProject(second.Id);
+        reopened.UpdateCalibration(service.ReadCalibrationReminder(second, today.AddDays(60), None));
+        Check(reopened.Items.Single(item => item.Kind == "calibration").SourceId == second.Id, "second project owns its own summary");
+        service.Record(second, new InstrumentActivity { AssetId = future.Id, Kind = "calibration", Date = Date(today),
+            DueDate = Date(today.AddDays(150)), Notes = "Synthetic renewed certificate." }, None);
+        reopened.UpdateCalibration(service.ReadCalibrationReminder(second, today.AddDays(60), None));
+        Check(reopened.Items.Single().Kind == "task", "a newer calibration clears the previous due summary");
     }
 
     private static string Write(ProjectContext project, string name, string text)
