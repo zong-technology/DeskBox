@@ -12,6 +12,8 @@
 
 [alpha.4 验证操作指南](docs/V5-ALPHA4-GUIDE.md) · [Windows 验收与下载](docs/V5-ALPHA4-VERIFICATION.md) · [版本路线图](docs/V5-DEVELOPMENT-ROADMAP.md)
 
+通过 Codex Cloud 持续开发时，从仓库指令和当前状态恢复开发上下文。历史阶段说明保留在各版本文档。 [仓库指令](AGENTS.md) · [通用开发规范 V2.0](docs/DEVELOPMENT_RULES.md) · [当前项目状态](docs/PROJECT_STATE.md)
+
 ## V2.1 Foundation Preview
 
 新增操作说明：[多项目验证进度](docs/多项目验证进度使用说明.md)、[手机配对与同步](docs/手机配对与同步说明.md)。
